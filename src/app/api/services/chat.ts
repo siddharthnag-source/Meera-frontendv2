@@ -1,3 +1,5 @@
+// src/app/api/services/chat.ts
+
 import {
   ChatHistoryResponse,
   ChatMessageFromServer,
@@ -32,9 +34,9 @@ export class ApiError extends Error {
 }
 
 export const chatService = {
-  // Stub chat history so UI can render without backend history API
+  // Simple stub so the UI can render an empty conversation
   async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
-    void page; // avoid unused-var lint
+    void page; // avoid unused var lint
 
     const emptyHistory: ChatHistoryResponse = {
       message: 'ok',
@@ -46,7 +48,22 @@ export const chatService = {
 
   // Non-streaming sendMessage that calls Supabase Edge Function
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
-    const message = (formData.get('message') as string) || '';
+    // Try to read the message from the form in a tolerant way
+    const raw =
+      formData.get('message') ??
+      formData.get('content') ??
+      formData.get('text');
+
+    const message = typeof raw === 'string' ? raw : '';
+
+    if (!message) {
+      // Frontend should never send an empty message; if it does we fail fast
+      throw new Error('No message content provided');
+    }
+
+    if (!SUPABASE_CHAT_URL) {
+      throw new Error('Supabase chat URL is not configured');
+    }
 
     try {
       const response = await fetch(SUPABASE_CHAT_URL, {
@@ -70,24 +87,28 @@ export const chatService = {
         );
       }
 
-      const body = (await response.json()) as { reply: string };
+      // We expect the Supabase function to return: { reply: "Meera heard: hi" }
+      const body = (await response.json().catch(() => ({}))) as { reply?: string };
 
-      // Single assistant message in the format the UI expects
+      const replyText = body.reply ?? '';
+
       const assistantMessage: ChatMessageFromServer = {
-        message_id: crypto.randomUUID(),
+        message_id:
+          (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : Math.random().toString(36).slice(2)),
         content_type: 'assistant',
-        content: body.reply,
+        content: replyText,
         timestamp: new Date().toISOString(),
         attachments: [],
         is_call: false,
         failed: false,
       };
 
-      // Adapt to ChatMessageResponse shape: { message: 'ok', data: { response, message } }
       const chatResponse: ChatMessageResponse = {
         message: 'ok',
         data: {
-          response: body.reply,
+          response: replyText,
           message: assistantMessage,
         } as ChatMessageResponse['data'],
       };
