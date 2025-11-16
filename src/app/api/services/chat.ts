@@ -4,16 +4,14 @@ import {
   ChatMessageResponse,
   SaveInteractionPayload,
 } from '@/types/chat';
+import { api } from '../client';
+import { API_ENDPOINTS } from '../config';
 
 // Supabase Edge Function endpoint for the `chat` function
 const SUPABASE_CHAT_URL =
   process.env.NEXT_PUBLIC_SUPABASE_CHAT_URL ??
   'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
 
-/**
- * Kept only so existing imports compile.
- * We are NOT currently throwing this.
- */
 export class SessionExpiredError extends Error {
   constructor(message: string) {
     super(message);
@@ -21,9 +19,6 @@ export class SessionExpiredError extends Error {
   }
 }
 
-/**
- * Used when Supabase returns a non-200 response.
- */
 export class ApiError extends Error {
   status: number;
   body: { detail?: string; error?: string };
@@ -36,38 +31,10 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * Build a ChatMessageResponse object in the exact shape
- * that the Conversation UI expects.
- */
-function buildAssistantResponse(text: string): ChatMessageResponse {
-  const assistantMessage: ChatMessageFromServer = {
-    message_id: crypto.randomUUID(),
-    content_type: 'assistant',
-    content: text,
-    timestamp: new Date().toISOString(),
-    attachments: [],
-    is_call: false,
-    failed: false,
-  };
-
-  const chatResponse: ChatMessageResponse = {
-    message: 'ok',
-    data: {
-      response: text,
-      message: assistantMessage,
-    } as ChatMessageResponse['data'],
-  };
-
-  return chatResponse;
-}
-
 export const chatService = {
-  /**
-   * Stubbed chat history – we don’t depend on the old backend.
-   */
+  // Stub history so UI works without a backend history API
   async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
-    void page; // silence unused param
+    void page;
 
     const emptyHistory: ChatHistoryResponse = {
       message: 'ok',
@@ -77,18 +44,9 @@ export const chatService = {
     return emptyHistory;
   },
 
-  /**
-   * Send a message to Supabase Edge Function and ALWAYS return
-   * a normal ChatMessageResponse (no streaming).
-   */
+  // Simple non-streaming sendMessage → Supabase → JSON → ChatMessageResponse
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
-    const isStreaming = formData.get('streaming') === 'true';
-
-    console.log('[chatService.sendMessage] calling Supabase with:', {
-      message,
-      streaming: isStreaming,
-    });
 
     try {
       const response = await fetch(SUPABASE_CHAT_URL, {
@@ -106,7 +64,7 @@ export const chatService = {
         };
 
         throw new ApiError(
-          errorBody.error || errorBody.detail || 'Failed to get reply from Supabase',
+          errorBody.error || errorBody.detail || 'Failed to get reply from Meera',
           response.status,
           errorBody,
         );
@@ -114,27 +72,32 @@ export const chatService = {
 
       const body = (await response.json()) as { reply: string };
 
-      const replyText =
-        typeof body.reply === 'string' && body.reply.trim().length > 0
-          ? body.reply
-          : 'Meera: I received your message but Supabase did not send any reply.';
+      const assistantMessage: ChatMessageFromServer = {
+        message_id: crypto.randomUUID(),
+        content_type: 'assistant',
+        content: body.reply,
+        timestamp: new Date().toISOString(),
+        attachments: [],
+        is_call: false,
+        failed: false,
+      };
 
-      const chatResponse = buildAssistantResponse(replyText);
+      const chatResponse: ChatMessageResponse = {
+        message: 'ok',
+        data: {
+          response: body.reply,
+          message: assistantMessage,
+        } as ChatMessageResponse['data'],
+      };
 
-      console.log('[chatService.sendMessage] Supabase reply mapped to:', chatResponse);
-
-      // IMPORTANT: we IGNORE streaming and just return the normal response
       return chatResponse;
-    } catch (error: unknown) {
-      console.error('Error in sendMessage (Supabase):', error);
+    } catch (error) {
+      console.error('Error in sendMessage:', error);
       throw error;
     }
   },
 };
 
-/**
- * Stubbed out – we are not hitting the old backend anymore.
- */
-export const saveInteraction = async (_payload: SaveInteractionPayload): Promise<void> => {
-  void _payload;
+export const saveInteraction = (payload: SaveInteractionPayload) => {
+  return api.post(API_ENDPOINTS.CALL.SAVE_INTERACTION, payload);
 };
