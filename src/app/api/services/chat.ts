@@ -1,107 +1,47 @@
-import {
-  ChatHistoryResponse,
-  ChatMessageResponse,
-  SaveInteractionPayload,
-  ChatMessageFromServer,
-} from '@/types/chat';
-import { api } from '../client';
-import { API_ENDPOINTS } from '../config';
+// supabase/functions/chat/index.ts
 
-// Supabase Edge Function endpoint for the `chat` function
-const SUPABASE_CHAT_URL =
-  'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-export class SessionExpiredError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SessionExpiredError';
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*", // or put your domain here if you prefer
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+serve(async (req: Request): Promise<Response> => {
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      headers: corsHeaders,
+    });
   }
-}
 
-export class ApiError extends Error {
-  status: number;
-  body: { detail?: string };
+  try {
+    const { message } = await req.json();
 
-  constructor(message: string, status: number, body: { detail?: string }) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.body = body;
-  }
-}
+    // For now, simple echo reply to verify end-to-end wiring
+    const reply = `Meera heard: ${message || "nothing"}`;
 
-export const chatService = {
-  /**
-   * TEMP: no real backend history yet, so just return an empty list.
-   */
-  async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
-    // “Use” the argument so ESLint is happy (we ignore it for now).
-    void page;
-
-    const emptyHistory = {
-      message: 'ok',
-      data: {
-        response: [] as ChatMessageFromServer[],
+    return new Response(JSON.stringify({ reply }), {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json",
       },
-    } as unknown as ChatHistoryResponse;
+    });
+  } catch (error) {
+    console.error("Error in chat function", error);
 
-    return emptyHistory;
-  },
-
-  /**
-   * Non-streaming sendMessage that calls the Supabase Edge Function
-   * and adapts the reply into the shape the UI expects.
-   */
-  async sendMessage(
-    formData: FormData,
-  ): Promise<ChatMessageResponse | Response> {
-    const message = (formData.get('message') as string) || '';
-
-    try {
-      const response = await fetch(SUPABASE_CHAT_URL, {
-        method: 'POST',
+    return new Response(
+      JSON.stringify({ error: "Internal error in Meera chat function" }),
+      {
+        status: 500,
         headers: {
-          'Content-Type': 'application/json',
+          ...corsHeaders,
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message }),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({ error: '' }));
-        throw new ApiError(
-          errorBody.error || 'Failed to get reply from Meera',
-          response.status,
-          errorBody,
-        );
-      }
-
-      const body = (await response.json()) as { reply: string };
-
-      const assistantMessage: ChatMessageFromServer = {
-        message_id: crypto.randomUUID(),
-        content_type: 'assistant',
-        content: body.reply,
-        timestamp: new Date().toISOString(),
-        attachments: [],
-        is_call: false,
-        failed: false,
-      };
-
-      const chatResponse = {
-        message: 'ok',
-        data: {
-          response: [assistantMessage],
-        },
-      } as unknown as ChatMessageResponse;
-
-      return chatResponse;
-    } catch (error) {
-      console.error('Error in sendMessage:', error);
-      throw error;
-    }
-  },
-};
-
-export const saveInteraction = (payload: SaveInteractionPayload) => {
-  return api.post(API_ENDPOINTS.CALL.SAVE_INTERACTION, payload);
-};
+      },
+    );
+  }
+});
