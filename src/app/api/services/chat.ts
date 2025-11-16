@@ -32,12 +32,17 @@ export class ApiError extends Error {
 
 export const chatService = {
   /**
-   * TEMP: no backend history yet, so just return an empty list.
+   * TEMP: no real backend history yet, so just return an empty list.
    */
-  async getChatHistory(_page: number = 1): Promise<ChatHistoryResponse> {
+  async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
+    // “Use” the argument so ESLint is happy (we ignore it for now).
+    void page;
+
     const emptyHistory = {
       message: 'ok',
-      data: [],
+      data: {
+        response: [] as ChatMessageFromServer[],
+      },
     } as unknown as ChatHistoryResponse;
 
     return emptyHistory;
