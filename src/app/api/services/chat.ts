@@ -10,6 +10,17 @@ const SUPABASE_CHAT_URL =
   process.env.NEXT_PUBLIC_SUPABASE_CHAT_URL ??
   'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
 
+/**
+ * Kept only so existing code that imports it (useMessageSubmission) compiles.
+ * We do NOT currently throw this from chatService.
+ */
+export class SessionExpiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionExpiredError';
+  }
+}
+
 export class ApiError extends Error {
   status: number;
   body: { detail?: string; error?: string };
@@ -50,7 +61,7 @@ function buildAssistantResponse(text: string): ChatMessageResponse {
 
 export const chatService = {
   /**
-   * Stubbed chat history – we don’t hit the old backend at all.
+   * Stubbed chat history – no legacy backend.
    */
   async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
     void page; // avoid unused-var lint
@@ -66,9 +77,9 @@ export const chatService = {
   /**
    * Send message directly to Supabase Edge Function.
    *
-   * - If `streaming === 'true'` in the form data, we return a `Response`
-   *   with a readable body so the existing streaming code is satisfied.
-   * - Otherwise we return a normal `ChatMessageResponse`.
+   * - If `streaming === 'true'`, return a `Response` with a body so the
+   *   existing streaming code path is satisfied.
+   * - Otherwise return a normal `ChatMessageResponse`.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse | Response> {
     const message = (formData.get('message') as string) || '';
@@ -111,16 +122,14 @@ export const chatService = {
 
       console.log('[chatService.sendMessage] Supabase reply mapped to:', chatResponse);
 
-      // If the UI requested streaming, return a Response with a readable body.
+      // Streaming path: return a Response with a readable body.
       if (isStreaming) {
-        // Plain text body is enough – Response.body will be a ReadableStream,
-        // so the existing streaming reader won’t throw "Expected streaming response".
         return new Response(replyText, {
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
         });
       }
 
-      // Non-streaming code path: return the structured chat response.
+      // Non-streaming path.
       return chatResponse;
     } catch (error) {
       console.error('Error in sendMessage (Supabase):', error);
@@ -130,8 +139,7 @@ export const chatService = {
 };
 
 /**
- * Kept only so other parts of the app that import saveInteraction don’t break.
- * Currently a no-op: we are not talking to any legacy backend here.
+ * No-op stub so callers don’t break; we are not using the old backend.
  */
 export const saveInteraction = async (_payload: SaveInteractionPayload): Promise<void> => {
   void _payload;
