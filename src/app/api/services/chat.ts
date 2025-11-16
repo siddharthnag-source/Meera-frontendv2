@@ -1,5 +1,6 @@
 import {
   ChatHistoryResponse,
+  ChatMessageFromServer,
   ChatMessageResponse,
   SaveInteractionPayload,
 } from '@/types/chat';
@@ -31,20 +32,25 @@ export class ApiError extends Error {
 }
 
 export const chatService = {
-  // Temporary stub: return empty history so UI loads without error
+  // Temporary stub: always return empty history so UI can render
   async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
-    // mark `page` as used so ESLint is happy
+    // mark `page` as used so ESLint stays quiet
     void page;
 
-    const emptyHistory = {
+    const emptyHistory: ChatHistoryResponse = {
       message: 'ok',
-      data: [],
-    } as unknown as ChatHistoryResponse;
+      // your UI expects data.messages; return empty array
+      // and any other optional fields can be left out
+      data: {
+        response: '',
+        messages: [],
+      },
+    };
 
     return emptyHistory;
   },
 
-  // Simple, non-streaming sendMessage that talks to the Supabase Edge Function
+  // Non-streaming sendMessage that calls Supabase and adapts to ChatMessageResponse
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
 
@@ -72,8 +78,8 @@ export const chatService = {
 
       const body = (await response.json()) as { reply: string };
 
-      // Shape the assistant message exactly like the UI expects
-      const assistantMessage = {
+      // Shape exactly like ChatMessageFromServer
+      const assistantMessage: ChatMessageFromServer = {
         message_id: crypto.randomUUID(),
         content_type: 'assistant',
         content: body.reply,
@@ -83,11 +89,14 @@ export const chatService = {
         failed: false,
       };
 
-      // Adapt into ChatMessageResponse (double cast to avoid TS complaining about shape)
-      const chatResponse = {
+      // Shape exactly like ChatMessageResponse
+      const chatResponse: ChatMessageResponse = {
         message: 'ok',
-        data: [assistantMessage],
-      } as unknown as ChatMessageResponse;
+        data: {
+          response: body.reply,
+          messages: [assistantMessage],
+        },
+      };
 
       return chatResponse;
     } catch (error) {
