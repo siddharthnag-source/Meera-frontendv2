@@ -4,8 +4,14 @@ import {
   ChatMessageResponse,
   SaveInteractionPayload,
 } from '@/types/chat';
+import { api } from '../client';
+import { API_ENDPOINTS } from '../config';
 
-// We keep these here in case other code imports them
+// Supabase Edge Function endpoint for the `chat` function
+const SUPABASE_CHAT_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_CHAT_URL ??
+  'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
+
 export class SessionExpiredError extends Error {
   constructor(message: string) {
     super(message);
@@ -26,10 +32,11 @@ export class ApiError extends Error {
 }
 
 /**
- * Build a single assistant message from plain text
+ * Build a ChatMessageResponse object in the exact shape
+ * that the Conversation UI expects.
  */
-function buildAssistantMessage(text: string): ChatMessageFromServer {
-  return {
+function buildAssistantResponse(text: string): ChatMessageResponse {
+  const assistantMessage: ChatMessageFromServer = {
     message_id: crypto.randomUUID(),
     content_type: 'assistant',
     content: text,
@@ -38,14 +45,6 @@ function buildAssistantMessage(text: string): ChatMessageFromServer {
     is_call: false,
     failed: false,
   };
-}
-
-/**
- * Build a ChatMessageResponse in the shape the UI expects:
- *   { message: 'ok', data: { response: string, message: ChatMessageFromServer } }
- */
-function buildAssistantResponse(text: string): ChatMessageResponse {
-  const assistantMessage = buildAssistantMessage(text);
 
   const chatResponse: ChatMessageResponse = {
     message: 'ok',
@@ -58,10 +57,10 @@ function buildAssistantResponse(text: string): ChatMessageResponse {
   return chatResponse;
 }
 
-// ---------- Public API used by the UI ----------
-
 export const chatService = {
-  // Stub chat history so UI can render without any backend
+  /**
+   * Stubbed chat history – no old backend.
+   */
   async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
     void page; // avoid unused-var lint
 
@@ -73,32 +72,61 @@ export const chatService = {
     return emptyHistory;
   },
 
-  // TEMP: Pure frontend bot – no network call at all
+  /**
+   * Send message directly to Supabase Edge Function.
+   * Always returns a non-streaming ChatMessageResponse.
+   */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
 
-    console.log('[chatService.sendMessage] stub called with:', message);
+    console.log('[chatService.sendMessage] calling Supabase with:', message);
 
-    // Small artificial delay so it feels real
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+      const response = await fetch(SUPABASE_CHAT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message }),
+      });
 
-    const replyText = message.trim()
-      ? `Meera (local): I heard "${message}"`
-      : 'Meera (local): I heard an empty message.';
+      if (!response.ok) {
+        const errorBody = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          detail?: string;
+        };
 
-    const response = buildAssistantResponse(replyText);
+        throw new ApiError(
+          errorBody.error || errorBody.detail || 'Failed to get reply from Supabase',
+          response.status,
+          errorBody,
+        );
+      }
 
-    console.log('[chatService.sendMessage] returning:', response);
-    return response;
+      const body = (await response.json()) as { reply: string };
+
+      const replyText =
+        typeof body.reply === 'string' && body.reply.trim().length > 0
+          ? body.reply
+          : 'Meera: I received your message but Supabase did not send any reply.';
+
+      const chatResponse = buildAssistantResponse(replyText);
+
+      console.log('[chatService.sendMessage] Supabase reply mapped to:', chatResponse);
+
+      return chatResponse;
+    } catch (error) {
+      console.error('Error in sendMessage (Supabase):', error);
+      throw error;
+    }
   },
 };
 
 /**
- * TEMP stub: do nothing, keep signature compatible.
+ * Keep this if some parts of the UI still call saveInteraction.
+ * If you truly want zero backend calls, you can later turn this
+ * into a no-op or delete all usages.
  */
-export const saveInteraction = async (
-  payload: SaveInteractionPayload,
-): Promise<void> => {
-  void payload; // avoid unused-var lint
-  // No backend call for now
+export const saveInteraction = (payload: SaveInteractionPayload) => {
+  return api.post(API_ENDPOINTS.CALL.SAVE_INTERACTION, payload);
 };
