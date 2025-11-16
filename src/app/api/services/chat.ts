@@ -2,6 +2,7 @@ import {
   ChatHistoryResponse,
   ChatMessageResponse,
   SaveInteractionPayload,
+  ChatMessageFromServer,
 } from '@/types/chat';
 import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
@@ -42,7 +43,9 @@ export const chatService = {
   },
 
   // Simple, non-streaming sendMessage that talks to the Supabase Edge Function
-  async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
+  async sendMessage(
+    formData: FormData,
+  ): Promise<ChatMessageResponse | Response> {
     const message = (formData.get('message') as string) || '';
 
     try {
@@ -65,21 +68,22 @@ export const chatService = {
 
       const body = await response.json(); // expected shape: { reply: string }
 
-      // Build an assistant message object for the UI
-      const assistantMessage = {
+      // Strongly-typed assistant message object for the UI
+      const assistantMessage: ChatMessageFromServer = {
         message_id: crypto.randomUUID(),
         content_type: 'assistant',
         content: body.reply,
         timestamp: new Date().toISOString(),
-        attachments: [] as unknown[],
+        attachments: [],
         is_call: false,
         failed: false,
       };
 
-      // Adapt into ChatMessageResponse
-      const chatResponse = {
+      // Adapt into ChatMessageResponse (add required `message` field)
+      const chatResponse: ChatMessageResponse = {
+        message: 'ok',
         data: [assistantMessage],
-      } as ChatMessageResponse;
+      };
 
       return chatResponse;
     } catch (error) {
