@@ -1,16 +1,23 @@
 'use client';
 
-// Front-only guest token helper that does NOT call any backend.
-// It just ensures there is some guest_token in localStorage.
+export interface GuestTokenResponse {
+  guest_token: string;
+}
+
 export const guestService = {
-  async getGuestToken(): Promise<void> {
-    // On the server we do nothing, the real work happens in the browser
-    if (typeof window === 'undefined') return;
+  // Keep the same signature the page expects: optional referralId, returns an object
+  async getGuestToken(_referralId?: string): Promise<GuestTokenResponse | null> {
+    // Only run in the browser
+    if (typeof window === 'undefined') {
+      return null;
+    }
 
     const existing = window.localStorage.getItem('guest_token');
-    if (existing) return;
+    if (existing) {
+      return { guest_token: existing };
+    }
 
-    // Generate a simple random token
+    // Generate a simple random guest token
     const token =
       typeof window.crypto !== 'undefined' &&
       typeof window.crypto.randomUUID === 'function'
@@ -18,10 +25,12 @@ export const guestService = {
         : `guest-${Math.random().toString(36).slice(2)}`;
 
     window.localStorage.setItem('guest_token', token);
+
+    return { guest_token: token };
   },
 
-  // Optional alias, in case any code uses a different name
-  async createGuestToken(): Promise<void> {
-    return this.getGuestToken();
+  // Alias, in case anything uses createGuestToken
+  async createGuestToken(referralId?: string): Promise<GuestTokenResponse | null> {
+    return this.getGuestToken(referralId);
   },
 };
