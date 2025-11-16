@@ -1,47 +1,85 @@
-// supabase/functions/chat/index.ts
+import {
+  ChatHistoryResponse,
+  ChatMessageResponse,
+  SaveInteractionPayload,
+} from '@/types/chat';
+import { api } from '../client';
+import { API_ENDPOINTS } from '../config';
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// Supabase Edge Function endpoint for the `chat` function
+const SUPABASE_CHAT_URL =
+  'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*", // or put your domain here if you prefer
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-serve(async (req: Request): Promise<Response> => {
-  // CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      headers: corsHeaders,
-    });
+export class SessionExpiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionExpiredError';
   }
+}
 
-  try {
-    const { message } = await req.json();
+export class ApiError extends Error {
+  status: number;
+  body: { detail?: string; error?: string };
 
-    // For now, simple echo reply to verify end-to-end wiring
-    const reply = `Meera heard: ${message || "nothing"}`;
+  constructor(
+    message: string,
+    status: number,
+    body: { detail?: string; error?: string },
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
 
-    return new Response(JSON.stringify({ reply }), {
-      status: 200,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-      },
-    });
-  } catch (error) {
-    console.error("Error in chat function", error);
+export const chatService = {
+  async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
+    try {
+      return await api.get<ChatHistoryResponse>(
+        `${API_ENDPOINTS.CHAT.HISTORY}?page=${page}`,
+      );
+    } catch (error) {
+      console.error('Error in getChatHistory:', error);
+      throw error;
+    }
+  },
 
-    return new Response(
-      JSON.stringify({ error: "Internal error in Meera chat function" }),
-      {
-        status: 500,
+  // Non-streaming sendMessage that talks to the Supabase Edge Function
+  async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
+    const message = (formData.get('message') as string) || '';
+
+    try {
+      const response = await fetch(SUPABASE_CHAT_URL, {
+        method: 'POST',
         headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
         },
-      },
-    );
-  }
-});
+        body: JSON.stringify({ message }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new ApiError(
+          (errorBody.error ||
+            errorBody.detail ||
+            'Failed to get reply from Meera') as string,
+          response.status,
+          errorBody,
+        );
+      }
+
+      const body = await response.json(); // expected: { reply: string }
+
+      // Shape exactly as the old backend response so UI is happy
+      const assistantMessage = {
+        message_id: crypto.randomUUID(),
+        content_type: 'assistant',
+        content: body.reply,
+        timestamp: new Date().toISOString(),
+        attachments: [] as unknown[],
+        is_call: false,
+        failed: false,
+      };
+
+      const chatResponse
