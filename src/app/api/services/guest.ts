@@ -5,8 +5,11 @@ export interface GuestTokenResponse {
 }
 
 export const guestService = {
-  // Keep the same signature the page expects: optional referralId, returns an object
+  // keep the same signature the page expects
   async getGuestToken(_referralId?: string): Promise<GuestTokenResponse | null> {
+    // Mark parameter as intentionally unused so ESLint is happy
+    void _referralId;
+
     // Only run in the browser
     if (typeof window === 'undefined') {
       return null;
@@ -17,7 +20,6 @@ export const guestService = {
       return { guest_token: existing };
     }
 
-    // Generate a simple random guest token
     const token =
       typeof window.crypto !== 'undefined' &&
       typeof window.crypto.randomUUID === 'function'
@@ -29,7 +31,6 @@ export const guestService = {
     return { guest_token: token };
   },
 
-  // Alias, in case anything uses createGuestToken
   async createGuestToken(referralId?: string): Promise<GuestTokenResponse | null> {
     return this.getGuestToken(referralId);
   },
