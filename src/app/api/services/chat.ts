@@ -2,7 +2,6 @@ import {
   ChatHistoryResponse,
   ChatMessageResponse,
   SaveInteractionPayload,
-  ChatMessageFromServer,
 } from '@/types/chat';
 import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
@@ -66,21 +65,21 @@ export const chatService = {
 
       const body = await response.json(); // expected shape: { reply: string }
 
-      // Adapt Supabase response into the shape the UI expects
-      const assistantMessage: ChatMessageFromServer = {
+      // Build an assistant message object for the UI
+      const assistantMessage = {
         message_id: crypto.randomUUID(),
         content_type: 'assistant',
         content: body.reply,
         timestamp: new Date().toISOString(),
-        attachments: [],
+        attachments: [] as unknown[],
         is_call: false,
         failed: false,
-        // any extra fields in ChatMessageFromServer are optional
       };
 
-      const chatResponse: ChatMessageResponse = {
+      // Adapt into ChatMessageResponse
+      const chatResponse = {
         data: [assistantMessage],
-      };
+      } as ChatMessageResponse;
 
       return chatResponse;
     } catch (error) {
