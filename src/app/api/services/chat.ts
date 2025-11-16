@@ -5,6 +5,7 @@ import {
   SaveInteractionPayload,
 } from '@/types/chat';
 
+// We keep these here in case other code imports them
 export class SessionExpiredError extends Error {
   constructor(message: string) {
     super(message);
@@ -41,14 +42,17 @@ function buildAssistantMessage(text: string): ChatMessageFromServer {
 
 /**
  * Build a ChatMessageResponse in the shape the UI expects:
- *   { message: 'ok', data: ChatMessageFromServer[] }
+ *   { message: 'ok', data: { response: string, message: ChatMessageFromServer } }
  */
 function buildAssistantResponse(text: string): ChatMessageResponse {
   const assistantMessage = buildAssistantMessage(text);
 
   const chatResponse: ChatMessageResponse = {
     message: 'ok',
-    data: [assistantMessage],
+    data: {
+      response: text,
+      message: assistantMessage,
+    } as ChatMessageResponse['data'],
   };
 
   return chatResponse;
@@ -95,7 +99,6 @@ export const chatService = {
 export const saveInteraction = async (
   payload: SaveInteractionPayload,
 ): Promise<void> => {
-  // avoid unused-var lint
-  void payload;
-  // no backend call for now
+  void payload; // avoid unused-var lint
+  // No backend call for now
 };
