@@ -11,8 +11,8 @@ const SUPABASE_CHAT_URL =
   'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
 
 /**
- * Kept only so existing code that imports it (useMessageSubmission) compiles.
- * We do NOT currently throw this from chatService.
+ * Kept only so existing imports compile.
+ * We are NOT currently throwing this.
  */
 export class SessionExpiredError extends Error {
   constructor(message: string) {
@@ -21,6 +21,9 @@ export class SessionExpiredError extends Error {
   }
 }
 
+/**
+ * Used when Supabase returns a non-200 response.
+ */
 export class ApiError extends Error {
   status: number;
   body: { detail?: string; error?: string };
@@ -61,10 +64,10 @@ function buildAssistantResponse(text: string): ChatMessageResponse {
 
 export const chatService = {
   /**
-   * Stubbed chat history – no legacy backend.
+   * Stubbed chat history – we don’t depend on the old backend.
    */
   async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
-    void page; // avoid unused-var lint
+    void page; // silence unused param
 
     const emptyHistory: ChatHistoryResponse = {
       message: 'ok',
@@ -75,17 +78,15 @@ export const chatService = {
   },
 
   /**
-   * Send message directly to Supabase Edge Function.
-   *
-   * - If `streaming === 'true'`, return a `Response` with a body so the
-   *   existing streaming code path is satisfied.
-   * - Otherwise return a normal `ChatMessageResponse`.
+   * Send a message to Supabase Edge Function and ALWAYS return
+   * a normal ChatMessageResponse (no streaming).
    */
-  async sendMessage(formData: FormData): Promise<ChatMessageResponse | Response> {
+  async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
     const isStreaming = formData.get('streaming') === 'true';
 
-    console.log('[chatService.sendMessage] calling Supabase with:', message, {
+    console.log('[chatService.sendMessage] calling Supabase with:', {
+      message,
       streaming: isStreaming,
     });
 
@@ -122,16 +123,9 @@ export const chatService = {
 
       console.log('[chatService.sendMessage] Supabase reply mapped to:', chatResponse);
 
-      // Streaming path: return a Response with a readable body.
-      if (isStreaming) {
-        return new Response(replyText, {
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-        });
-      }
-
-      // Non-streaming path.
+      // IMPORTANT: we IGNORE streaming and just return the normal response
       return chatResponse;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error in sendMessage (Supabase):', error);
       throw error;
     }
@@ -139,7 +133,7 @@ export const chatService = {
 };
 
 /**
- * No-op stub so callers don’t break; we are not using the old backend.
+ * Stubbed out – we are not hitting the old backend anymore.
  */
 export const saveInteraction = async (_payload: SaveInteractionPayload): Promise<void> => {
   void _payload;
