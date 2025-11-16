@@ -3,8 +3,12 @@
 import { ApiError, chatService, SessionExpiredError } from '@/app/api/services/chat';
 import { useToast } from '@/components/ui/ToastProvider';
 import { createLocalTimestamp } from '@/lib/dateUtils';
+import { getSystemInfo } from '@/lib/deviceInfo';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
-import React, { MutableRefObject, useCallback, useRef } from 'react';
+import { PricingModalSource } from '@/types/pricing';
+import React, { MutableRefObject, useCallback, useMemo, useRef } from 'react';
+import { usePricingModal } from '../contexts/PricingModalContext';
+import { useSubscriptionStatus } from './useSubscriptionStatus';
 
 interface UseMessageSubmissionProps {
   message: string;
@@ -23,6 +27,9 @@ interface UseMessageSubmissionProps {
   onMessageSent?: () => void;
 }
 
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 100;
+
 export const useMessageSubmission = ({
   message,
   currentAttachments,
@@ -39,17 +46,79 @@ export const useMessageSubmission = ({
   scrollToBottom,
   onMessageSent,
 }: UseMessageSubmissionProps) => {
+  const { data: subscriptionData, refetch } = useSubscriptionStatus();
+  const { openModal } = usePricingModal();
   const { showToast } = useToast();
 
-  // Map user-message-id -> assistant-message-id
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
+
+  const limitSource = useMemo((): PricingModalSource | null => {
+    if (!subscriptionData) return null;
+
+    const isPaid = subscriptionData.plan_type === 'paid';
+    const hasActiveSub = new Date(subscriptionData.subscription_end_date || 0) >= new Date();
+    const hasNoTokens = (subscriptionData.tokens_left ?? 0) <= 0;
+
+    if (isPaid && !hasActiveSub) return 'paid_sub_expired';
+    if (!isPaid) {
+      if (hasNoTokens) return 'free_tokens_expired';
+      if (!hasActiveSub) return 'free_trial_expired';
+    }
+
+    return null;
+  }, [subscriptionData]);
+
+  const cleanupAssistantMessage = useCallback(
+    (userMessageId: string, preserveAssistantMessage: boolean = false) => {
+      const assistantId = messageRelationshipMapRef.current.get(userMessageId);
+      if (assistantId) {
+        if (preserveAssistantMessage) {
+          // Mark assistant message as failed but keep it in the UI
+          setChatMessages((prev) =>
+            prev.map((msg) =>
+              msg.message_id === assistantId
+                ? { ...msg, failed: true, content: '', failedMessage: 'Failed to respond, try again' }
+                : msg,
+            ),
+          );
+        } else {
+          // Remove assistant message entirely
+          setChatMessages((prev) => prev.filter((msg) => msg.message_id !== assistantId));
+        }
+      }
+    },
+    [setChatMessages],
+  );
+
+  const resetAssistantMessageForRetry = useCallback(
+    (userMessageId: string) => {
+      const assistantId = messageRelationshipMapRef.current.get(userMessageId);
+      if (assistantId) {
+        setChatMessages((prev) =>
+          prev.map((msg) =>
+            msg.message_id === assistantId ? { ...msg, failed: false, content: '', finish_reason: null } : msg,
+          ),
+        );
+      } else {
+        const newAssistantId = `assistant-${Date.now()}`;
+        messageRelationshipMapRef.current.set(userMessageId, newAssistantId);
+      }
+    },
+    [setChatMessages],
+  );
+
+  const clearMessageRelationshipMap = useCallback(() => {
+    messageRelationshipMapRef.current.clear();
+    mostRecentAssistantMessageIdRef.current = null;
+  }, []);
 
   const createOptimisticMessage = useCallback(
     (
       optimisticId: string,
       messageText: string,
       attachments: ChatAttachmentInputState[],
+      tryNumber: number,
     ): ChatMessageFromServer => {
       const lastMessage = chatMessages[chatMessages.length - 1];
       let newTimestamp = new Date();
@@ -75,85 +144,193 @@ export const useMessageSubmission = ({
           size: att.file.size,
           file: att.file,
         })),
+        try_number: tryNumber,
       };
     },
     [chatMessages],
   );
 
-  const clearMessageRelationshipMap = useCallback(() => {
-    messageRelationshipMapRef.current.clear();
-    mostRecentAssistantMessageIdRef.current = null;
-  }, []);
+  const handleStreamResponse = useCallback(
+    async (response: Response, optimisticId: string, tryNumber: number): Promise<void> => {
+      if (!response.body) throw new Error('Response body is null');
 
-  const markMessageFailed = useCallback(
-    (userMessageId: string) => {
-      const assistantId = messageRelationshipMapRef.current.get(userMessageId);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
-      setChatMessages((prev) =>
-        prev.map((msg) => {
-          if (msg.message_id === userMessageId) {
-            return { ...msg, failed: true };
+      let buffer = '';
+      let assistantMessageId: string | null = null;
+      let accumulatedContent = '';
+      let streamCompletedSuccessfully = false;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            if (!streamCompletedSuccessfully) {
+              throw new Error('Stream ended without meera_finish signal');
+            }
+            break;
           }
-          if (assistantId && msg.message_id === assistantId) {
-            return {
-              ...msg,
-              failed: true,
-              content: '',
-              failedMessage: 'Failed to respond, try again',
-            };
+
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+
+            let data: Record<string, unknown>;
+            try {
+              data = JSON.parse(line) as Record<string, unknown>;
+            } catch (err) {
+              console.error('JSON parse error:', err, 'line:', line);
+              throw new Error('Failed to parse streaming response');
+            }
+
+            if (data.meera_finish === true) {
+              streamCompletedSuccessfully = true;
+              continue;
+            }
+
+            if (data.is_thought) {
+              setCurrentThoughtText(String(data.text ?? ''));
+              continue;
+            }
+
+            const content = typeof data.text === 'string' ? data.text : '';
+
+            if (!assistantMessageId) {
+              assistantMessageId = messageRelationshipMapRef.current.get(optimisticId) || null;
+
+              if (content) {
+                setIsAssistantTyping(false);
+                setCurrentThoughtText('');
+              }
+            }
+
+            let cleanedContent = content;
+            let imageUrl: string | null = null;
+
+            if (content) {
+              const imageUrlMatch = content.match(/\[([^\]]+)\]\(([^)]+)\)/);
+              if (imageUrlMatch) {
+                imageUrl = imageUrlMatch[2];
+                cleanedContent = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '').trim();
+              }
+            }
+
+            accumulatedContent += cleanedContent;
+
+            setChatMessages((prev) => {
+              if (!assistantMessageId) return prev;
+
+              const existingMessage = prev.find((msg) => msg.message_id === assistantMessageId);
+              let attachments = existingMessage?.attachments ?? [];
+
+              if (imageUrl && imageUrl.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
+                const already = attachments.some((att) => att.url === imageUrl);
+                if (!already) {
+                  attachments = [
+                    ...attachments,
+                    {
+                      name: 'Generated Image',
+                      type: 'image',
+                      url: imageUrl,
+                      size: 0,
+                    },
+                  ];
+                }
+              }
+
+              const assistantMessage: ChatMessageFromServer = {
+                message_id: assistantMessageId,
+                content: accumulatedContent,
+                content_type: 'assistant',
+                timestamp: createLocalTimestamp(),
+                attachments,
+                finish_reason:
+                  typeof data.finish_reason === 'string'
+                    ? data.finish_reason
+                    : existingMessage?.finish_reason ?? null,
+                try_number: existingMessage?.try_number ?? tryNumber,
+              };
+
+              return prev.map((msg) =>
+                msg.message_id === assistantMessageId ? assistantMessage : msg,
+              );
+            });
           }
-          return msg;
-        }),
-      );
+        }
+      } finally {
+        reader.releaseLock();
+      }
     },
-    [setChatMessages],
+    [setCurrentThoughtText, setIsAssistantTyping, setChatMessages],
   );
 
   const executeSubmission = useCallback(
     async (
       messageText: string,
       attachments: ChatAttachmentInputState[] = [],
-      userMessageIdOverride?: string,
-      isRetry: boolean = false,
+      tryNumber = 1,
+      optimisticIdToUpdate?: string,
+      isFromManualRetry: boolean = false,
     ) => {
-      if (isSending) return;
+      if (isSending) {
+        return;
+      }
+
+      const isRetry = !!optimisticIdToUpdate;
+
+      if (limitSource) {
+        const isClosable = limitSource === 'paid_sub_expired';
+        openModal('plan_expired_still_messaging', isClosable);
+        return;
+      }
 
       const trimmedMessage = messageText.trim();
       if (!trimmedMessage && attachments.length === 0) return;
 
-      const optimisticId = userMessageIdOverride || `optimistic-${Date.now()}`;
+      const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // optimistic UI
       if (isRetry) {
-        // clear failed flags and assistant content
-        const assistantId = messageRelationshipMapRef.current.get(optimisticId);
+        // reset existing assistant + user message state
+        resetAssistantMessageForRetry(optimisticId);
         setChatMessages((prev) =>
           prev.map((msg) => {
             if (msg.message_id === optimisticId) {
-              return { ...msg, failed: false };
+              return { ...msg, failed: false, try_number: tryNumber };
             }
+            const assistantId = messageRelationshipMapRef.current.get(optimisticId);
             if (assistantId && msg.message_id === assistantId) {
-              return { ...msg, failed: false, content: '' };
+              return { ...msg, failed: false, content: '', finish_reason: null, try_number: tryNumber };
             }
             return msg;
           }),
         );
-      } else {
-        const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
-        const assistantMessageId = `assistant-${Date.now()}`;
 
+        if (isFromManualRetry) {
+          setTimeout(() => scrollToBottom(true), 150);
+        }
+      } else {
+        const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments, tryNumber);
+        const assistantMessageId = `assistant-${Date.now()}`;
         const emptyAssistantMessage: ChatMessageFromServer = {
           message_id: assistantMessageId,
           content: '',
           content_type: 'assistant',
           timestamp: createLocalTimestamp(),
           attachments: [],
+          try_number: tryNumber,
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
         mostRecentAssistantMessageIdRef.current = assistantMessageId;
 
-        setChatMessages((prev) => [...prev, userMessage, emptyAssistantMessage]);
+        setChatMessages((prevMessages) => [...prevMessages, userMessage, emptyAssistantMessage]);
+
         clearAllInput();
         onMessageSent?.();
         setTimeout(() => scrollToBottom(true), 300);
@@ -161,72 +338,80 @@ export const useMessageSubmission = ({
 
       setIsSending(true);
       setJustSentMessage(true);
-      setIsAssistantTyping(true);
       setCurrentThoughtText('');
       lastOptimisticMessageIdRef.current = optimisticId;
+      setIsAssistantTyping(true);
 
-      // prepare payload for chatService
       const formData = new FormData();
       if (trimmedMessage) formData.append('message', trimmedMessage);
       attachments.forEach((att) => formData.append('files', att.file, att.file.name));
       if (isSearchActive) formData.append('google_search', 'true');
+      formData.append('streaming', 'true');
+      formData.append('thinking', 'true');
+      formData.append('try_number', tryNumber.toString());
+
+      const systemInfo = await getSystemInfo();
+      if (systemInfo.device) formData.append('device', systemInfo.device);
+      if (systemInfo.location) formData.append('location', systemInfo.location);
+      if (systemInfo.network) formData.append('network', systemInfo.network);
 
       try {
-        const response = await chatService.sendMessage(formData); // ChatMessageResponse
+        const response = await chatService.sendMessage(formData);
 
-        const assistantId = messageRelationshipMapRef.current.get(optimisticId);
-        if (!assistantId) {
-          console.warn('No assistant message id mapped for', optimisticId);
+        if (!(response instanceof Response)) {
+          throw new Error('Expected streaming response');
+        }
+
+        if (!response.ok) {
+          if (response.status === 400) {
+            const errorText = await response.text().catch(() => '');
+            console.error('400 error body:', errorText);
+
+            showToast('Unsupported File', { type: 'error', position: 'conversation' });
+            setChatMessages((prev) =>
+              prev.map((msg) => (msg.message_id === optimisticId ? { ...msg, failed: true } : msg)),
+            );
+            cleanupAssistantMessage(optimisticId, true);
+            return;
+          }
+
+          const errorText = await response.text().catch(() => '');
+          throw new ApiError(`API error: ${response.status}`, response.status, { detail: errorText });
+        }
+
+        await handleStreamResponse(response, optimisticId, tryNumber);
+        refetch();
+      } catch (error) {
+        if (error instanceof SessionExpiredError) {
+          setChatMessages((prev) =>
+            prev.map((msg) => (msg.message_id === optimisticId ? { ...msg, failed: true } : msg)),
+          );
+          cleanupAssistantMessage(optimisticId, true);
           return;
         }
 
-        const data = response.data as any;
-        const serverAssistant: ChatMessageFromServer | undefined = data?.message;
-        const textResponse: string = data?.response ?? '';
+        if (error instanceof ApiError && error.status === 400) {
+          cleanupAssistantMessage(optimisticId, true);
+          return;
+        }
+
+        const attemptStartTryNumber = isFromManualRetry ? tryNumber - ((tryNumber - 1) % MAX_RETRY_ATTEMPTS) : 1;
+        const maxRetriesForThisAttempt = attemptStartTryNumber + MAX_RETRY_ATTEMPTS - 1;
+
+        if (tryNumber < maxRetriesForThisAttempt) {
+          resetAssistantMessageForRetry(optimisticId);
+          setTimeout(() => {
+            executeSubmission(trimmedMessage, attachments, tryNumber + 1, optimisticId, isFromManualRetry);
+          }, RETRY_DELAY_MS);
+          return;
+        }
 
         setChatMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.message_id !== assistantId) return msg;
-
-            if (serverAssistant) {
-              // keep our assistant id, overwrite content and meta from server
-              return {
-                ...msg,
-                ...serverAssistant,
-                message_id: assistantId,
-                failed: false,
-              };
-            }
-
-            return {
-              ...msg,
-              content: textResponse || msg.content,
-              failed: false,
-            };
-          }),
+          prev.map((msg) => (msg.message_id === optimisticId ? { ...msg, failed: true } : msg)),
         );
-      } catch (error) {
-        console.error('Error sending message:', error);
+        cleanupAssistantMessage(optimisticId, true);
 
-        if (error instanceof SessionExpiredError) {
-          showToast('Session expired. Please sign in again.', {
-            type: 'error',
-            position: 'conversation',
-          });
-          markMessageFailed(optimisticId);
-        } else if (error instanceof ApiError) {
-          showToast(error.body?.detail || 'Something went wrong. Please try again.', {
-            type: 'error',
-            position: 'conversation',
-          });
-          markMessageFailed(optimisticId);
-        } else {
-          showToast('Network error. Please check your connection and try again.', {
-            type: 'error',
-            position: 'conversation',
-          });
-          markMessageFailed(optimisticId);
-        }
+        console.error('Error sending message:', error);
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
@@ -236,19 +421,24 @@ export const useMessageSubmission = ({
     },
     [
       isSending,
+      limitSource,
+      openModal,
       isSearchActive,
-      setIsSending,
-      setJustSentMessage,
-      setIsAssistantTyping,
-      setCurrentThoughtText,
-      lastOptimisticMessageIdRef,
+      resetAssistantMessageForRetry,
       setChatMessages,
+      createOptimisticMessage,
       clearAllInput,
       scrollToBottom,
+      setIsSending,
+      setJustSentMessage,
+      setCurrentThoughtText,
+      lastOptimisticMessageIdRef,
+      setIsAssistantTyping,
+      handleStreamResponse,
+      refetch,
       onMessageSent,
-      createOptimisticMessage,
       showToast,
-      markMessageFailed,
+      cleanupAssistantMessage,
     ],
   );
 
@@ -256,6 +446,9 @@ export const useMessageSubmission = ({
     (failedMessage: ChatMessageFromServer) => {
       const messageContent = failedMessage.content;
       const messageAttachments = failedMessage.attachments || [];
+      const currentTryNumber = failedMessage.try_number || 0;
+      const nextTryNumber = currentTryNumber + 1;
+      const failedMessageId = failedMessage.message_id;
 
       const retryAttachments: ChatAttachmentInputState[] = messageAttachments
         .filter((att) => att.file)
@@ -263,7 +456,6 @@ export const useMessageSubmission = ({
           const file = att.file as File;
           const blob = file.slice(0, file.size, file.type);
           const newFile = new File([blob], file.name, { type: file.type });
-
           return {
             file: newFile,
             previewUrl: att.url,
@@ -271,11 +463,18 @@ export const useMessageSubmission = ({
           };
         });
 
-      if (!messageContent && retryAttachments.length === 0) return;
+      resetAssistantMessageForRetry(failedMessageId);
+      setChatMessages((prev) =>
+        prev.map((msg) =>
+          msg.message_id === failedMessageId ? { ...msg, failed: false, try_number: nextTryNumber } : msg,
+        ),
+      );
 
-      executeSubmission(messageContent, retryAttachments, failedMessage.message_id, true);
+      if (messageContent || retryAttachments.length > 0) {
+        executeSubmission(messageContent, retryAttachments, nextTryNumber, failedMessageId, true);
+      }
     },
-    [executeSubmission],
+    [executeSubmission, setChatMessages, resetAssistantMessageForRetry],
   );
 
   const handleSubmit = useCallback(
