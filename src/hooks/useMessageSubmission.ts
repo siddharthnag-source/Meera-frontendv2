@@ -233,4 +233,76 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // thoughts stay in s
+        // thoughts stay in state until next message clears them
+        lastOptimisticMessageIdRef.current = null;
+
+        if (isFromManualRetry) {
+          setTimeout(() => scrollToBottom(true), 150);
+        }
+      }
+    },
+    [
+      isSending,
+      isSearchActive,
+      createOptimisticMessage,
+      setChatMessages,
+      clearAllInput,
+      scrollToBottom,
+      setIsSending,
+      setJustSentMessage,
+      setCurrentThoughtText,
+      lastOptimisticMessageIdRef,
+      setIsAssistantTyping,
+      showToast,
+      onMessageSent,
+    ],
+  );
+
+  const handleRetryMessage = useCallback(
+    (failedMessage: ChatMessageFromServer) => {
+      const messageContent = failedMessage.content;
+      const messageAttachments = failedMessage.attachments || [];
+      const currentTryNumber = failedMessage.try_number || 0;
+      const nextTryNumber = currentTryNumber + 1;
+      const failedMessageId = failedMessage.message_id;
+
+      const retryAttachments: ChatAttachmentInputState[] = messageAttachments
+        .filter((att) => att.file)
+        .map((att) => {
+          const file = att.file as File;
+          const blob = file.slice(0, file.size, file.type);
+          const newFile = new File([blob], file.name, { type: file.type });
+          return {
+            file: newFile,
+            previewUrl: att.url,
+            type: att.type === 'image' ? 'image' : 'document',
+          };
+        });
+
+      if (messageContent || retryAttachments.length > 0) {
+        executeSubmission(messageContent, retryAttachments, nextTryNumber, failedMessageId, true);
+      }
+    },
+    [executeSubmission],
+  );
+
+  const handleSubmit = useCallback(
+    (e: React.SyntheticEvent) => {
+      e.preventDefault();
+      executeSubmission(message, currentAttachments);
+    },
+    [executeSubmission, message, currentAttachments],
+  );
+
+  const getMostRecentAssistantMessageId = useCallback(() => {
+    return mostRecentAssistantMessageIdRef.current;
+  }, []);
+
+  return {
+    handleSubmit,
+    executeSubmission,
+    handleRetryMessage,
+    getMostRecentAssistantMessageId,
+    clearMessageRelationshipMap,
+  };
+};
