@@ -26,9 +26,15 @@ interface UseMessageSubmissionProps {
 
 // Shape of the API response we care about
 interface ChatSendResponseData {
-  response: string;
+  // Final answer text (backend may send either of these)
+  response?: string;
+  reply?: string;
+
+  // Thinking text
   thoughts?: string;
   thoughtText?: string;
+
+  // Allow extra fields without using `any`
   [key: string]: unknown;
 }
 
@@ -161,14 +167,23 @@ export const useMessageSubmission = ({
       try {
         const result = await chatService.sendMessage(formData);
 
-        // Cast once with a typed interface instead of `any`
+        // Cast with a typed interface (no `any`)
         const rawData = result.data as ChatSendResponseData;
 
-        // Final answer from backend - already working
-        const assistantText = rawData.response;
+        // Debug once if needed
+        // console.log('chat send result', rawData);
+
+        // Final answer text from backend
+        const assistantText =
+          rawData.response ??
+          rawData.reply ??
+          '';
 
         // Thinking text from backend (Gemini thoughts)
-        const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
+        const thoughts =
+          rawData.thoughts ??
+          rawData.thoughtText ??
+          '';
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
@@ -232,7 +247,7 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // keep thoughts visible; they will be cleared at the start of next submission
+        // keep thoughts visible; they will be cleared at the start of the next submission
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
