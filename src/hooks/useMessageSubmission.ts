@@ -156,10 +156,13 @@ export const useMessageSubmission = ({
         // Final answer from backend - already working
         const assistantText = result.data.response;
 
+        // Access raw data as `any` so TS does not complain about extra props
+        const rawData = result.data as any;
+
         // Thinking text from backend (Gemini thoughts)
         const thoughts =
-          (result.data.thoughts as string | undefined) ||
-          (result.data.thoughtText as string | undefined) ||
+          (rawData.thoughts as string | undefined) ||
+          (rawData.thoughtText as string | undefined) ||
           '';
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
@@ -224,7 +227,7 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // Do not clear thought text here, we want it visible
+        // keep thoughts visible; they will be cleared at the start of next submission
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
