@@ -71,9 +71,10 @@ export const RenderedMessageItem: React.FC<{
     const bgColor = isUser ? 'bg-primary' : 'bg-card';
     const textColor = isUser ? 'text-background' : 'text-primary';
 
-    // Handle progressive typing indicator
+    // Handle progressive typing indicator (delay before "Orchestrating")
     useEffect(() => {
-      if (showTypingIndicator && !isUser) {
+      // If assistant is typing and we do NOT yet have thoughts, drive the orchestrating state
+      if (showTypingIndicator && !isUser && !thoughtText) {
         if (timerRef.current) {
           clearTimeout(timerRef.current);
         }
@@ -86,18 +87,16 @@ export const RenderedMessageItem: React.FC<{
           }, 1000);
         }
       } else {
+        // Either user message, typing stopped, or we already have thoughts
         if (timerRef.current) {
           clearTimeout(timerRef.current);
           timerRef.current = null;
         }
         setShowOrchestrating(false);
       }
-    }, [
-      showTypingIndicator,
-      isUser,
-      message.try_number,
-    ]);
+    }, [showTypingIndicator, isUser, message.try_number, thoughtText]);
 
+    // Detect overflow for long user messages (show "Show more")
     useEffect(() => {
       const element = contentRef.current;
       if (isUser && element && !isExpanded) {
@@ -113,11 +112,7 @@ export const RenderedMessageItem: React.FC<{
 
         return () => resizeObserver.disconnect();
       }
-    }, [
-      isUser,
-      isExpanded,
-      showExpandButton,
-    ]);
+    }, [isUser, isExpanded, showExpandButton]);
 
     if (message.content_type === 'system') {
       return (
@@ -148,6 +143,8 @@ export const RenderedMessageItem: React.FC<{
       }
     };
 
+    const showReflection = !!thoughtText && !isUser;
+
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-3 group`}>
         <div
@@ -156,6 +153,26 @@ export const RenderedMessageItem: React.FC<{
             message.attachments && message.attachments.length > 0 ? 'w-[85%] md:w-[55%]' : 'max-w-[99%] md:max-w-[99%]'
           }`}
         >
+          {/* Meera's reflection card (full thoughts markdown) */}
+          {showReflection && (
+            <div className="mb-2 rounded-2xl border border-primary/15 bg-card/80 px-3 py-2 shadow-sm">
+              <p className="text-[11px] font-semibold text-primary mb-1">Meera&apos;s reflection</p>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+                components={{
+                  p: MyCustomParagraph,
+                  ul: MyCustomUl,
+                  ol: MyCustomOl,
+                  li: MyCustomLi,
+                  blockquote: MyCustomBlockquote,
+                }}
+              >
+                {thoughtText as string}
+              </ReactMarkdown>
+            </div>
+          )}
+
           <div
             className={`px-4 py-4 shadow-sm relative ${bgColor} ${textColor} after:content-[''] after:absolute after:w-0 after:h-0 after:border-solid after:top-0 ${
               isUser
@@ -169,7 +186,9 @@ export const RenderedMessageItem: React.FC<{
                 {message.content_type === 'user' ? (
                   <div
                     ref={contentRef}
-                    className={`font-sans text-[15px] ${textColor} ${!isExpanded ? 'max-h-[34vh] overflow-hidden' : ''} whitespace-pre-wrap`}
+                    className={`font-sans text-[15px] ${textColor} ${
+                      !isExpanded ? 'max-h-[34vh] overflow-hidden' : ''
+                    } whitespace-pre-wrap`}
                   >
                     {message.content}
                   </div>
@@ -353,22 +372,17 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Show typing indicator inside assistant message when showTypingIndicator is true */}
+            {/* Typing indicator inside assistant bubble */}
             {showTypingIndicator && !isUser && !message.isGeneratingImage && (
-              <div className="flex items-center space-x-2">
-                {thoughtText ? (
-                  // When thought text is available, show it with dots
-                  <span className="text-primary text-[15px] whitespace-nowrap">
-                    {thoughtText.split('\n')[0].replace(/\*\*/g, '')}
-                  </span>
-                ) : showOrchestrating ? (
+              <div className="flex items-center space-x-2 mt-2">
+                {/* Only show "Orchestrating" label while we do NOT yet have thoughts */}
+                {showOrchestrating && !thoughtText && (
                   <span className="text-primary text-[15px] whitespace-nowrap">Orchestrating</span>
-                ) : null}
-                {/* Always show dots when typing indicator is active */}
+                )}
                 <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
                 </div>
               </div>
             )}
@@ -376,16 +390,15 @@ export const RenderedMessageItem: React.FC<{
             {/* Show image skeleton when generating image */}
             {message.isGeneratingImage && (
               <div className="mt-3">
-                {/* <div className="text-primary text-[15px] mb-2">Generating image</div> */}
                 <ImageSkeleton />
               </div>
             )}
 
             {isStreaming && message.content && !message.isGeneratingImage && (
               <div className="flex items-center space-x-1 mt-2">
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
               </div>
             )}
 
@@ -418,7 +431,7 @@ export const RenderedMessageItem: React.FC<{
                             downloadFile(firstAttachment.url);
                           }
                         }}
-                        className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
+                        className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg:white/10 transition-colors focus:outline-none cursor-pointer"
                         title="Download attachment"
                       >
                         <FiDownload size={14} className="text-primary/60 hover:text-primary/80" />
@@ -427,7 +440,7 @@ export const RenderedMessageItem: React.FC<{
                   {isUser && message.failed && isLastFailedMessage && (
                     <button
                       onClick={handleRetry}
-                      className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
+                      className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg:white/10 transition-colors focus:outline-none cursor-pointer"
                       title="Retry sending"
                     >
                       <FiRefreshCw size={14} className="text-background/60 hover:text-background/90" />
