@@ -38,13 +38,18 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 
+// Local extension type so we can safely read `thoughts` off the message
+type ChatMessageWithThoughts = ChatMessageFromServer & {
+  thoughts?: string;
+};
+
 export const RenderedMessageItem: React.FC<{
   message: ChatMessageFromServer;
   isStreaming: boolean;
   onRetry?: (message: ChatMessageFromServer) => void;
   isLastFailedMessage?: boolean;
   showTypingIndicator?: boolean;
-  thoughtText?: string;
+  thoughtText?: string; // kept as fallback, but main source is message.thoughts
   hasMinHeight?: boolean;
   dynamicMinHeight?: number;
 }> = React.memo(
@@ -71,10 +76,14 @@ export const RenderedMessageItem: React.FC<{
     const bgColor = isUser ? 'bg-primary' : 'bg-card';
     const textColor = isUser ? 'text-background' : 'text-primary';
 
+    const messageWithThoughts = message as ChatMessageWithThoughts;
+    // Prefer thoughts stored on the message; fall back to prop if present
+    const reflectionText = messageWithThoughts.thoughts ?? thoughtText;
+
     // Handle progressive typing indicator (delay before "Orchestrating")
     useEffect(() => {
-      // If assistant is typing and we do NOT yet have thoughts, drive the orchestrating state
-      if (showTypingIndicator && !isUser && !thoughtText) {
+      // Only show "Orchestrating" while assistant is typing AND we have no reflection yet
+      if (showTypingIndicator && !isUser && !reflectionText) {
         if (timerRef.current) {
           clearTimeout(timerRef.current);
         }
@@ -87,14 +96,13 @@ export const RenderedMessageItem: React.FC<{
           }, 1000);
         }
       } else {
-        // Either user message, typing stopped, or we already have thoughts
         if (timerRef.current) {
           clearTimeout(timerRef.current);
           timerRef.current = null;
         }
         setShowOrchestrating(false);
       }
-    }, [showTypingIndicator, isUser, message.try_number, thoughtText]);
+    }, [showTypingIndicator, isUser, message.try_number, reflectionText]);
 
     // Detect overflow for long user messages (show "Show more")
     useEffect(() => {
@@ -143,7 +151,7 @@ export const RenderedMessageItem: React.FC<{
       }
     };
 
-    const showReflection = !!thoughtText && !isUser;
+    const showReflection = !!reflectionText && !isUser;
 
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-3 group`}>
@@ -168,7 +176,7 @@ export const RenderedMessageItem: React.FC<{
                   blockquote: MyCustomBlockquote,
                 }}
               >
-                {thoughtText as string}
+                {reflectionText as string}
               </ReactMarkdown>
             </div>
           )}
@@ -375,8 +383,7 @@ export const RenderedMessageItem: React.FC<{
             {/* Typing indicator inside assistant bubble */}
             {showTypingIndicator && !isUser && !message.isGeneratingImage && (
               <div className="flex items-center space-x-2 mt-2">
-                {/* Only show "Orchestrating" label while we do NOT yet have thoughts */}
-                {showOrchestrating && !thoughtText && (
+                {showOrchestrating && !reflectionText && (
                   <span className="text-primary text-[15px] whitespace-nowrap">Orchestrating</span>
                 )}
                 <div className="flex space-x-1">
@@ -431,7 +438,7 @@ export const RenderedMessageItem: React.FC<{
                             downloadFile(firstAttachment.url);
                           }
                         }}
-                        className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg:white/10 transition-colors focus:outline-none cursor-pointer"
+                        className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                         title="Download attachment"
                       >
                         <FiDownload size={14} className="text-primary/60 hover:text-primary/80" />
@@ -440,7 +447,7 @@ export const RenderedMessageItem: React.FC<{
                   {isUser && message.failed && isLastFailedMessage && (
                     <button
                       onClick={handleRetry}
-                      className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg:white/10 transition-colors focus:outline-none cursor-pointer"
+                      className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                       title="Retry sending"
                     >
                       <FiRefreshCw size={14} className="text-background/60 hover:text-background/90" />
