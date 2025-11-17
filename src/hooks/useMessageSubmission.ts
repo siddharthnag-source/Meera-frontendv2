@@ -152,12 +152,22 @@ export const useMessageSubmission = ({
 
       try {
         const result = await chatService.sendMessage(formData);
+
+        // Final answer from backend - already working
         const assistantText = result.data.response;
+
+        // Thinking text from backend (Gemini thoughts)
+        const thoughts =
+          (result.data.thoughts as string | undefined) ||
+          (result.data.thoughtText as string | undefined) ||
+          '';
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
-        setIsAssistantTyping(false);
-        setCurrentThoughtText('');
+        // Store thinking text so the UI can show it after "Orchestrating"
+        if (thoughts) {
+          setCurrentThoughtText(thoughts);
+        }
 
         if (assistantId) {
           setChatMessages((prev) =>
@@ -214,7 +224,7 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        setCurrentThoughtText('');
+        // Do not clear thought text here, we want it visible
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
