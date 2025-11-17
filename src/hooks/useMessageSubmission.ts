@@ -26,9 +26,9 @@ interface UseMessageSubmissionProps {
 
 // Shape of the API response we care about
 interface ChatSendResponseData {
-  response: string;
-  thoughts?: string;
-  thoughtText?: string;
+  response: string;       // final Meera reply
+  thoughts?: string;      // Gemini thoughts (preferred field)
+  thoughtText?: string;   // fallback if backend uses this name
   [key: string]: unknown;
 }
 
@@ -142,6 +142,7 @@ export const useMessageSubmission = ({
         );
       }
 
+      // New message cycle: clear old thoughts and mark typing
       setIsSending(true);
       setJustSentMessage(true);
       setCurrentThoughtText('');
@@ -161,10 +162,10 @@ export const useMessageSubmission = ({
       try {
         const result = await chatService.sendMessage(formData);
 
-        // Cast once with a typed interface instead of `any`
+        // Typed cast
         const rawData = result.data as ChatSendResponseData;
 
-        // Final answer from backend - already working
+        // Final Meera reply
         const assistantText = rawData.response;
 
         // Thinking text from backend (Gemini thoughts)
@@ -172,7 +173,7 @@ export const useMessageSubmission = ({
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
-        // Store thinking text so the UI can show it after "Orchestrating"
+        // Push thoughts into state so UI can show them
         if (thoughts) {
           setCurrentThoughtText(thoughts);
         }
@@ -232,76 +233,4 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // keep thoughts visible; they will be cleared at the start of next submission
-        lastOptimisticMessageIdRef.current = null;
-
-        if (isFromManualRetry) {
-          setTimeout(() => scrollToBottom(true), 150);
-        }
-      }
-    },
-    [
-      isSending,
-      isSearchActive,
-      createOptimisticMessage,
-      setChatMessages,
-      clearAllInput,
-      scrollToBottom,
-      setIsSending,
-      setJustSentMessage,
-      setCurrentThoughtText,
-      lastOptimisticMessageIdRef,
-      setIsAssistantTyping,
-      showToast,
-      onMessageSent,
-    ],
-  );
-
-  const handleRetryMessage = useCallback(
-    (failedMessage: ChatMessageFromServer) => {
-      const messageContent = failedMessage.content;
-      const messageAttachments = failedMessage.attachments || [];
-      const currentTryNumber = failedMessage.try_number || 0;
-      const nextTryNumber = currentTryNumber + 1;
-      const failedMessageId = failedMessage.message_id;
-
-      const retryAttachments: ChatAttachmentInputState[] = messageAttachments
-        .filter((att) => att.file)
-        .map((att) => {
-          const file = att.file as File;
-          const blob = file.slice(0, file.size, file.type);
-          const newFile = new File([blob], file.name, { type: file.type });
-          return {
-            file: newFile,
-            previewUrl: att.url,
-            type: att.type === 'image' ? 'image' : 'document',
-          };
-        });
-
-      if (messageContent || retryAttachments.length > 0) {
-        executeSubmission(messageContent, retryAttachments, nextTryNumber, failedMessageId, true);
-      }
-    },
-    [executeSubmission],
-  );
-
-  const handleSubmit = useCallback(
-    (e: React.SyntheticEvent) => {
-      e.preventDefault();
-      executeSubmission(message, currentAttachments);
-    },
-    [executeSubmission, message, currentAttachments],
-  );
-
-  const getMostRecentAssistantMessageId = useCallback(() => {
-    return mostRecentAssistantMessageIdRef.current;
-  }, []);
-
-  return {
-    handleSubmit,
-    executeSubmission,
-    handleRetryMessage,
-    getMostRecentAssistantMessageId,
-    clearMessageRelationshipMap,
-  };
-};
+        // thoughts stay in s
