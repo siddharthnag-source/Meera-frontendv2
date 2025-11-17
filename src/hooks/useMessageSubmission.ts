@@ -26,17 +26,16 @@ interface UseMessageSubmissionProps {
 
 // Shape of the API response we care about
 interface ChatSendResponseData {
-  // Final answer text (backend may send either of these)
-  response?: string;
-  reply?: string;
-
-  // Thinking text
+  response: string;
   thoughts?: string;
   thoughtText?: string;
-
-  // Allow extra fields without using `any`
   [key: string]: unknown;
 }
+
+// Local extension type so we can safely attach `thoughts` to messages
+type ChatMessageWithThoughts = ChatMessageFromServer & {
+  thoughts?: string;
+};
 
 export const useMessageSubmission = ({
   message,
@@ -150,6 +149,7 @@ export const useMessageSubmission = ({
 
       setIsSending(true);
       setJustSentMessage(true);
+      // clear any previous "thinking" text at the start of a new request
       setCurrentThoughtText('');
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
@@ -167,44 +167,36 @@ export const useMessageSubmission = ({
       try {
         const result = await chatService.sendMessage(formData);
 
-        // Cast with a typed interface (no `any`)
+        // Cast once with a typed interface instead of `any`
         const rawData = result.data as ChatSendResponseData;
 
-        // Debug once if needed
-        // console.log('chat send result', rawData);
-
-        // Final answer text from backend
-        const assistantText =
-          rawData.response ??
-          rawData.reply ??
-          '';
+        // Final answer from backend
+        const assistantText = rawData.response;
 
         // Thinking text from backend (Gemini thoughts)
-        const thoughts =
-          rawData.thoughts ??
-          rawData.thoughtText ??
-          '';
+        const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
-        // Store thinking text so the UI can show it after "Orchestrating"
-        if (thoughts) {
-          setCurrentThoughtText(thoughts);
-        }
-
         if (assistantId) {
           setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === assistantId
-                ? {
-                    ...msg,
-                    content: assistantText,
-                    timestamp: createLocalTimestamp(),
-                    failed: false,
-                    try_number: tryNumber,
-                  }
-                : msg,
-            ),
+            prev.map((msg): ChatMessageFromServer => {
+              if (msg.message_id !== assistantId) return msg;
+
+              const updated: ChatMessageWithThoughts = {
+                ...msg,
+                content: assistantText,
+                timestamp: createLocalTimestamp(),
+                failed: false,
+                try_number: tryNumber,
+              };
+
+              if (thoughts) {
+                updated.thoughts = thoughts;
+              }
+
+              return updated;
+            }),
           );
         }
       } catch (error) {
@@ -247,7 +239,8 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // keep thoughts visible; they will be cleared at the start of the next submission
+        // ensure global "thinking text" is cleared once response finishes
+        setCurrentThoughtText('');
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
