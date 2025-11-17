@@ -32,11 +32,6 @@ interface ChatSendResponseData {
   [key: string]: unknown;
 }
 
-// Local extension type so we can safely attach `thoughts` to messages
-type ChatMessageWithThoughts = ChatMessageFromServer & {
-  thoughts?: string;
-};
-
 export const useMessageSubmission = ({
   message,
   currentAttachments,
@@ -149,7 +144,6 @@ export const useMessageSubmission = ({
 
       setIsSending(true);
       setJustSentMessage(true);
-      // clear any previous "thinking" text at the start of a new request
       setCurrentThoughtText('');
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
@@ -170,7 +164,7 @@ export const useMessageSubmission = ({
         // Cast once with a typed interface instead of `any`
         const rawData = result.data as ChatSendResponseData;
 
-        // Final answer from backend
+        // Final answer from backend - already working
         const assistantText = rawData.response;
 
         // Thinking text from backend (Gemini thoughts)
@@ -178,25 +172,24 @@ export const useMessageSubmission = ({
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
+        // Store thinking text so the UI can show it after "Orchestrating"
+        if (thoughts) {
+          setCurrentThoughtText(thoughts);
+        }
+
         if (assistantId) {
           setChatMessages((prev) =>
-            prev.map((msg): ChatMessageFromServer => {
-              if (msg.message_id !== assistantId) return msg;
-
-              const updated: ChatMessageWithThoughts = {
-                ...msg,
-                content: assistantText,
-                timestamp: createLocalTimestamp(),
-                failed: false,
-                try_number: tryNumber,
-              };
-
-              if (thoughts) {
-                updated.thoughts = thoughts;
-              }
-
-              return updated;
-            }),
+            prev.map((msg) =>
+              msg.message_id === assistantId
+                ? {
+                    ...msg,
+                    content: assistantText,
+                    timestamp: createLocalTimestamp(),
+                    failed: false,
+                    try_number: tryNumber,
+                  }
+                : msg,
+            ),
           );
         }
       } catch (error) {
@@ -239,8 +232,7 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // ensure global "thinking text" is cleared once response finishes
-        setCurrentThoughtText('');
+        // keep thoughts visible; they will be cleared at the start of next submission
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
