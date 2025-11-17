@@ -831,12 +831,12 @@ export const Conversation: React.FC = () => {
                         // 1. Assistant is typing
                         // 2. It's the last message
                         // 3. No content yet (waiting for first chunk)
-                        const shouldShowTypingIndicator =
+                    
+                          const shouldShowTypingIndicator =
                           msg.content_type === 'assistant' &&
-                          isAssistantTyping &&
                           msg.message_id === lastMessage?.message_id &&
                           lastMessageIsFromAssistant &&
-                          !msg.content; // Only show when there's no content yet (waiting for first chunk)
+                          (isAssistantTyping || !!currentThoughtText);
 
                         // Determine refs for latest user and assistant messages
                         const isLatestUserMessage =
