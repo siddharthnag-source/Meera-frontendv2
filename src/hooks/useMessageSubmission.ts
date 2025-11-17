@@ -26,9 +26,9 @@ interface UseMessageSubmissionProps {
 
 // Shape of the API response we care about
 interface ChatSendResponseData {
-  response: string;       // final Meera reply
-  thoughts?: string;      // Gemini thoughts (preferred field)
-  thoughtText?: string;   // fallback if backend uses this name
+  response: string;
+  thoughts?: string;
+  thoughtText?: string;
   [key: string]: unknown;
 }
 
@@ -142,7 +142,6 @@ export const useMessageSubmission = ({
         );
       }
 
-      // New message cycle: clear old thoughts and mark typing
       setIsSending(true);
       setJustSentMessage(true);
       setCurrentThoughtText('');
@@ -162,10 +161,10 @@ export const useMessageSubmission = ({
       try {
         const result = await chatService.sendMessage(formData);
 
-        // Typed cast
+        // Cast once with a typed interface instead of `any`
         const rawData = result.data as ChatSendResponseData;
 
-        // Final Meera reply
+        // Final answer from backend - already working
         const assistantText = rawData.response;
 
         // Thinking text from backend (Gemini thoughts)
@@ -173,7 +172,7 @@ export const useMessageSubmission = ({
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
-        // Push thoughts into state so UI can show them
+        // Store thinking text so the UI can show it after "Orchestrating"
         if (thoughts) {
           setCurrentThoughtText(thoughts);
         }
@@ -233,7 +232,7 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // thoughts stay in state until next message clears them
+        // keep thoughts visible; they will be cleared at the start of next submission
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
