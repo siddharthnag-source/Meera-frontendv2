@@ -24,6 +24,14 @@ interface UseMessageSubmissionProps {
   onMessageSent?: () => void;
 }
 
+// Shape of the API response we care about
+interface ChatSendResponseData {
+  response: string;
+  thoughts?: string;
+  thoughtText?: string;
+  [key: string]: unknown;
+}
+
 export const useMessageSubmission = ({
   message,
   currentAttachments,
@@ -153,17 +161,14 @@ export const useMessageSubmission = ({
       try {
         const result = await chatService.sendMessage(formData);
 
-        // Final answer from backend - already working
-        const assistantText = result.data.response;
+        // Cast once with a typed interface instead of `any`
+        const rawData = result.data as ChatSendResponseData;
 
-        // Access raw data as `any` so TS does not complain about extra props
-        const rawData = result.data as any;
+        // Final answer from backend - already working
+        const assistantText = rawData.response;
 
         // Thinking text from backend (Gemini thoughts)
-        const thoughts =
-          (rawData.thoughts as string | undefined) ||
-          (rawData.thoughtText as string | undefined) ||
-          '';
+        const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
