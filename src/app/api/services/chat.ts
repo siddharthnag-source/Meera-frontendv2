@@ -1,12 +1,11 @@
 import {
-  ChatHistoryResponse,
-  ChatMessage,
   ChatMessageFromServer,
   ChatMessageResponse,
   SaveInteractionPayload,
 } from '@/types/chat';
 import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
+import { supabase } from '@/lib/supabaseClient';
 
 // Supabase Edge Function endpoint for the `chat` function
 const SUPABASE_CHAT_URL =
@@ -34,45 +33,66 @@ export class ApiError extends Error {
 
 export const chatService = {
   /**
-   * Fetch chat history for the currently logged-in user.
-   * Backend (`/api/history`) returns ChatMessageFromServer[], but
-   * ChatHistoryResponse expects ChatMessage[].
-   *
-   * We simply cast here so TypeScript is happy and the UI can use it.
+   * Load chat history directly from Supabase for the logged-in user.
+   * This avoids the Next.js route + cookie complexity and just uses the browser session.
    */
-  async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
-    try {
-      const res = await fetch(`/api/history?page=${page}`, {
-        method: 'GET',
-      });
+  async getChatHistory(
+    page: number = 1,
+  ): Promise<{ message: string; data: ChatMessageFromServer[] }> {
+    const pageSize = 20;
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
 
-      if (!res.ok) {
-        console.error('getChatHistory: response not ok', res.status);
-        return {
-          message: 'error',
-          data: [],
-        };
+    try {
+      // 1) Get current Supabase session
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.error('getChatHistory: no valid Supabase session', sessionError);
+        return { message: 'unauthorized', data: [] };
       }
 
-      const json = (await res.json()) as {
-        data?: ChatMessageFromServer[];
-        error?: string | null;
-      };
+      const userId = session.user.id;
 
-      // Cast server messages to ChatMessage[] to satisfy types.
-      // Runtime shape is close enough for our UI usage.
-      const data = (json?.data ?? []) as unknown as ChatMessage[];
+      // 2) Fetch messages for this user from Supabase
+      const { data, error } = await supabase
+        .from('messages')
+        .select(
+          'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, finish_reason, attachments',
+        )
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: true })
+        .range(from, to);
+
+      if (error) {
+        console.error('getChatHistory: Supabase error', error);
+        return { message: 'error', data: [] };
+      }
+
+      // 3) Map raw rows into ChatMessageFromServer shape
+      const mapped = (data ?? []).map((row: any): ChatMessageFromServer => ({
+        message_id: row.message_id,
+        // user_id is not part of ChatMessageFromServer type, so we ignore it on the client
+        content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
+        content: row.content,
+        timestamp: row.timestamp,
+        session_id: row.session_id ?? null,
+        is_call: row.is_call ?? false,
+        attachments: row.attachments ?? [],
+        failed: false,
+        finish_reason: row.finish_reason ?? null,
+      }));
 
       return {
-        message: json?.error ?? 'ok',
-        data,
+        message: 'ok',
+        data: mapped,
       };
     } catch (error) {
       console.error('getChatHistory: unexpected error', error);
-      return {
-        message: 'error',
-        data: [],
-      };
+      return { message: 'error', data: [] };
     }
   },
 
@@ -111,7 +131,6 @@ export const chatService = {
         content_type: 'assistant',
         content: body.reply,
         timestamp: new Date().toISOString(),
-        // fields that exist on ChatMessageFromServer
         attachments: [],
         is_call: false,
         failed: false,
@@ -122,8 +141,7 @@ export const chatService = {
         message: 'ok',
         data: {
           response: body.reply,
-          // cast to ChatMessage to satisfy the type of ChatMessageResponse
-          message: assistantMessage as unknown as ChatMessage,
+          message: assistantMessage,
         } as ChatMessageResponse['data'],
       };
 
