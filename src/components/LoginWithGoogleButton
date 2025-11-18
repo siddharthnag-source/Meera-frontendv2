@@ -1,0 +1,29 @@
+"use client";
+
+import { supabase } from "@/lib/supabaseClient";
+
+export function LoginWithGoogleButton() {
+  const handleLogin = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: "https://meera-frontendv2.vercel.app/auth/callback",
+      },
+    });
+
+    if (error) {
+      console.error("Google login error:", error.message);
+      alert("Login failed, please try again.");
+    }
+  };
+
+  return (
+    <button
+      onClick={handleLogin}
+      className="w-full rounded-xl py-3 text-sm font-medium flex items-center justify-center gap-2"
+    >
+      {/* keep your Google icon if you have one here */}
+      <span>Login with Google</span>
+    </button>
+  );
+}
