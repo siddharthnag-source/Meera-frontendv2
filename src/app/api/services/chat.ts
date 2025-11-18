@@ -32,16 +32,44 @@ export class ApiError extends Error {
 }
 
 export const chatService = {
-  // Stub history so UI works without a backend history API
+  /**
+   * Load chat history for the currently logged-in user.
+   * This calls our Next.js API route `/api/history`, which:
+   *   - Reads the Supabase auth user from cookies
+   *   - Maps email -> legacy users.id
+   *   - Returns messages for that legacy user_id
+   */
   async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
-    void page;
+    try {
+      const res = await fetch(`/api/history?page=${page}`, {
+        method: 'GET',
+        credentials: 'include',
+      });
 
-    const emptyHistory: ChatHistoryResponse = {
-      message: 'ok',
-      data: [],
-    };
+      if (!res.ok) {
+        console.error('getChatHistory: HTTP error', res.status);
+        return {
+          message: 'error',
+          data: [],
+        };
+      }
 
-    return emptyHistory;
+      const json = (await res.json()) as {
+        data?: ChatMessageFromServer[];
+        error?: string;
+      };
+
+      return {
+        message: json?.error ?? 'ok',
+        data: json?.data ?? [],
+      };
+    } catch (error) {
+      console.error('getChatHistory: unexpected error', error);
+      return {
+        message: 'error',
+        data: [],
+      };
+    }
   },
 
   // Simple non-streaming sendMessage → Supabase → JSON → ChatMessageResponse
