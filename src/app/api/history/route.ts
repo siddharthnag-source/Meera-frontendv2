@@ -1,87 +1,82 @@
-// src/app/api/history/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { createServerClient } from '@supabase/auth-helpers-nextjs';
-import { getOrCreateLegacyUserId } from '@/lib/legacyUser';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import type { ChatMessageFromServer } from '@/types/chat';
 
-const PAGE_SIZE = 20;
-
+// GET /api/history?page=1
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const page = Number(searchParams.get('page') ?? '1');
-    const from = (page - 1) * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-
-    // 1) Authenticated Supabase client bound to cookies
     const cookieStore = cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-          set() {
-            // no-op for API route
-          },
-          remove() {
-            // no-op for API route
-          },
-        },
-      },
-    );
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
-    // 2) Current Supabase auth user
+    // 1) Get currently authenticated Supabase user (Google sign-in)
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
 
-    if (userError) {
-      console.error('history route: getUser error', userError);
-      return NextResponse.json({ data: [], error: 'Auth error' }, { status: 401 });
-    }
-
-    if (!user || !user.email) {
+    if (userError || !user?.email) {
+      console.error('history: auth error', userError);
       return NextResponse.json({ data: [], error: 'Not authenticated' }, { status: 401 });
     }
 
     const email = user.email;
-    const name = (user.user_metadata as { name?: string })?.name;
 
-    // 3) Map email -> legacy `users.id`
-    const legacyUserId = await getOrCreateLegacyUserId(email, name);
+    // 2) Find legacy user row by email in your old `users` table
+    const { data: legacyUser, error: legacyError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
 
-    // 4) Load legacy messages
-    const { data, error } = await supabase
+    if (legacyError) {
+      console.error('history: legacy user lookup error', legacyError);
+      return NextResponse.json({ data: [], error: 'Legacy user lookup failed' }, { status: 500 });
+    }
+
+    if (!legacyUser) {
+      // User has no legacy Meera data, just return empty list
+      return NextResponse.json({ data: [], error: null }, { status: 200 });
+    }
+
+    const legacyUserId = legacyUser.id as string;
+
+    // 3) Pagination
+    const { searchParams } = new URL(req.url);
+    const page = Number(searchParams.get('page') ?? '1');
+    const pageSize = 50;
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    // 4) Fetch legacy messages for this user_id
+    const { data: rows, error: messagesError } = await supabase
       .from('messages')
-      .select(
-        'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, system_prompt, google_search, as_memory',
-      )
+      .select('*')
       .eq('user_id', legacyUserId)
       .order('timestamp', { ascending: true })
       .range(from, to);
 
-    if (error) {
-      console.error('history route: messages error', error);
+    if (messagesError) {
+      console.error('history: messages error', messagesError);
       return NextResponse.json({ data: [], error: 'Failed to load messages' }, { status: 500 });
     }
 
-    const rows = data ?? [];
-
-    // 5) Adapt to ChatMessageFromServer shape
-    const mapped = rows.map((row) => ({
-      ...row,
-      attachments: [],
+    const mapped: ChatMessageFromServer[] = (rows ?? []).map((row: any) => ({
+      message_id: row.message_id,
+      user_id: row.user_id,
+      content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
+      content: row.content,
+      timestamp: row.timestamp,
+      session_id: row.session_id ?? undefined,
+      is_call: !!row.is_call,
+      attachments: [], // legacy db has no attachments
       failed: false,
       finish_reason: null,
     }));
 
-    return NextResponse.json({ data: mapped });
+    return NextResponse.json({ data: mapped, error: null }, { status: 200 });
   } catch (err) {
-    console.error('history route: unexpected error', err);
-    return NextResponse.json({ data: [], error: 'Unexpected error' }, { status: 500 });
+    console.error('history: unexpected error', err);
+    return NextResponse.json({ data: [], error: 'Server error' }, { status: 500 });
   }
 }
