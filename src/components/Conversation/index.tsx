@@ -50,6 +50,16 @@ interface FetchState {
   abortController: AbortController | null;
 }
 
+type LegacyMessageRow = {
+  message_id: string;
+  user_id: string;
+  content_type: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  session_id: string | null;
+  is_call: boolean | null;
+};
+
 // Memoized components for better performance
 const MemoizedRenderedMessageItem = React.memo(RenderedMessageItem, (prevProps, nextProps) => {
   return (
@@ -132,9 +142,9 @@ export const Conversation: React.FC = () => {
   const latestUserMessageRef = useRef<HTMLDivElement | null>(null);
   const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null);
 
-  const requestCache = useRef(new Map<string, Promise<unknown>>());
+  const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
   const cleanupFunctions = useRef<Array<() => void>>([]);
-  const chatMessagesRef = useRef(chatMessages);
+  const chatMessagesRef = useRef<ChatMessageFromServer[]>(chatMessages);
 
   // Scroll handling refs
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -168,8 +178,6 @@ export const Conversation: React.FC = () => {
     debouncedSetMessage(inputValue);
   }, [inputValue, debouncedSetMessage]);
 
-  // Optimized memoized values
-
   const lastFailedMessageId = useMemo(() => {
     for (let i = chatMessages.length - 1; i >= 0; i--) {
       const msg = chatMessages[i];
@@ -184,79 +192,76 @@ export const Conversation: React.FC = () => {
   const calculateMinHeight = useCallback(() => {
     const viewportHeight = window.innerHeight;
 
-    // Get header height
     const headerHeight = headerRef.current?.offsetHeight || 80;
-
-    // Get footer height
     const footerHeight = (footerRef.current?.offsetHeight || 0) - 45;
-
-    // Get latest user message height
     const userMessageHeight = latestUserMessageRef.current?.offsetHeight || 0;
 
-    // Calculate min height: viewport - header - footer - user message - padding
     const calculatedMinHeight = Math.max(0, viewportHeight - headerHeight - footerHeight - userMessageHeight - 100);
 
     setDynamicMinHeight(calculatedMinHeight);
   }, []);
 
   // Optimized message processing
-  const processMessagesForDisplay = useCallback((messages: ChatMessageFromServer[]): [string, ChatDisplayItem[]][] => {
-    const grouped: Record<string, ChatDisplayItem[]> = {};
+  const processMessagesForDisplay = useCallback(
+    (messages: ChatMessageFromServer[]): [string, ChatDisplayItem[]][] => {
+      const grouped: Record<string, ChatDisplayItem[]> = {};
 
-    const groupCallSessions = (msgs: ChatMessageFromServer[]): ChatDisplayItem[] => {
-      const displayItems: ChatDisplayItem[] = [];
-      const callSessions: Record<string, ChatMessageFromServer[]> = {};
+      const groupCallSessions = (msgs: ChatMessageFromServer[]): ChatDisplayItem[] => {
+        const displayItems: ChatDisplayItem[] = [];
+        const callSessions: Record<string, ChatMessageFromServer[]> = {};
 
-      msgs.forEach((msg) => {
-        if (msg.is_call && msg.session_id) {
-          if (!callSessions[msg.session_id]) {
-            callSessions[msg.session_id] = [];
+        msgs.forEach((msg) => {
+          if (msg.is_call && msg.session_id) {
+            if (!callSessions[msg.session_id]) {
+              callSessions[msg.session_id] = [];
+            }
+            callSessions[msg.session_id].push(msg);
+          } else {
+            displayItems.push({ type: 'message', message: msg, id: msg.message_id });
           }
-          callSessions[msg.session_id].push(msg);
-        } else {
-          displayItems.push({ type: 'message', message: msg, id: msg.message_id });
+        });
+
+        for (const sessionId in callSessions) {
+          const sessionMessages = callSessions[sessionId].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+          if (sessionMessages.length > 0) {
+            displayItems.push({
+              type: 'call_session',
+              messages: sessionMessages,
+              session_id: sessionId,
+              timestamp: sessionMessages[sessionMessages.length - 1].timestamp,
+              id: sessionId,
+            });
+          }
         }
+
+        return displayItems.sort((a, b) => {
+          const timestampA = a.type === 'message' ? a.message.timestamp : a.timestamp;
+          const timestampB = b.type === 'message' ? a.message.timestamp : b.timestamp;
+          return timestampA.localeCompare(timestampB);
+        });
+      };
+
+      const displayItems = groupCallSessions(messages);
+
+      displayItems.forEach((item) => {
+        const timestamp = item.type === 'message' ? item.message.timestamp : item.timestamp;
+        const tsMatch = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        const dateKey = tsMatch ? tsMatch[0] : 'unknown';
+
+        if (!grouped[dateKey]) {
+          grouped[dateKey] = [];
+        }
+        grouped[dateKey].push(item);
       });
 
-      for (const sessionId in callSessions) {
-        const sessionMessages = callSessions[sessionId].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-        if (sessionMessages.length > 0) {
-          displayItems.push({
-            type: 'call_session',
-            messages: sessionMessages,
-            session_id: sessionId,
-            timestamp: sessionMessages[sessionMessages.length - 1].timestamp,
-            id: sessionId,
-          });
-        }
-      }
-
-      return displayItems.sort((a, b) => {
-        const timestampA = a.type === 'message' ? a.message.timestamp : a.timestamp;
-        const timestampB = b.type === 'message' ? b.message.timestamp : b.timestamp;
-        return timestampA.localeCompare(timestampB);
+      return Object.entries(grouped).sort(([dateKeyA], [dateKeyB]) => {
+        if (dateKeyA === 'unknown') return 1;
+        if (dateKeyB === 'unknown') return -1;
+        return dateKeyA.localeCompare(dateKeyB);
       });
-    };
-
-    const displayItems = groupCallSessions(messages);
-
-    displayItems.forEach((item) => {
-      const timestamp = item.type === 'message' ? item.message.timestamp : item.timestamp;
-      const tsMatch = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      const dateKey = tsMatch ? tsMatch[0] : 'unknown';
-
-      if (!grouped[dateKey]) {
-        grouped[dateKey] = [];
-      }
-      grouped[dateKey].push(item);
-    });
-
-    return Object.entries(grouped).sort(([dateKeyA], [dateKeyB]) => {
-      if (dateKeyA === 'unknown') return 1;
-      if (dateKeyB === 'unknown') return -1;
-      return dateKeyA.localeCompare(dateKeyB);
-    });
-  }, []);
+    },
+    [],
+  );
 
   const messagesByDate = useMemo(
     () => processMessagesForDisplay(chatMessages),
@@ -331,9 +336,7 @@ export const Conversation: React.FC = () => {
 
         const { data, error } = await supabase
           .from('messages')
-          .select(
-            'message_id,user_id,content_type,content,timestamp,session_id,is_call',
-          )
+          .select('message_id,user_id,content_type,content,timestamp,session_id,is_call')
           .eq('user_id', legacyUserId)
           .order('timestamp', { ascending: true });
 
@@ -349,7 +352,7 @@ export const Conversation: React.FC = () => {
           return;
         }
 
-        const mapped: ChatMessageFromServer[] = (data as any[]).map((row) => ({
+        const mapped: ChatMessageFromServer[] = (data as LegacyMessageRow[]).map((row) => ({
           message_id: row.message_id,
           user_id: row.user_id,
           content_type: row.content_type,
@@ -384,14 +387,12 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      // Prevent duplicate requests
       if (requestCache.current.has(cacheKey)) {
         return requestCache.current.get(cacheKey);
       }
 
       if (fetchState.isLoading && !isInitial) return;
 
-      // Cancel previous request if exists
       if (fetchState.abortController && !isInitial) {
         fetchState.abortController.abort();
       }
@@ -418,11 +419,10 @@ export const Conversation: React.FC = () => {
 
           if (response.data && response.data.length > 0) {
             const messages = response.data
-              .map((msg) => ({ ...msg, attachments: msg.attachments || [] }))
+              .map((msg: ChatMessageFromServer) => ({ ...msg, attachments: msg.attachments || [] }))
               .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
             if (isInitial && !hasLoadedLegacyHistory) {
-              // Only use API history if legacy history has not overridden it
               setChatMessages(messages);
               requestAnimationFrame(() => {
                 setTimeout(() => scrollToBottom(false), 50);
@@ -533,7 +533,6 @@ export const Conversation: React.FC = () => {
       isScrollingUp.current = currentScrollTop < lastScrollTop.current;
       lastScrollTop.current = currentScrollTop;
 
-      // Detect scroll direction
       const direction =
         currentScrollTop > lastScrollTopRef.current
           ? 'down'
@@ -542,12 +541,10 @@ export const Conversation: React.FC = () => {
           : 'still';
       lastScrollTopRef.current = currentScrollTop;
 
-      // Debounce scroll direction changes (keeping for future use if needed)
       if (scrollTimeoutRef2.current) {
         clearTimeout(scrollTimeoutRef2.current);
       }
 
-      // Show scroll button when user is scrolling up and not at the bottom
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
       const isScrollingUpDirection = direction === 'up';
       const isNotAtBottom = distanceFromBottom > 100;
@@ -583,7 +580,6 @@ export const Conversation: React.FC = () => {
 
   const handleScroll = useMemo(() => throttle(handleScrollInternal, SCROLL_THROTTLE_MS), [handleScrollInternal]);
 
-  // Debounced resize handler
   const handleResize = useCallback(() => {
     setDynamicMaxHeight(window.innerHeight / DYNAMIC_MAX_HEIGHT_RATIO);
     calculateMinHeight();
@@ -591,7 +587,6 @@ export const Conversation: React.FC = () => {
 
   const debouncedHandleResize = useMemo(() => debounce(handleResize, RESIZE_DEBOUNCE_MS), [handleResize]);
 
-  // Optimized clear input function
   const clearAllInput = useCallback(() => {
     setMessage('');
     setInputValue('');
@@ -605,7 +600,6 @@ export const Conversation: React.FC = () => {
     }
   }, []);
 
-  // Optimized textarea resize with cursor position preservation
   const handleTextareaResize = useCallback(
     (textarea: HTMLTextAreaElement, shouldPreserveCursor: boolean = true) => {
       if (textarea.value === '' && currentAttachments.length === 0) {
@@ -615,7 +609,6 @@ export const Conversation: React.FC = () => {
       }
 
       requestAnimationFrame(() => {
-        // Store cursor position and scroll position
         const cursorPosition = textarea.selectionStart;
         const selectionEnd = textarea.selectionEnd;
         const currentScrollTop = textarea.scrollTop;
@@ -629,12 +622,10 @@ export const Conversation: React.FC = () => {
         const newHeight = Math.min(scrollHeight, dynamicMaxHeight);
         textarea.style.height = `${newHeight}px`;
 
-        // Handle scroll position
         if (scrollHeight > dynamicMaxHeight) {
           textarea.scrollTop = shouldAutoScroll ? textarea.scrollHeight : currentScrollTop;
         }
 
-        // Restore cursor position
         if (shouldPreserveCursor) {
           textarea.setSelectionRange(cursorPosition, selectionEnd);
         }
@@ -648,13 +639,12 @@ export const Conversation: React.FC = () => {
     [handleTextareaResize],
   );
 
-  // Handle pasted images
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const imageFiles = Array.from(e.clipboardData.items)
         .filter((item) => item.type.startsWith('image/'))
         .map((item) => item.getAsFile())
-        .filter(Boolean) as File[];
+        .filter((file): file is File => Boolean(file));
 
       if (imageFiles.length > 0) {
         e.preventDefault();
@@ -666,7 +656,6 @@ export const Conversation: React.FC = () => {
     [handleTextareaResize],
   );
 
-  // Use the optimized message submission hook
   const { handleSubmit, handleRetryMessage, getMostRecentAssistantMessageId } = useMessageSubmission({
     message,
     currentAttachments,
@@ -685,14 +674,12 @@ export const Conversation: React.FC = () => {
     clearAllInput,
     scrollToBottom,
     onMessageSent: () => {
-      // Calculate min height after message is sent and DOM is updated
       setTimeout(() => {
         calculateMinHeight();
       }, 200);
     },
   });
 
-  // Drag and drop
   const { isDraggingOver } = useDragAndDrop({
     maxAttachments: MAX_ATTACHMENTS_CONFIG,
     currentAttachments,
@@ -701,7 +688,6 @@ export const Conversation: React.FC = () => {
     inputRef,
   });
 
-  // Stable callback memoization
   const stableCallbacks = useMemo(
     () => ({
       toggleSearchActive: () => setIsSearchActive((prev) => !prev),
@@ -713,7 +699,6 @@ export const Conversation: React.FC = () => {
     [loadChatHistory],
   );
 
-  // Maintain scroll position after loading older messages
   useLayoutEffect(() => {
     if (!fetchState.isLoading && previousScrollHeight.current > 0 && mainScrollRef.current) {
       const scrollContainer = mainScrollRef.current;
@@ -728,7 +713,6 @@ export const Conversation: React.FC = () => {
     }
   }, [fetchState.isLoading, chatMessages.length]);
 
-  // Initial load effect (new backend). Legacy history, if found, will override.
   useEffect(() => {
     if (!initialLoadDone.current) {
       loadChatHistory(1, true);
@@ -738,7 +722,6 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // Scroll to sent message effect
   useEffect(() => {
     if (justSentMessageRef.current && latestUserMessageRef.current) {
       requestAnimationFrame(() => {
@@ -750,7 +733,6 @@ export const Conversation: React.FC = () => {
     }
   }, [chatMessages]);
 
-  // Window resize effect
   useEffect(() => {
     handleResize();
     window.addEventListener('resize', debouncedHandleResize);
@@ -760,10 +742,8 @@ export const Conversation: React.FC = () => {
     return cleanup;
   }, [handleResize, debouncedHandleResize]);
 
-  // Comprehensive cleanup effect
   useEffect(() => {
     return () => {
-      // Cleanup all attachment URLs
       currentAttachments.forEach((att) => {
         if (att.previewUrl) {
           URL.revokeObjectURL(att.previewUrl);
@@ -772,15 +752,12 @@ export const Conversation: React.FC = () => {
     };
   }, []);
 
-  // Main cleanup effect
   useEffect(() => {
     return () => {
-      // Cleanup abort controller
       if (fetchState.abortController) {
         fetchState.abortController.abort();
       }
 
-      // Cleanup all timeouts
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current);
       }
@@ -790,23 +767,19 @@ export const Conversation: React.FC = () => {
         clearTimeout(timeoutRef2);
       }
 
-      // Cleanup all registered cleanup functions
       cleanupFunctions.current.forEach((cleanup) => cleanup());
       cleanupFunctions.current = [];
 
-      // Clear request cache
       requestCache.current.clear();
 
-      // Cleanup all attachment URLs
       currentAttachments.forEach((att) => {
         if (att.previewUrl) {
           URL.revokeObjectURL(att.previewUrl);
         }
       });
     };
-  }, []);
+  }, [fetchState.abortController, currentAttachments]);
 
-  // Handle scroll to bottom button click
   const handleScrollToBottomClick = useCallback(() => {
     scrollToBottom(true);
   }, [scrollToBottom]);
