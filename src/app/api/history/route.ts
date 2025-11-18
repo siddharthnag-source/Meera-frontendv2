@@ -71,21 +71,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ data: [], error: 'Failed to load messages' }, { status: 500 });
     }
 
-    // 5) Map into ChatMessageFromServer[]
-    const mapped: ChatMessageFromServer[] = (rows as LegacyMessageRow[] | null ?? []).map(
-      (row: LegacyMessageRow): ChatMessageFromServer => ({
-        message_id: row.message_id,
-        user_id: row.user_id,
-        content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
-        content: row.content,
-        timestamp: row.timestamp,
-        session_id: row.session_id ?? undefined,
-        is_call: Boolean(row.is_call),
-        attachments: [],
-        failed: false,
-        finish_reason: null,
-      }),
-    );
+    // 5) Map into ChatMessageFromServer[] (no user_id field, frontend does not need it)
+    const mapped: ChatMessageFromServer[] =
+      ((rows as LegacyMessageRow[] | null) ?? []).map(
+        (row: LegacyMessageRow): ChatMessageFromServer => ({
+          message_id: row.message_id,
+          content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
+          content: row.content,
+          timestamp: row.timestamp,
+          session_id: row.session_id ?? undefined,
+          is_call: Boolean(row.is_call),
+          attachments: [],
+          failed: false,
+          finish_reason: null,
+        }),
+      );
 
     return NextResponse.json({ data: mapped, error: null }, { status: 200 });
   } catch (err) {
