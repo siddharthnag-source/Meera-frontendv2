@@ -33,25 +33,7 @@ export class ApiError extends Error {
   }
 }
 
-// Shape of a row coming from the `messages` table
-type DbMessageRow = {
-  message_id: string;
-  user_id: string;
-  content_type: string;
-  content: string;
-  timestamp: string;
-  session_id?: string | null;
-  is_call?: boolean | null;
-  model?: string | null;
-  finish_reason?: string | null;
-  attachments?: any[] | null;
-};
-
 export const chatService = {
-  /**
-   * Load chat history directly from Supabase.
-   * For dev we do not filter by user_id because RLS already controls access.
-   */
   /**
    * Load chat history directly from Supabase for the logged-in user.
    * Uses the browser Supabase session, no Next.js API route.
@@ -81,7 +63,7 @@ export const chatService = {
       const { data, error } = await supabase
         .from('messages')
         .select(
-          // IMPORTANT: removed "finish_reason" from this list
+          // finish_reason is not in the DB, so it is not selected here
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, attachments',
         )
         .eq('user_id', userId)
