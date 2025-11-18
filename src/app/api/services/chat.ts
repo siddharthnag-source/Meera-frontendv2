@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import {
   ChatMessageFromServer,
   ChatMessageResponse,
@@ -34,7 +36,7 @@ export class ApiError extends Error {
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
-   * This avoids the Next.js route + cookie complexity and just uses the browser session.
+   * Uses the browser Supabase session, no Next.js API route.
    */
   async getChatHistory(
     page: number = 1,
