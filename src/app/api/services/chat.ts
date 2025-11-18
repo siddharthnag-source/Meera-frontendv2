@@ -100,7 +100,8 @@ export const chatService = {
         content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
         content: row.content,
         timestamp: row.timestamp,
-        session_id: row.session_id ?? null,
+        // ChatMessageFromServer expects string | undefined, not null
+        session_id: row.session_id ?? undefined,
         is_call: row.is_call ?? false,
         attachments: row.attachments ?? [],
         failed: false,
