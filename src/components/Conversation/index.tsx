@@ -236,7 +236,7 @@ export const Conversation: React.FC = () => {
 
         return displayItems.sort((a, b) => {
           const timestampA = a.type === 'message' ? a.message.timestamp : a.timestamp;
-          const timestampB = b.type === 'message' ? a.message.timestamp : b.timestamp;
+          const timestampB = b.type === 'message' ? b.message.timestamp : b.timestamp;
           return timestampA.localeCompare(timestampB);
         });
       };
@@ -360,7 +360,6 @@ export const Conversation: React.FC = () => {
           timestamp: row.timestamp,
           session_id: row.session_id,
           is_call: row.is_call ?? false,
-          // Fields used in UI but not present in legacy DB
           attachments: [],
           failed: false,
           finish_reason: null,
