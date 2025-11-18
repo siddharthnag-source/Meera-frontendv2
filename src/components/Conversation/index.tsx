@@ -11,6 +11,7 @@ import { useMessageSubmission } from '@/hooks/useMessageSubmission';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { formatWhatsAppStyle } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
+import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
@@ -93,6 +94,10 @@ export const Conversation: React.FC = () => {
   // UI state
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
+
+  // Legacy Meera mapping state
+  const [legacyUserId, setLegacyUserId] = useState<string | null>(null);
+  const [hasLoadedLegacyHistory, setHasLoadedLegacyHistory] = useState(false);
 
   // Loading states
   const [isSending, setIsSending] = useState(false);
@@ -263,11 +268,7 @@ export const Conversation: React.FC = () => {
 
   const canSubmit = useMemo(
     () => (message.trim() || currentAttachments.length > 0) && !isSending,
-    [
-      message,
-      currentAttachments.length,
-      isSending,
-    ],
+    [message, currentAttachments.length, isSending],
   );
 
   // Optimized scroll to bottom with RAF
@@ -284,7 +285,101 @@ export const Conversation: React.FC = () => {
     }
   }, []);
 
-  // Optimized chat history loading with proper cleanup and caching
+  /**
+   * LEGACY MEERA REVIVE
+   * 1. Map Google login email -> legacy users.id
+   * 2. If found, load messages from legacy `messages` table and map to ChatMessageFromServer
+   */
+
+  // Step 1: find legacy user id by email
+  useEffect(() => {
+    const email = sessionData?.user?.email;
+    if (!email) return;
+
+    const findLegacyUser = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', email)
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Error fetching legacy user', error);
+          return;
+        }
+
+        if (data?.id) {
+          setLegacyUserId(data.id as string);
+        }
+      } catch (err) {
+        console.error('Error fetching legacy user', err);
+      }
+    };
+
+    findLegacyUser();
+  }, [sessionData?.user?.email]);
+
+  // Step 2: load legacy messages for that user_id
+  useEffect(() => {
+    if (!legacyUserId || hasLoadedLegacyHistory) return;
+
+    const loadLegacyHistory = async () => {
+      try {
+        setIsInitialLoading(true);
+
+        const { data, error } = await supabase
+          .from('messages')
+          .select(
+            'message_id,user_id,content_type,content,timestamp,session_id,is_call',
+          )
+          .eq('user_id', legacyUserId)
+          .order('timestamp', { ascending: true });
+
+        if (error) {
+          console.error('Error loading legacy messages', error);
+          setIsInitialLoading(false);
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          setHasLoadedLegacyHistory(true);
+          setIsInitialLoading(false);
+          return;
+        }
+
+        const mapped: ChatMessageFromServer[] = (data as any[]).map((row) => ({
+          message_id: row.message_id,
+          user_id: row.user_id,
+          content_type: row.content_type,
+          content: row.content,
+          timestamp: row.timestamp,
+          session_id: row.session_id,
+          is_call: row.is_call ?? false,
+          // Fields used in UI but not present in legacy DB
+          attachments: [],
+          failed: false,
+          finish_reason: null,
+        }));
+
+        setChatMessages(mapped);
+        setHasLoadedLegacyHistory(true);
+
+        requestAnimationFrame(() => {
+          setTimeout(() => scrollToBottom(false), 50);
+        });
+      } catch (err) {
+        console.error('Error loading legacy messages', err);
+      } finally {
+        setIsInitialLoading(false);
+      }
+    };
+
+    loadLegacyHistory();
+  }, [legacyUserId, hasLoadedLegacyHistory, scrollToBottom]);
+
+  // Optimized chat history loading with proper cleanup and caching (new backend)
   const loadChatHistory = useCallback(
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
@@ -326,12 +421,13 @@ export const Conversation: React.FC = () => {
               .map((msg) => ({ ...msg, attachments: msg.attachments || [] }))
               .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-            if (isInitial) {
+            if (isInitial && !hasLoadedLegacyHistory) {
+              // Only use API history if legacy history has not overridden it
               setChatMessages(messages);
               requestAnimationFrame(() => {
                 setTimeout(() => scrollToBottom(false), 50);
               });
-            } else {
+            } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
               if (scrollContainer) {
                 previousScrollHeight.current = scrollContainer.scrollHeight;
@@ -362,7 +458,7 @@ export const Conversation: React.FC = () => {
               abortController: null,
             }));
 
-            if (isInitial) {
+            if (isInitial && !hasLoadedLegacyHistory) {
               setChatMessages([]);
             }
           }
@@ -396,9 +492,9 @@ export const Conversation: React.FC = () => {
             abortController: null,
           }));
 
-          if (isInitial) {
+          if (isInitial && !hasLoadedLegacyHistory) {
             setChatMessages([]);
-          } else {
+          } else if (!isInitial) {
             showToast('Failed to load older messages. Please try again.', {
               type: 'error',
               position: 'conversation',
@@ -424,6 +520,7 @@ export const Conversation: React.FC = () => {
       fetchState.abortController,
       showToast,
       scrollToBottom,
+      hasLoadedLegacyHistory,
     ],
   );
 
@@ -441,8 +538,8 @@ export const Conversation: React.FC = () => {
         currentScrollTop > lastScrollTopRef.current
           ? 'down'
           : currentScrollTop < lastScrollTopRef.current
-            ? 'up'
-            : 'still';
+          ? 'up'
+          : 'still';
       lastScrollTopRef.current = currentScrollTop;
 
       // Debounce scroll direction changes (keeping for future use if needed)
@@ -631,7 +728,7 @@ export const Conversation: React.FC = () => {
     }
   }, [fetchState.isLoading, chatMessages.length]);
 
-  // Initial load effect
+  // Initial load effect (new backend). Legacy history, if found, will override.
   useEffect(() => {
     if (!initialLoadDone.current) {
       loadChatHistory(1, true);
@@ -735,18 +832,6 @@ export const Conversation: React.FC = () => {
               sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
             }`}
           >
-            {/* {sessionStatus === 'authenticated' && sessionData?.user?.image ? (
-              <Image
-                src={sessionData.user.image}
-                alt="Profile"
-                width={32}
-                height={32}
-                className="w-full h-full object-cover rounded-full"
-                loading="lazy"
-              />
-            ) : (
-              <FaUser size={20} className="text-primary" />
-            )} */}
             <FiMenu size={20} className="text-primary" />
           </button>
           <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
@@ -826,26 +911,18 @@ export const Conversation: React.FC = () => {
 
                         const isLastFailedMessage = msg.message_id === lastFailedMessageId;
 
-                        // Check if this is the assistant message that should show typing indicator
-                        // Show typing indicator for the last assistant message when:
-                        // 1. Assistant is typing
-                        // 2. It's the last message
-                        // 3. No content yet (waiting for first chunk)
-                    
-                          const shouldShowTypingIndicator =
+                        const shouldShowTypingIndicator =
                           msg.content_type === 'assistant' &&
                           msg.message_id === lastMessage?.message_id &&
                           lastMessageIsFromAssistant &&
                           (isAssistantTyping || !!currentThoughtText);
 
-                        // Determine refs for latest user and assistant messages
                         const isLatestUserMessage =
                           msg.content_type === 'user' && msg.message_id === lastOptimisticMessageIdRef.current;
                         const isLatestAssistantMessage =
                           msg.content_type === 'assistant' && msg.message_id === getMostRecentAssistantMessageId();
 
                         return (
-                          // message bubble outer div
                           <div
                             id={`message-${msg.message_id}`}
                             key={msg.message_id}
@@ -853,8 +930,8 @@ export const Conversation: React.FC = () => {
                               isLatestUserMessage
                                 ? latestUserMessageRef
                                 : isLatestAssistantMessage
-                                  ? latestAssistantMessageRef
-                                  : null
+                                ? latestAssistantMessageRef
+                                : null
                             }
                             className="message-item-wrapper w-full transform-gpu will-change-transform "
                           >
