@@ -3,13 +3,23 @@ import { cookies } from 'next/headers';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import type { ChatMessageFromServer } from '@/types/chat';
 
-// GET /api/history?page=1
+// Shape of a legacy row in `messages` table
+type LegacyMessageRow = {
+  message_id: string;
+  user_id: string;
+  content_type: string;
+  content: string;
+  timestamp: string;
+  session_id?: string | null;
+  is_call?: boolean | null;
+};
+
 export async function GET(req: NextRequest) {
   try {
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
-    // 1) Get currently authenticated Supabase user (Google sign-in)
+    // 1) Authenticated Supabase user (Google login)
     const {
       data: { user },
       error: userError,
@@ -22,7 +32,7 @@ export async function GET(req: NextRequest) {
 
     const email = user.email;
 
-    // 2) Find legacy user row by email in your old `users` table
+    // 2) Find legacy user row by email
     const { data: legacyUser, error: legacyError } = await supabase
       .from('users')
       .select('id')
@@ -35,7 +45,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (!legacyUser) {
-      // User has no legacy Meera data, just return empty list
+      // No legacy Meera data for this email
       return NextResponse.json({ data: [], error: null }, { status: 200 });
     }
 
@@ -61,18 +71,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ data: [], error: 'Failed to load messages' }, { status: 500 });
     }
 
-    const mapped: ChatMessageFromServer[] = (rows ?? []).map((row: any) => ({
-      message_id: row.message_id,
-      user_id: row.user_id,
-      content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
-      content: row.content,
-      timestamp: row.timestamp,
-      session_id: row.session_id ?? undefined,
-      is_call: !!row.is_call,
-      attachments: [], // legacy db has no attachments
-      failed: false,
-      finish_reason: null,
-    }));
+    // 5) Map into ChatMessageFromServer[]
+    const mapped: ChatMessageFromServer[] = (rows as LegacyMessageRow[] | null ?? []).map(
+      (row: LegacyMessageRow): ChatMessageFromServer => ({
+        message_id: row.message_id,
+        user_id: row.user_id,
+        content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
+        content: row.content,
+        timestamp: row.timestamp,
+        session_id: row.session_id ?? undefined,
+        is_call: Boolean(row.is_call),
+        attachments: [],
+        failed: false,
+        finish_reason: null,
+      }),
+    );
 
     return NextResponse.json({ data: mapped, error: null }, { status: 200 });
   } catch (err) {
