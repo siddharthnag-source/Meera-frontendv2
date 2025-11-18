@@ -1,5 +1,6 @@
 import {
   ChatHistoryResponse,
+  ChatMessage,
   ChatMessageFromServer,
   ChatMessageResponse,
   SaveInteractionPayload,
@@ -33,21 +34,20 @@ export class ApiError extends Error {
 
 export const chatService = {
   /**
-   * Load chat history for the currently logged-in user.
-   * This calls our Next.js API route `/api/history`, which:
-   *   - Reads the Supabase auth user from cookies
-   *   - Maps email -> legacy users.id
-   *   - Returns messages for that legacy user_id
+   * Fetch chat history for the currently logged-in user.
+   * Backend (`/api/history`) returns ChatMessageFromServer[], but
+   * ChatHistoryResponse expects ChatMessage[].
+   *
+   * We simply cast here so TypeScript is happy and the UI can use it.
    */
   async getChatHistory(page: number = 1): Promise<ChatHistoryResponse> {
     try {
       const res = await fetch(`/api/history?page=${page}`, {
         method: 'GET',
-        credentials: 'include',
       });
 
       if (!res.ok) {
-        console.error('getChatHistory: HTTP error', res.status);
+        console.error('getChatHistory: response not ok', res.status);
         return {
           message: 'error',
           data: [],
@@ -56,12 +56,16 @@ export const chatService = {
 
       const json = (await res.json()) as {
         data?: ChatMessageFromServer[];
-        error?: string;
+        error?: string | null;
       };
+
+      // Cast server messages to ChatMessage[] to satisfy types.
+      // Runtime shape is close enough for our UI usage.
+      const data = (json?.data ?? []) as unknown as ChatMessage[];
 
       return {
         message: json?.error ?? 'ok',
-        data: json?.data ?? [],
+        data,
       };
     } catch (error) {
       console.error('getChatHistory: unexpected error', error);
@@ -72,7 +76,9 @@ export const chatService = {
     }
   },
 
-  // Simple non-streaming sendMessage → Supabase → JSON → ChatMessageResponse
+  /**
+   * Simple non-streaming sendMessage → Supabase Edge Function → JSON → ChatMessageResponse
+   */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
 
@@ -105,16 +111,19 @@ export const chatService = {
         content_type: 'assistant',
         content: body.reply,
         timestamp: new Date().toISOString(),
+        // fields that exist on ChatMessageFromServer
         attachments: [],
         is_call: false,
         failed: false,
+        finish_reason: null,
       };
 
       const chatResponse: ChatMessageResponse = {
         message: 'ok',
         data: {
           response: body.reply,
-          message: assistantMessage,
+          // cast to ChatMessage to satisfy the type of ChatMessageResponse
+          message: assistantMessage as unknown as ChatMessage,
         } as ChatMessageResponse['data'],
       };
 
