@@ -5,12 +5,14 @@ import { usePricingModal } from '@/contexts/PricingModalContext';
 // import { usePWAInstall } from '@/contexts/PWAInstallContext';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { AnimatePresence, motion } from 'framer-motion';
-import { signIn, signOut, useSession } from 'next-auth/react';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FaCrown } from 'react-icons/fa';
 import { MdKeyboardArrowRight } from 'react-icons/md';
+
+import { supabase } from '@/lib/supabaseClient';
+import type { User } from '@supabase/supabase-js';
 
 interface UserProfileProps {
   isOpen: boolean;
@@ -36,43 +38,77 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
   const referralId = searchParams.get('referral_id');
   const { data: subscription } = useSubscriptionStatus();
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
-  const { data: session } = useSession();
+  const [user, setUser] = useState<User | null>(null);
   // const { installPrompt, isStandalone, isIOS, handleInstallClick } = usePWAInstall();
   const { openModal } = usePricingModal();
 
-  // Check if user is guest (has guest token but no session)
-  const isGuest = typeof window !== 'undefined' && localStorage.getItem('guest_token') && !session;
+  // Load Supabase user and listen for auth state changes
+  useEffect(() => {
+    const loadUser = async () => {
+      const { data } = await supabase.auth.getUser();
+      setUser(data.user ?? null);
+    };
+
+    loadUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Check if user is guest (has guest token but no Supabase user)
+  const isGuest =
+    typeof window !== 'undefined' && localStorage.getItem('guest_token') && !user;
 
   // Logout handler
   const handleLogout = async () => {
     try {
       onClose?.();
       localStorage.clear();
-      await signOut({ callbackUrl: '/sign-in' });
-      // router.push("/");
+      await supabase.auth.signOut();
+      window.location.href = '/sign-in';
     } catch (error) {
       console.error('Logout failed:', error);
     }
   };
 
-  // Handle Google sign in
+  // Handle Google sign in via Supabase
   const handleGoogleSignIn = () => {
     // Set cookies before initiating OAuth
     if (referralId) {
       document.cookie = `referral_id=${referralId}; path=/; max-age=3600; SameSite=Lax`;
     }
 
-    const guestToken = typeof window !== 'undefined' ? localStorage.getItem('guest_token') : null;
+    const guestToken =
+      typeof window !== 'undefined' ? localStorage.getItem('guest_token') : null;
     if (guestToken) {
       document.cookie = `guest_token=${guestToken}; path=/; max-age=3600; SameSite=Lax`;
     }
 
-    signIn('google', { callbackUrl: '/', redirect: true });
+    supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: 'https://meera-frontendv2.vercel.app/auth/callback',
+      },
+    });
   };
 
   const handleUpgradeClick = () => {
     openModal('upgrade_button', true);
   };
+
+  // Derive display name from Supabase user
+  const displayName =
+    (user?.user_metadata?.name as string) ||
+    (user?.user_metadata?.full_name as string) ||
+    user?.email ||
+    '';
 
   return (
     <>
@@ -129,10 +165,12 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
                     {/* Welcome Header */}
                     <div>
                       <h3 className="text-2xl sm:text-3xl font-serif italic text-primary">
-                        {isGuest ? `Welcome to ${process.env.NEXT_PUBLIC_APP_NAME} OS` : session?.user?.name}
+                        {isGuest
+                          ? `Welcome to ${process.env.NEXT_PUBLIC_APP_NAME} OS`
+                          : displayName || `Welcome to ${process.env.NEXT_PUBLIC_APP_NAME} OS`}
                       </h3>
-                      {!isGuest && session?.user?.email && (
-                        <p className="text-sm text-primary/70 mt-1">{session.user.email}</p>
+                      {!isGuest && user?.email && (
+                        <p className="text-sm text-primary/70 mt-1">{user.email}</p>
                       )}
                     </div>
 
@@ -143,7 +181,10 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
                           <span className="text-[15px] text-primary">Available Talktime</span>
                           <span className="text-[15px] font-medium text-primary bg-primary/10 px-3 sm:px-4 py-1 rounded-md">
                             {Math.floor((subscription?.talktime_left ?? 0) / 3600)}h{' '}
-                            {Math.floor(((subscription?.talktime_left ?? 0) % 3600) / 60)}m
+                            {Math.floor(
+                              ((subscription?.talktime_left ?? 0) % 3600) / 60,
+                            )}
+                            m
                           </span>
                         </div>
 
@@ -162,7 +203,8 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
                       {[
                         {
                           label: 'Help & Support',
-                          action: () => (window.location.href = 'mailto:siddharth.nag@himeera.com'),
+                          action: () =>
+                            (window.location.href = 'mailto:siddharth.nag@himeera.com'),
                         },
                         {
                           label: 'Terms of Service',
@@ -195,7 +237,7 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
                     {/* Action Buttons */}
                     <div className="flex flex-col gap-3">
                       {/* Login/Logout Button */}
-                      {session ? (
+                      {user ? (
                         <div className="rounded-xl border border-primary/20 bg-background overflow-hidden">
                           <button
                             className="w-full flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 bg-background hover:cursor-pointer group"
@@ -223,11 +265,14 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
                                 height={20}
                                 className="mr-2"
                               />
-                              <span className="text-[15px] text-primary">Login with Google</span>
+                              <span className="text-[15px] text-primary">
+                                Login with Google
+                              </span>
                             </div>
                           </button>
                         </div>
                       ) : null}
+
                       {/* Upgrade to Pro Button */}
                       <div className="rounded-xl border border-primary/20 bg-background overflow-hidden">
                         {subscription?.plan_type === 'free_trial' ||
@@ -241,18 +286,23 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
                           >
                             <div className="flex items-center">
                               <FaCrown className="w-4 h-4 mr-3" />
-                              <span className="text-[15px] text-primary">Upgrade to Pro</span>
+                              <span className="text-[15px] text-primary">
+                                Upgrade to Pro
+                              </span>
                             </div>
                           </button>
                         ) : (
                           <div className="w-full flex items-center justify-center px-4 sm:px-5 py-3 sm:py-4 bg-background hover:cursor-pointer">
                             <div className="flex items-center">
                               <FaCrown className="w-4 h-4 mr-3 text-yellow-400" />
-                              <span className="text-[15px] text-primary">Pro Activated</span>
+                              <span className="text-[15px] text-primary">
+                                Pro Activated
+                              </span>
                             </div>
                           </div>
                         )}
                       </div>
+
                       {/* Install App Button */}
                       {/* {!isStandalone && (installPrompt || isIOS) && (
                         <div className="rounded-xl border border-primary/20 bg-background overflow-hidden">
@@ -283,7 +333,15 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
           onClose={() => setShowLogoutDialog(false)}
           title="Logout?"
           description="Are you sure you want to log out? You'll need to log in again to access your account."
-          icon={<Image src="/images/logout.svg" alt="Logout" width={32} height={32} className="w-8 h-8" />}
+          icon={
+            <Image
+              src="/images/logout.svg"
+              alt="Logout"
+              width={32}
+              height={32}
+              className="w-8 h-8"
+            />
+          }
           actions={{
             confirm: {
               label: 'Logout',
