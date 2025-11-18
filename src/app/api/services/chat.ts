@@ -52,6 +52,10 @@ export const chatService = {
    * Load chat history directly from Supabase.
    * For dev we do not filter by user_id because RLS already controls access.
    */
+  /**
+   * Load chat history directly from Supabase for the logged-in user.
+   * Uses the browser Supabase session, no Next.js API route.
+   */
   async getChatHistory(
     page: number = 1,
   ): Promise<{ message: string; data: ChatMessageFromServer[] }> {
@@ -60,40 +64,49 @@ export const chatService = {
     const to = from + pageSize - 1;
 
     try {
+      // 1) Get current Supabase session
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.error('getChatHistory: no valid Supabase session', sessionError);
+        return { message: 'unauthorized', data: [] };
+      }
+
+      const userId = session.user.id;
+
+      // 2) Fetch messages for this user from Supabase
       const { data, error } = await supabase
         .from('messages')
         .select(
-          'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, finish_reason, attachments',
+          // IMPORTANT: removed "finish_reason" from this list
+          'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, attachments',
         )
+        .eq('user_id', userId)
         .order('timestamp', { ascending: true })
         .range(from, to);
 
-      if (error || !data) {
+      if (error) {
         console.error('getChatHistory: Supabase error', error);
         return { message: 'error', data: [] };
       }
 
-      const rows = data as DbMessageRow[];
-
-      const mapped: ChatMessageFromServer[] = rows.map((row) => {
-        const base: ChatMessageFromServer = {
-          message_id: row.message_id,
-          content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
-          content: row.content,
-          timestamp: row.timestamp,
-          is_call: !!row.is_call,
-          attachments: row.attachments ?? [],
-          failed: false,
-          finish_reason: row.finish_reason ?? null,
-        };
-
-        // session_id is optional in ChatMessageFromServer
-        if (row.session_id) {
-          (base as any).session_id = row.session_id;
-        }
-
-        return base;
-      });
+      // 3) Map raw rows into ChatMessageFromServer shape
+      const mapped: ChatMessageFromServer[] = (data ?? []).map((row: any) => ({
+        message_id: row.message_id,
+        // user_id is not part of ChatMessageFromServer type, so we ignore it on the client
+        content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
+        content: row.content,
+        timestamp: row.timestamp,
+        session_id: row.session_id || undefined,
+        is_call: row.is_call ?? false,
+        attachments: row.attachments ?? [],
+        failed: false,
+        // since DB has no column, just keep it null on the client
+        finish_reason: null,
+      }));
 
       return {
         message: 'ok',
