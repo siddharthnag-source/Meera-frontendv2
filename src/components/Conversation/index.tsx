@@ -358,7 +358,7 @@ export const Conversation: React.FC = () => {
           content_type: row.content_type,
           content: row.content,
           timestamp: row.timestamp,
-          session_id: row.session_id,
+          session_id: row.session_id ?? undefined,
           is_call: row.is_call ?? false,
           attachments: [],
           failed: false,
@@ -935,7 +935,7 @@ export const Conversation: React.FC = () => {
 
       <footer ref={footerRef} className="w-full z-40 p-2 md:pr-[13px] bg-transparent">
         <div className="relative">
-          <div className="absolute bottom-full left-0 right-0 flex flex-col items-center mb-2">
+          <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
             {!isSubscriptionLoading &&
               !isSubscriptionError &&
               subscriptionData?.plan_type === 'paid' &&
@@ -958,7 +958,7 @@ export const Conversation: React.FC = () => {
               subscriptionData?.plan_type !== 'paid' &&
               subscriptionData?.tokens_left != null &&
               subscriptionData.tokens_left <= 5000 && (
-                <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
+                <div className="w-fit mx_auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
                   <span className="text-sm">You have {subscriptionData?.tokens_left} tokens left. </span>
                   <span
                     className="text-primary font-medium cursor-pointer underline"
