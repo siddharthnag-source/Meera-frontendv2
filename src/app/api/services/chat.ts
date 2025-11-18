@@ -14,6 +14,10 @@ const SUPABASE_CHAT_URL =
   process.env.NEXT_PUBLIC_SUPABASE_CHAT_URL ??
   'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
 
+// For now we are in single-user dev mode.
+// This must match the id in `auth.users` and in `public.messages.user_id`.
+const DEV_USER_ID = 'd125a2c0-94b1-47c6-a154-98392ef60c6f';
+
 export class SessionExpiredError extends Error {
   constructor(message: string) {
     super(message);
@@ -33,27 +37,23 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * Row shape for the `messages` table we read from Supabase.
- * Keep in sync with your DB schema.
- */
 type DbMessageRow = {
   message_id: string;
   user_id: string;
-  content_type: 'user' | 'assistant';
+  content_type: 'assistant' | 'user';
   content: string;
   timestamp: string;
   session_id: string | null;
   is_call: boolean | null;
-  model?: string | null;
-  finish_reason?: string | null;
-  attachments?: any[] | null;
+  model: string | null;
+  finish_reason: string | null;
+  attachments: any[] | null;
 };
 
 export const chatService = {
   /**
-   * Load chat history directly from Supabase for the logged-in user.
-   * Uses the browser Supabase session, no Next.js API route.
+   * Load chat history directly from Supabase for the dev user.
+   * No Supabase Auth yet, just filter by DEV_USER_ID.
    */
   async getChatHistory(
     page: number = 1,
@@ -63,26 +63,13 @@ export const chatService = {
     const to = from + pageSize - 1;
 
     try {
-      // 1) Get current Supabase session
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
-
-      if (sessionError || !session?.user) {
-        console.error('getChatHistory: no valid Supabase session', sessionError);
-        return { message: 'unauthorized', data: [] };
-      }
-
-      const userId = session.user.id;
-
-      // 2) Fetch messages for this user from Supabase
+      // 1) Fetch messages for this dev user from Supabase
       const { data, error } = await supabase
         .from('messages')
         .select(
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, finish_reason, attachments',
         )
-        .eq('user_id', userId)
+        .eq('user_id', DEV_USER_ID)
         .order('timestamp', { ascending: true })
         .range(from, to);
 
@@ -91,17 +78,16 @@ export const chatService = {
         return { message: 'error', data: [] };
       }
 
-      const rows = (data ?? []) as DbMessageRow[];
+      const rows: DbMessageRow[] = (data ?? []) as DbMessageRow[];
 
-      // 3) Map raw rows into ChatMessageFromServer shape
+      // 2) Map raw rows into ChatMessageFromServer shape
       const mapped: ChatMessageFromServer[] = rows.map((row) => ({
         message_id: row.message_id,
-        // user_id is deliberately ignored on the client
+        // user_id is not part of ChatMessageFromServer type on the client
         content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
         content: row.content,
         timestamp: row.timestamp,
-        // ChatMessageFromServer expects string | undefined, not null
-        session_id: row.session_id ?? undefined,
+        session_id: row.session_id ?? undefined, // ChatMessageFromServer expects string | undefined
         is_call: row.is_call ?? false,
         attachments: row.attachments ?? [],
         failed: false,
@@ -178,3 +164,21 @@ export const chatService = {
 export const saveInteraction = (payload: SaveInteractionPayload) => {
   return api.post(API_ENDPOINTS.CALL.SAVE_INTERACTION, payload);
 };
+---
+
+## 3. Deploy and test
+
+1. Commit `chat.ts` changes and push to `main`.
+2. Let Vercel build again (it should pass now, only React warnings).
+3. Open your app:
+   - You should now see your old Meera conversation instead of “No messages found”.
+   - Sending a new message still hits the Supabase Edge Function as before.
+
+Later, when you are ready to hook up proper Supabase Auth and multi-user history, we can:
+
+- Re-introduce `auth.getSession()`
+- Switch RLS back to `auth.uid()::text = user_id`
+- Insert messages with `user_id = auth.uid()` from the Edge Function.
+
+For now, this should get your history visible and unblocked.
+::contentReference[oaicite:0]{index=0}
