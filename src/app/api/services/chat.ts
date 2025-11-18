@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import {
   ChatMessageFromServer,
   ChatMessageResponse,
@@ -33,6 +31,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Shape of a row in the `messages` table we are reading.
+ * Keep this in sync with your Supabase schema.
+ */
+type DbMessageRow = {
+  message_id: string;
+  user_id: string;
+  content_type: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  session_id: string | null;
+  is_call: boolean | null;
+  model: string | null;
+  finish_reason: string | null;
+  // JSONB field, structure not enforced at this layer
+  attachments: unknown | null;
+};
+
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
@@ -61,7 +77,7 @@ export const chatService = {
 
       // 2) Fetch messages for this user from Supabase
       const { data, error } = await supabase
-        .from('messages')
+        .from<DbMessageRow>('messages')
         .select(
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, finish_reason, attachments',
         )
@@ -74,16 +90,18 @@ export const chatService = {
         return { message: 'error', data: [] };
       }
 
+      const rows: DbMessageRow[] = data ?? [];
+
       // 3) Map raw rows into ChatMessageFromServer shape
-      const mapped = (data ?? []).map((row: any): ChatMessageFromServer => ({
+      const mapped: ChatMessageFromServer[] = rows.map((row) => ({
         message_id: row.message_id,
-        // user_id is not part of ChatMessageFromServer type, so we ignore it on the client
         content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
         content: row.content,
         timestamp: row.timestamp,
         session_id: row.session_id ?? null,
         is_call: row.is_call ?? false,
-        attachments: row.attachments ?? [],
+        // we do not rely on attachments shape at this layer; default to empty array if null
+        attachments: (row.attachments as ChatMessageFromServer['attachments']) ?? [],
         failed: false,
         finish_reason: row.finish_reason ?? null,
       }));
