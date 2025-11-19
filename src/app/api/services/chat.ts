@@ -33,18 +33,36 @@ export class ApiError extends Error {
   }
 }
 
+// Shape of a row coming from the `messages` table
+type DbMessageRow = {
+  message_id: string;
+  user_id: string;
+  content_type: string;
+  content: string;
+  timestamp: string;
+  session_id?: string | null;
+  is_call?: boolean | null;
+  model?: string | null;
+  // attachments column does NOT exist in DB anymore – keep it out of the select
+};
+
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
-   * We fetch up to (page * 1000) messages, ordered oldest → newest.
-   * The Conversation component will then scroll to the bottom so
-   * you see November first and can scroll UP for October, September, etc.
+   * Uses the browser Supabase session, no Next.js API route.
+   *
+   * IMPORTANT:
+   * - We now fetch messages ordered by timestamp DESC (newest first)
+   * - Then we reverse the page so each page is still oldest → newest.
+   *   This makes page 1 contain the most recent messages, but your
+   *   existing UI that expects chronological chunks will still work.
    */
   async getChatHistory(
     page: number = 1,
   ): Promise<{ message: string; data: ChatMessageFromServer[] }> {
-    const basePageSize = 1000;
-    const limit = Math.max(1, page) * basePageSize;
+    const pageSize = 20;
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
 
     try {
       // 1) Get current Supabase session
@@ -63,31 +81,37 @@ export const chatService = {
       // 2) Fetch messages for this user from Supabase
       const { data, error } = await supabase
         .from('messages')
-        .select(
-          // IMPORTANT: only columns that actually exist in your table
+        .select<DbMessageRow>(
+          // NOTE: attachments removed from select because column does not exist
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model',
         )
         .eq('user_id', userId)
-        .order('timestamp', { ascending: true }) // oldest → newest
-        .limit(limit);
+        // NEW: get newest messages first
+        .order('timestamp', { ascending: false })
+        .range(from, to);
 
       if (error) {
         console.error('getChatHistory: Supabase error', error);
         return { message: 'error', data: [] };
       }
 
-      // 3) Map raw rows into ChatMessageFromServer shape
-      const mapped: ChatMessageFromServer[] = (data ?? []).map((row: any) => ({
+      // 3) Reverse so that within each page we still have oldest → newest
+      const rows = (data ?? []).slice().reverse();
+
+      // 4) Map raw rows into ChatMessageFromServer shape
+      const mapped: ChatMessageFromServer[] = rows.map((row) => ({
         message_id: row.message_id,
-        // user_id is not part of ChatMessageFromServer type, so we ignore it on the client
+        // content_type in DB is 'assistant' or 'user'
         content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
         content: row.content,
         timestamp: row.timestamp,
         session_id: row.session_id || undefined,
         is_call: row.is_call ?? false,
-        attachments: [], // no attachments column in DB, keep empty on client
+        attachments: [], // column is gone in DB, keep empty array on client
         failed: false,
-        finish_reason: null, // no column in DB, keep null on client
+        // since DB has no finish_reason column, keep null on client
+        finish_reason: null,
+        model: row.model || undefined,
       }));
 
       return {
