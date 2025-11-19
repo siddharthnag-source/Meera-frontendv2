@@ -63,8 +63,8 @@ export const chatService = {
       const { data, error } = await supabase
         .from('messages')
         .select(
-          // finish_reason is not in the DB, so it is not selected here
-          'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, attachments',
+          // very important: only columns that actually exist in the DB
+          'message_id, user_id, content_type, content, timestamp, session_id, is_call, model',
         )
         .eq('user_id', userId)
         .order('timestamp', { ascending: true })
@@ -84,9 +84,10 @@ export const chatService = {
         timestamp: row.timestamp,
         session_id: row.session_id || undefined,
         is_call: row.is_call ?? false,
-        attachments: row.attachments ?? [],
+        // DB has no attachments column yet; treat as empty list on the client
+        attachments: [],
         failed: false,
-        // since DB has no column, just keep it null on the client
+        // DB has no finish_reason column; keep null on the client
         finish_reason: null,
       }));
 
