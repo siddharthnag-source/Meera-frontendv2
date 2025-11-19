@@ -93,7 +93,6 @@ export const chatService = {
         attachments: [],
         failed: false,
         finish_reason: null,
-        model: row.model || undefined,
       }));
 
       return { message: 'ok', data: mapped };
@@ -190,7 +189,6 @@ export const chatService = {
             is_call: false,
             failed: false,
             finish_reason: null,
-            model: dbAssistantRow.model ?? undefined,
           }
         : {
             // fallback if insert failed
