@@ -36,14 +36,15 @@ export class ApiError extends Error {
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
-   * Uses the browser Supabase session, no Next.js API route.
+   * We fetch up to (page * 1000) messages, ordered oldest → newest.
+   * The Conversation component will then scroll to the bottom so
+   * you see November first and can scroll UP for October, September, etc.
    */
   async getChatHistory(
     page: number = 1,
   ): Promise<{ message: string; data: ChatMessageFromServer[] }> {
-    const pageSize = 20;
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
+    const basePageSize = 1000;
+    const limit = Math.max(1, page) * basePageSize;
 
     try {
       // 1) Get current Supabase session
@@ -63,12 +64,12 @@ export const chatService = {
       const { data, error } = await supabase
         .from('messages')
         .select(
-          // very important: only columns that actually exist in the DB
+          // IMPORTANT: only columns that actually exist in your table
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model',
         )
         .eq('user_id', userId)
-        .order('timestamp', { ascending: true })
-        .range(from, to);
+        .order('timestamp', { ascending: true }) // oldest → newest
+        .limit(limit);
 
       if (error) {
         console.error('getChatHistory: Supabase error', error);
@@ -84,11 +85,9 @@ export const chatService = {
         timestamp: row.timestamp,
         session_id: row.session_id || undefined,
         is_call: row.is_call ?? false,
-        // DB has no attachments column yet; treat as empty list on the client
-        attachments: [],
+        attachments: [], // no attachments column in DB, keep empty on client
         failed: false,
-        // DB has no finish_reason column; keep null on the client
-        finish_reason: null,
+        finish_reason: null, // no column in DB, keep null on client
       }));
 
       return {
