@@ -44,9 +44,7 @@ type DbMessageRow = {
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
-   *
-   * We fetch newest messages first (DESC), then reverse the page so that
-   * each page the UI receives is still oldest → newest.
+   * Fetches newest messages first, then reverses each page so UI sees oldest → newest.
    */
   async getChatHistory(
     page: number = 1,
@@ -71,11 +69,11 @@ export const chatService = {
       const { data, error } = await supabase
         .from('messages')
         .select(
-          // attachments removed, column doesn’t exist anymore
+          // attachments removed, column does not exist anymore
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model',
         )
         .eq('user_id', userId)
-        .order('timestamp', { ascending: false }) // newest first
+        .order('timestamp', { ascending: false })
         .range(from, to);
 
       if (error) {
@@ -92,7 +90,7 @@ export const chatService = {
         timestamp: row.timestamp,
         session_id: row.session_id || undefined,
         is_call: row.is_call ?? false,
-        attachments: [], // no attachments column in DB
+        attachments: [],
         failed: false,
         finish_reason: null,
         model: row.model || undefined,
@@ -106,12 +104,27 @@ export const chatService = {
   },
 
   /**
-   * Non-streaming sendMessage → Supabase Edge Function.
+   * Non-streaming sendMessage.
+   * Calls Supabase Edge Function and persists both user and assistant messages.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
 
     try {
+      // 1) Get current Supabase user
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.error('sendMessage: no valid Supabase session', sessionError);
+        throw new SessionExpiredError('Your session has expired, please sign in again.');
+      }
+
+      const userId = session.user.id;
+
+      // 2) Call Edge Function to get Meera reply
       const response = await fetch(SUPABASE_CHAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -131,18 +144,65 @@ export const chatService = {
         );
       }
 
-      const body = (await response.json()) as { reply: string };
+      const body = (await response.json()) as { reply: string; model?: string };
 
-      const assistantMessage: ChatMessageFromServer = {
-        message_id: crypto.randomUUID(),
-        content_type: 'assistant',
-        content: body.reply,
-        timestamp: new Date().toISOString(),
-        attachments: [],
-        is_call: false,
-        failed: false,
-        finish_reason: null,
-      };
+      const nowIso = new Date().toISOString();
+
+      // 3) Persist user message + assistant reply
+      const { data: insertedRows, error: insertError } = await supabase
+        .from('messages')
+        .insert([
+          {
+            user_id: userId,
+            content_type: 'user',
+            content: message,
+            timestamp: nowIso,
+            is_call: false,
+            model: body.model ?? null,
+          },
+          {
+            user_id: userId,
+            content_type: 'assistant',
+            content: body.reply,
+            timestamp: nowIso,
+            is_call: false,
+            model: body.model ?? null,
+          },
+        ])
+        .select('message_id, content_type, content, timestamp, model');
+
+      if (insertError) {
+        console.error('sendMessage: failed to save messages to DB', insertError);
+      }
+
+      // 4) Build assistant message object for UI
+      const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.find(
+        (row) => row.content_type === 'assistant',
+      );
+
+      const assistantMessage: ChatMessageFromServer = dbAssistantRow
+        ? {
+            message_id: dbAssistantRow.message_id,
+            content_type: 'assistant',
+            content: dbAssistantRow.content,
+            timestamp: dbAssistantRow.timestamp,
+            attachments: [],
+            is_call: false,
+            failed: false,
+            finish_reason: null,
+            model: dbAssistantRow.model ?? undefined,
+          }
+        : {
+            // fallback if insert failed
+            message_id: crypto.randomUUID(),
+            content_type: 'assistant',
+            content: body.reply,
+            timestamp: nowIso,
+            attachments: [],
+            is_call: false,
+            failed: false,
+            finish_reason: null,
+          };
 
       const chatResponse: ChatMessageResponse = {
         message: 'ok',
