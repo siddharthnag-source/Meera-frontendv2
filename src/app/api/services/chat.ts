@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import {
   ChatMessageFromServer,
   ChatMessageResponse,
@@ -9,7 +7,6 @@ import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
 import { supabase } from '@/lib/supabaseClient';
 
-// Supabase Edge Function endpoint for the `chat` function
 const SUPABASE_CHAT_URL =
   process.env.NEXT_PUBLIC_SUPABASE_CHAT_URL ??
   'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
@@ -33,7 +30,6 @@ export class ApiError extends Error {
   }
 }
 
-// Shape of a row coming from the `messages` table
 type DbMessageRow = {
   message_id: string;
   user_id: string;
@@ -43,19 +39,14 @@ type DbMessageRow = {
   session_id?: string | null;
   is_call?: boolean | null;
   model?: string | null;
-  // attachments column does NOT exist in DB anymore – keep it out of the select
 };
 
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
-   * Uses the browser Supabase session, no Next.js API route.
    *
-   * IMPORTANT:
-   * - We now fetch messages ordered by timestamp DESC (newest first)
-   * - Then we reverse the page so each page is still oldest → newest.
-   *   This makes page 1 contain the most recent messages, but your
-   *   existing UI that expects chronological chunks will still work.
+   * We fetch newest messages first (DESC), then reverse the page so that
+   * each page the UI receives is still oldest → newest.
    */
   async getChatHistory(
     page: number = 1,
@@ -65,7 +56,6 @@ export const chatService = {
     const to = from + pageSize - 1;
 
     try {
-      // 1) Get current Supabase session
       const {
         data: { session },
         error: sessionError,
@@ -78,16 +68,14 @@ export const chatService = {
 
       const userId = session.user.id;
 
-      // 2) Fetch messages for this user from Supabase
       const { data, error } = await supabase
         .from('messages')
-        .select<DbMessageRow>(
-          // NOTE: attachments removed from select because column does not exist
+        .select(
+          // attachments removed, column doesn’t exist anymore
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model',
         )
         .eq('user_id', userId)
-        // NEW: get newest messages first
-        .order('timestamp', { ascending: false })
+        .order('timestamp', { ascending: false }) // newest first
         .range(from, to);
 
       if (error) {
@@ -95,37 +83,30 @@ export const chatService = {
         return { message: 'error', data: [] };
       }
 
-      // 3) Reverse so that within each page we still have oldest → newest
-      const rows = (data ?? []).slice().reverse();
+      const rows = ((data ?? []) as DbMessageRow[]).slice().reverse();
 
-      // 4) Map raw rows into ChatMessageFromServer shape
       const mapped: ChatMessageFromServer[] = rows.map((row) => ({
         message_id: row.message_id,
-        // content_type in DB is 'assistant' or 'user'
         content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
         content: row.content,
         timestamp: row.timestamp,
         session_id: row.session_id || undefined,
         is_call: row.is_call ?? false,
-        attachments: [], // column is gone in DB, keep empty array on client
+        attachments: [], // no attachments column in DB
         failed: false,
-        // since DB has no finish_reason column, keep null on client
         finish_reason: null,
         model: row.model || undefined,
       }));
 
-      return {
-        message: 'ok',
-        data: mapped,
-      };
-    } catch (error) {
-      console.error('getChatHistory: unexpected error', error);
+      return { message: 'ok', data: mapped };
+    } catch (err) {
+      console.error('getChatHistory: unexpected error', err);
       return { message: 'error', data: [] };
     }
   },
 
   /**
-   * Simple non-streaming sendMessage → Supabase Edge Function → JSON → ChatMessageResponse
+   * Non-streaming sendMessage → Supabase Edge Function.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
@@ -133,9 +114,7 @@ export const chatService = {
     try {
       const response = await fetch(SUPABASE_CHAT_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message }),
       });
 
@@ -174,9 +153,9 @@ export const chatService = {
       };
 
       return chatResponse;
-    } catch (error) {
-      console.error('Error in sendMessage:', error);
-      throw error;
+    } catch (err) {
+      console.error('Error in sendMessage:', err);
+      throw err;
     }
   },
 };
