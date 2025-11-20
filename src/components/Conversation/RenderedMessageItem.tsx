@@ -81,11 +81,19 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
   return (
     <span className="relative inline-flex items-center text-primary text-[15px] whitespace-nowrap">
       {/* Invisible anchor fixes width so pill never grows or shrinks */}
-      <span className="opacity-0">{WIDTH_ANCHOR}</span>
+      <span className="opacity-0">
+        {WIDTH_ANCHOR}
+        {' ...'}
+      </span>
 
-      {/* Visible text, left aligned inside the pill */}
+      {/* Visible text + dots, left aligned, no gap between them */}
       <span className="absolute inset-y-0 left-0 flex items-center">
-        {text}
+        <span>{text}</span>
+        <span className="ml-1 flex space-x-1">
+          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
+          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
+          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
+        </span>
       </span>
     </span>
   );
@@ -424,15 +432,10 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Orchestrating / thoughts row with dots */}
+            {/* Orchestrating / thoughts row with dots (dots are inside the pill) */}
             {showThinkingRow && (
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center">
                 <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce"></div>
-                </div>
               </div>
             )}
 
