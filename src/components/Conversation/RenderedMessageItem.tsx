@@ -73,11 +73,11 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
 
   if (!text) return null;
 
-  // Centered text + dots, minimal spacing, no vertical offset
+  // Centered text + dots, with a small but clear gap
   return (
     <span className="inline-flex items-center justify-center text-primary text-[15px] leading-none whitespace-nowrap">
       <span>{text}</span>
-      <span className="flex items-center ml-[3px] gap-[3px]">
+      <span className="flex items-center ml-1 gap-1">
         <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
         <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
         <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
@@ -121,7 +121,6 @@ export const RenderedMessageItem: React.FC<{
     const bgColor = isUser ? 'bg-primary' : 'bg-card';
     const textColor = isUser ? 'text-background' : 'text-primary';
 
-    // Does this bubble have any normal text content or attachments?
     const hasTextContent =
       !!message.content || (message.content_type === 'assistant' && !!message.failed);
     const hasAttachments = !!(message.attachments && message.attachments.length > 0);
@@ -332,8 +331,9 @@ export const RenderedMessageItem: React.FC<{
             {hasAttachments && (
               <div className={hasTextContent ? 'mt-3' : ''}>
                 {(() => {
-                  const images = message.attachments!.filter((att) => att.type === 'image');
-                  const documents = message.attachments!.filter((att) => att.type !== 'image');
+                  const attachments = message.attachments ?? [];
+                  const images = attachments.filter((att) => att.type === 'image');
+                  const documents = attachments.filter((att) => att.type !== 'image');
 
                   return (
                     <>
@@ -429,9 +429,7 @@ export const RenderedMessageItem: React.FC<{
             {/* Orchestrating / searching / thinking / thoughts row */}
             {showThinkingRow && (
               <div
-                className={`${
-                  onlyThinking ? '' : 'mt-1'
-                } flex w-full items-center justify-center`}
+                className={`${onlyThinking ? '' : 'mt-1'} flex w-full items-center justify-center`}
               >
                 <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
               </div>
@@ -481,7 +479,7 @@ export const RenderedMessageItem: React.FC<{
                             downloadFile(firstAttachment.url);
                           }
                         }}
-                        className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg:white/10 transition-colors focus:outline-none cursor-pointer"
+                        className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                         title="Download attachment"
                       >
                         <FiDownload size={14} className="text-primary/60 hover:text-primary/80" />
@@ -490,7 +488,7 @@ export const RenderedMessageItem: React.FC<{
                   {isUser && message.failed && isLastFailedMessage && (
                     <button
                       onClick={handleRetry}
-                      className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg:white/10 transition-colors focus:outline-none cursor-pointer"
+                      className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                       title="Retry sending"
                     >
                       <FiRefreshCw size={14} className="text-background/60 hover:text-background/90" />
