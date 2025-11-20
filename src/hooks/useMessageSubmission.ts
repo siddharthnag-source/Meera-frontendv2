@@ -1,5 +1,6 @@
 // src/hooks/useMessageSubmission.ts
 import { useCallback, useRef } from 'react';
+import type React from 'react';
 import { ChatMessageFromServer, ChatMessageResponse } from '@/types/chat';
 import { chatService } from '../app/api/services/chat';
 
@@ -26,11 +27,17 @@ type UseMessageSubmissionArgs = {
 
   setLastAssistantMessageId?: (id: string) => void;
 
-  // these are passed by Conversation/index.tsx
+  // sending UI state that Conversation passes
   isSearchActive?: boolean;
   isSending?: boolean;
   setIsSending?: (v: boolean) => void;
   setJustSentMessage?: (v: boolean) => void;
+
+  // Conversation now also passes this ref
+  lastOptimisticMessageIdRef?: React.MutableRefObject<string | null>;
+
+  // Allow any other future props from Conversation without breaking build
+  [key: string]: unknown;
 };
 
 type ChatMessageLocal = ChatMessageFromServer & {
@@ -50,6 +57,7 @@ export function useMessageSubmission({
   setLastAssistantMessageId,
   setIsSending,
   setJustSentMessage,
+  lastOptimisticMessageIdRef,
 }: UseMessageSubmissionArgs) {
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
 
@@ -80,6 +88,11 @@ export function useMessageSubmission({
         finish_reason: null,
         try_number: isRetry ? 2 : 1,
       };
+
+      // Let Conversation know our optimistic id, if it wants it
+      if (lastOptimisticMessageIdRef) {
+        lastOptimisticMessageIdRef.current = optimisticUser.message_id;
+      }
 
       setChatMessages((prev) => [...prev, optimisticUser]);
 
@@ -138,6 +151,7 @@ export function useMessageSubmission({
       setLastAssistantMessageId,
       setIsSending,
       setJustSentMessage,
+      lastOptimisticMessageIdRef,
     ],
   );
 
