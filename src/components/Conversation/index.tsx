@@ -883,10 +883,14 @@ export const Conversation: React.FC = () => {
 
                         const isLastFailedMessage = msg.message_id === lastFailedMessageId;
 
+                        // Keep thoughts after response by using streamed text OR stored thoughts on the message
+                        const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
+                        const effectiveThoughtText = currentThoughtText || storedThoughts || undefined;
+
+                        // Show typing + phase pill for the latest assistant message while typing or streaming thoughts
                         const shouldShowTypingIndicator =
                           msg.content_type === 'assistant' &&
                           msg.message_id === lastMessage?.message_id &&
-                          lastMessageIsFromAssistant &&
                           (isAssistantTyping || !!currentThoughtText);
 
                         const isLatestUserMessage =
@@ -913,9 +917,7 @@ export const Conversation: React.FC = () => {
                               onRetry={handleRetryMessage}
                               isLastFailedMessage={isLastFailedMessage}
                               showTypingIndicator={shouldShowTypingIndicator}
-                              thoughtText={
-                                shouldShowTypingIndicator && currentThoughtText ? currentThoughtText : undefined
-                              }
+                              thoughtText={effectiveThoughtText}
                               hasMinHeight={isLatestAssistantMessage}
                               dynamicMinHeight={dynamicMinHeight}
                             />
