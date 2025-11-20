@@ -1,5 +1,3 @@
-'use client';
-
 import {
   CodeBlock,
   ImageSkeleton,
@@ -35,37 +33,47 @@ import { ChatMessageFromServer } from '@/types/chat';
 import Image from 'next/image';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FaFilePdf } from 'react-icons/fa';
-import {
-  FiCheck,
-  FiChevronDown,
-  FiChevronUp,
-  FiCopy,
-  FiDownload,
-  FiPaperclip,
-  FiRefreshCw,
-} from 'react-icons/fi';
+import { FiCheck, FiChevronDown, FiChevronUp, FiCopy, FiDownload, FiPaperclip, FiRefreshCw } from 'react-icons/fi';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 
-/* ---------------- Live thinking text inside the pill ---------------- */
+/* ---------------- Thinking status text inside the pill ---------------- */
 
-type ThinkingPhase = 'idle' | 'orchestrating' | 'searching' | 'thinking';
+type ThinkingPhase = 'idle' | 'orchestrating' | 'searching' | 'thinking' | 'thoughts';
 
 type ThinkingStatusTextProps = {
   phase: ThinkingPhase;
+  thoughtText?: string;
 };
 
-const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase }) => {
+const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtText }) => {
   const text = useMemo(() => {
     if (phase === 'orchestrating') return 'Orchestrating';
     if (phase === 'searching') return 'Searching memories';
     if (phase === 'thinking') return 'Thinking';
+
+    if (phase === 'thoughts' && thoughtText) {
+      const firstLine =
+        thoughtText
+          .split('\n')
+          .map((line) =>
+            line
+              .replace(/\*\*/g, '')
+              .replace(/^[-*]\s*/, '')
+              .trim(),
+          )
+          .find(Boolean) || '';
+
+      return firstLine;
+    }
+
     return '';
-  }, [phase]);
+  }, [phase, thoughtText]);
 
   if (!text) return null;
 
+  // Centered text + dots, with a small but clear gap
   return (
     <span className="inline-flex items-center justify-center text-primary text-[15px] leading-none whitespace-nowrap">
       <span>{text}</span>
@@ -75,20 +83,6 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase }) => {
         <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
       </span>
     </span>
-  );
-};
-
-/* ---------------- Thoughts block (full text, after reply) ---------------- */
-
-const ThoughtsBlock: React.FC<{ text: string }> = ({ text }) => {
-  const cleaned = (text || '').trim();
-  if (!cleaned) return null;
-
-  return (
-    <div className="mt-2 rounded-lg border border-primary/10 bg-primary/5 px-3 py-2">
-      <div className="text-[11px] text-primary/60 font-medium mb-1">Thoughts</div>
-      <div className="whitespace-pre-wrap text-sm text-primary/80">{cleaned}</div>
-    </div>
   );
 };
 
@@ -132,7 +126,7 @@ export const RenderedMessageItem: React.FC<{
     const hasAttachments = !!(message.attachments && message.attachments.length > 0);
     const hasMainContent = hasTextContent || hasAttachments;
 
-    /* Phase progression for LIVE indicator: Orchestrating -> Searching memories -> Thinking */
+    /* Phase progression: Orchestrating -> Searching memories -> Thinking (once each) */
     useEffect(() => {
       if (showTypingIndicator && !isUser) {
         setPhase('orchestrating');
@@ -151,11 +145,22 @@ export const RenderedMessageItem: React.FC<{
           }, 1600),
         );
 
-        return () => timeouts.forEach(clearTimeout);
-      } else if (!showTypingIndicator && !isUser) {
-        setPhase('idle');
+        return () => {
+          timeouts.forEach(clearTimeout);
+        };
+      } else {
+        if (!thoughtText) {
+          setPhase('idle');
+        }
       }
-    }, [showTypingIndicator, isUser]);
+    }, [showTypingIndicator, isUser, thoughtText]);
+
+    /* When model thoughts arrive, show them */
+    useEffect(() => {
+      if (!isUser && thoughtText && thoughtText.trim()) {
+        setPhase('thoughts');
+      }
+    }, [thoughtText, isUser]);
 
     /* Overflow handling for user bubble */
     useEffect(() => {
@@ -199,20 +204,17 @@ export const RenderedMessageItem: React.FC<{
     };
 
     const handleRetry = () => {
-      onRetry?.(message);
+      if (onRetry) {
+        onRetry(message);
+      }
     };
 
-    const showLiveThinkingRow =
-      !isUser && !message.isGeneratingImage && !!showTypingIndicator;
-
-    const showThoughtsAfter =
+    const showThinkingRow =
       !isUser &&
       !message.isGeneratingImage &&
-      !showTypingIndicator &&
-      !!thoughtText &&
-      thoughtText.trim().length > 0;
+      (showTypingIndicator || (phase === 'thoughts' && !!thoughtText));
 
-    const onlyThinking = showLiveThinkingRow && !hasMainContent;
+    const onlyThinking = showThinkingRow && !hasMainContent;
 
     const bubbleBase =
       `px-4 py-4 shadow-sm relative ${bgColor} ${textColor} ` +
@@ -230,9 +232,7 @@ export const RenderedMessageItem: React.FC<{
         <div
           style={hasMinHeight && !isUser ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
           className={`flex flex-col md:pr-1 ${
-            message.attachments && message.attachments.length > 0
-              ? 'w-[85%] md:w-[55%]'
-              : 'max-w-[99%] md:max-w-[99%]'
+            message.attachments && message.attachments.length > 0 ? 'w-[85%] md:w-[55%]' : 'max-w-[99%] md:max-w-[99%]'
           }`}
         >
           <div className={bubbleClasses}>
@@ -250,9 +250,7 @@ export const RenderedMessageItem: React.FC<{
                   </div>
                 ) : message.content_type === 'assistant' ? (
                   message.failed && message.failedMessage ? (
-                    <div className="text-red-500 font-medium text-[15px]">
-                      {message.failedMessage}
-                    </div>
+                    <div className="text-red-500 font-medium text-[15px]">{message.failedMessage}</div>
                   ) : (
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
@@ -340,11 +338,7 @@ export const RenderedMessageItem: React.FC<{
                   return (
                     <>
                       {images.length > 0 && (
-                        <div
-                          className={`grid gap-2 mb-3 ${
-                            images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
-                          }`}
-                        >
+                        <div className={`grid gap-2 mb-3 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                           {images.map((att, index) => (
                             <div key={`image-${index}`} className="relative">
                               {att.url ? (
@@ -391,15 +385,10 @@ export const RenderedMessageItem: React.FC<{
                                 >
                                   <FaFilePdf size={28} className="text-red-500 mr-2.5 flex-shrink-0" />
                                   <div className="flex-1 overflow-hidden">
-                                    <p
-                                      className="text-sm text-primary font-medium truncate"
-                                      title={att.name}
-                                    >
+                                    <p className="text-sm text-primary font-medium truncate" title={att.name}>
                                       {truncateFileName(att.name || 'document.pdf', 25)}
                                     </p>
-                                    {att.size && (
-                                      <p className="text-xs text-primary/60">PDF Document</p>
-                                    )}
+                                    {att.size && <p className="text-xs text-primary/60">PDF Document</p>}
                                   </div>
                                 </a>
                               ) : att.url ? (
@@ -410,10 +399,7 @@ export const RenderedMessageItem: React.FC<{
                                   className="flex items-center p-2.5 rounded-lg border border-primary/20 bg-gray-100 hover:bg-gray-200 transition-colors"
                                 >
                                   <FiPaperclip size={24} className="text-primary/70 mr-2.5 flex-shrink-0" />
-                                  <p
-                                    className="text-sm text-primary font-medium truncate"
-                                    title={att.name}
-                                  >
+                                  <p className="text-sm text-primary font-medium truncate" title={att.name}>
                                     {truncateFileName(att.name || 'attachment', 25)}
                                   </p>
                                 </a>
@@ -421,16 +407,11 @@ export const RenderedMessageItem: React.FC<{
                                 <div className="flex items-center p-2.5 rounded-lg border border-dashed border-red-400/50 bg-red-50/50">
                                   <FiPaperclip size={24} className="text-red-500 mr-2.5 flex-shrink-0" />
                                   <div className="flex-1 overflow-hidden">
-                                    <p
-                                      className="text-sm text-red-700 font-medium truncate"
-                                      title={att.name}
-                                    >
+                                    <p className="text-sm text-red-700 font-medium truncate" title={att.name}>
                                       {truncateFileName(att.name || 'Attachment error', 25)}
                                     </p>
                                     <p className="text-xs text-red-500">
-                                      {att.type === 'error'
-                                        ? 'Error loading attachment'
-                                        : 'Cannot display attachment'}
+                                      {att.type === 'error' ? 'Error loading attachment' : 'Cannot display attachment'}
                                     </p>
                                   </div>
                                 </div>
@@ -445,10 +426,12 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* LIVE Orchestrating / Searching / Thinking row */}
-            {showLiveThinkingRow && (
-              <div className={`${onlyThinking ? '' : 'mt-1'} flex w-full items-center justify-center`}>
-                <ThinkingStatusText phase={phase} />
+            {/* Orchestrating / searching / thinking / thoughts row */}
+            {showThinkingRow && (
+              <div
+                className={`${onlyThinking ? '' : 'mt-1'} flex w-full items-center justify-center`}
+              >
+                <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
               </div>
             )}
 
@@ -461,9 +444,9 @@ export const RenderedMessageItem: React.FC<{
 
             {isStreaming && message.content && !message.isGeneratingImage && (
               <div className="flex items-center space-x-1 mt-2">
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce"></div>
               </div>
             )}
 
@@ -514,7 +497,7 @@ export const RenderedMessageItem: React.FC<{
                   {isUser && showExpandButton && !isExpanded && (
                     <button
                       onClick={() => setIsExpanded(true)}
-                      className="p-0.5 rounded text-xs text-background/60 hover:text-background/90 transition-colors focus:outline-none cursor-pointer"
+                      className="p-0.5 rounded text-xs text-background/60 hover:text-background/90 transition-colors focus:outline-none cursor-pointer "
                       title="Show more"
                     >
                       <FiChevronDown size={16} />
@@ -533,6 +516,29 @@ export const RenderedMessageItem: React.FC<{
 
                 <p className={`text-xs whitespace-nowrap ${isUser ? 'text-background/60' : 'text-primary/60'}`}>
                   {(() => {
+                    if (isUser) {
+                      const timestamp = message.timestamp;
+                      if (!timestamp) return '';
+
+                      try {
+                        const match = timestamp.match(/(\d{2}):(\d{2}):/);
+                        if (match) {
+                          const hours = parseInt(match[1], 10);
+                          const minutes = match[2];
+                          const ampm = hours >= 12 ? 'PM' : 'AM';
+                          const formattedHours = hours % 12 || 12;
+                          return `${formattedHours}:${minutes} ${ampm}`;
+                        }
+                        return '';
+                      } catch {
+                        return '';
+                      }
+                    }
+
+                    if (message.content_type === 'assistant' && isStreaming) {
+                      return '';
+                    }
+
                     const timestamp = message.timestamp;
                     if (!timestamp) return '';
 
@@ -554,17 +560,10 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
           </div>
-
-          {/* Full thoughts shown AFTER live thinking ends */}
-          {showThoughtsAfter && <ThoughtsBlock text={thoughtText as string} />}
         </div>
 
         {imageModalOpen && (
-          <ImageModal
-            isOpen={imageModalOpen}
-            onClose={() => setImageModalOpen(false)}
-            imageUrl={currentImageUrl}
-          />
+          <ImageModal isOpen={imageModalOpen} onClose={() => setImageModalOpen(false)} imageUrl={currentImageUrl} />
         )}
       </div>
     );
