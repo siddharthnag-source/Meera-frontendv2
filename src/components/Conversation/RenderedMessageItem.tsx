@@ -42,9 +42,6 @@ import remarkGfm from 'remark-gfm';
 
 type ThinkingPhase = 'idle' | 'orchestrating' | 'searching' | 'thinking' | 'thoughts';
 
-// Longest label, without dots
-const WIDTH_ANCHOR = 'Searching memories';
-
 type ThinkingStatusTextProps = {
   phase: ThinkingPhase;
   thoughtText?: string;
@@ -52,20 +49,18 @@ type ThinkingStatusTextProps = {
 
 const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtText }) => {
   const text = useMemo(() => {
-    // Phase labels without "..."
     if (phase === 'orchestrating') return 'Orchestrating';
     if (phase === 'searching') return 'Searching memories';
     if (phase === 'thinking') return 'Thinking';
 
-    // Model thoughts (first non-empty line, markdown cleaned)
     if (phase === 'thoughts' && thoughtText) {
       const firstLine =
         thoughtText
           .split('\n')
           .map((line) =>
             line
-              .replace(/\*\*/g, '') // remove **bold**
-              .replace(/^[-*]\s*/, '') // remove bullet markers
+              .replace(/\*\*/g, '')
+              .replace(/^[-*]\s*/, '')
               .trim(),
           )
           .find(Boolean) || '';
@@ -78,22 +73,14 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
 
   if (!text) return null;
 
+  // Text + dots inline, spacing like the original pill, and width auto-expands with text
   return (
-    <span className="relative inline-flex items-center text-primary text-[15px] whitespace-nowrap">
-      {/* Invisible anchor fixes width so pill never grows or shrinks */}
-      <span className="opacity-0">
-        {WIDTH_ANCHOR}
-        {' ...'}
-      </span>
-
-      {/* Visible text + dots, left aligned, no gap between them */}
-      <span className="absolute inset-y-0 left-0 flex items-center">
-        <span>{text}</span>
-        <span className="ml-1 flex space-x-1">
-          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
-          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
-          <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
-        </span>
+    <span className="inline-flex items-center text-primary text-[15px] whitespace-nowrap">
+      <span>{text}</span>
+      <span className="ml-1 flex space-x-1">
+        <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
+        <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
+        <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
       </span>
     </span>
   );
@@ -134,21 +121,19 @@ export const RenderedMessageItem: React.FC<{
     const bgColor = isUser ? 'bg-primary' : 'bg-card';
     const textColor = isUser ? 'text-background' : 'text-primary';
 
-    /* Phase progression: Orchestrating -> Searching memories -> Thinking (each once) */
+    /* Phase progression: Orchestrating -> Searching memories -> Thinking (once each) */
     useEffect(() => {
       if (showTypingIndicator && !isUser) {
         setPhase('orchestrating');
 
         const timeouts: NodeJS.Timeout[] = [];
 
-        // After 0.8s show "Searching memories"
         timeouts.push(
           setTimeout(() => {
             setPhase((prev) => (prev === 'orchestrating' ? 'searching' : prev));
           }, 800),
         );
 
-        // After 1.6s show "Thinking"
         timeouts.push(
           setTimeout(() => {
             setPhase((prev) => (prev === 'searching' ? 'thinking' : prev));
@@ -159,21 +144,20 @@ export const RenderedMessageItem: React.FC<{
           timeouts.forEach(clearTimeout);
         };
       } else {
-        // When typing stops and there are no thoughts, reset
         if (!thoughtText) {
           setPhase('idle');
         }
       }
     }, [showTypingIndicator, isUser, thoughtText]);
 
-    /* When model thoughts arrive, switch to thoughts phase */
+    /* When model thoughts arrive, show them */
     useEffect(() => {
       if (!isUser && thoughtText && thoughtText.trim()) {
         setPhase('thoughts');
       }
     }, [thoughtText, isUser]);
 
-    /* Handle overflow and expand button for user messages */
+    /* Overflow handling for user bubble */
     useEffect(() => {
       const element = contentRef.current;
       if (isUser && element && !isExpanded) {
@@ -220,9 +204,6 @@ export const RenderedMessageItem: React.FC<{
       }
     };
 
-    // Show thinking row:
-    //  - while generating (showTypingIndicator)
-    //  - or when we have thoughts and phase is 'thoughts'
     const showThinkingRow =
       !isUser &&
       !message.isGeneratingImage &&
@@ -243,7 +224,7 @@ export const RenderedMessageItem: React.FC<{
                 : `rounded-r-lg rounded-bl-lg after:left-0 after:border-t-[6px] after:border-r-[6px] after:border-r-transparent after:border-t-card`
             }`}
           >
-            {/* Text content */}
+            {/* Main content */}
             {(message.content || (message.content_type === 'assistant' && message.failed)) && (
               <>
                 {message.content_type === 'user' ? (
@@ -432,9 +413,9 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Orchestrating / thoughts row with dots (dots are inside the pill) */}
+            {/* Orchestrating / searching / thinking / thoughts row */}
             {showThinkingRow && (
-              <div className="flex items-center">
+              <div className="mt-1 flex items-center">
                 <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
               </div>
             )}
