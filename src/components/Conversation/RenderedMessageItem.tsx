@@ -77,10 +77,12 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
 
   return (
     <span className="relative inline-flex items-center text-primary text-[15px] whitespace-nowrap">
-      {/* Invisible anchor fixes width so pill never grows */}
-      <span className="invisible">{WIDTH_ANCHOR}</span>
-      {/* Visible text centered on top */}
-      <span className="absolute inset-0 flex items-center justify-center">{text}</span>
+      {/* Invisible anchor fixes width so pill never grows/shrinks */}
+      <span className="opacity-0">{WIDTH_ANCHOR}</span>
+      {/* Visible text, left aligned inside the pill */}
+      <span className="absolute inset-y-0 left-0 flex items-center">
+        {text}
+      </span>
     </span>
   );
 };
@@ -120,7 +122,7 @@ export const RenderedMessageItem: React.FC<{
     const bgColor = isUser ? 'bg-primary' : 'bg-card';
     const textColor = isUser ? 'text-background' : 'text-primary';
 
-    /* Phase progression: Orchestrating -> Searching memories -> Thinking */
+    /* Phase progression: Orchestrating -> Searching memories -> Thinking (each once) */
     useEffect(() => {
       if (showTypingIndicator && !isUser) {
         setPhase('orchestrating');
@@ -145,7 +147,7 @@ export const RenderedMessageItem: React.FC<{
           timeouts.forEach(clearTimeout);
         };
       } else {
-        // When indicator stops and there are no thoughts, reset
+        // When typing stops and no thoughts, reset
         if (!thoughtText) {
           setPhase('idle');
         }
@@ -205,6 +207,14 @@ export const RenderedMessageItem: React.FC<{
         onRetry(message);
       }
     };
+
+    // Show thinking row:
+    //  - while generating (showTypingIndicator)
+    //  - or when we have thoughts and phase is 'thoughts' (even if generation just finished)
+    const showThinkingRow =
+      !isUser &&
+      !message.isGeneratingImage &&
+      (showTypingIndicator || (phase === 'thoughts' && !!thoughtText));
 
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-3 group`}>
@@ -410,8 +420,8 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Orchestrating / thoughts row with dots, only while typing indicator is active */}
-            {showTypingIndicator && !isUser && !message.isGeneratingImage && (
+            {/* Orchestrating / thoughts row with dots */}
+            {showThinkingRow && (
               <div className="flex items-center space-x-2">
                 <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
                 <div className="flex space-x-1">
@@ -437,7 +447,7 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Footer: copy icon, timestamp, etc. */}
+            {/* Footer */}
             {!showTypingIndicator && (
               <div className="mt-1.5 flex items-center justify-between pt-1">
                 <div className="flex items-center space-x-1 pr-1">
