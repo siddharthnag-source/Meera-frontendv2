@@ -1,42 +1,41 @@
 // src/hooks/useMessageSubmission.ts
 import { useCallback, useRef } from 'react';
 import type React from 'react';
-import { ChatMessageFromServer, ChatMessageResponse } from '@/types/chat';
+import {
+  ChatMessageFromServer,
+  ChatMessageResponse,
+  ChatAttachmentFromServer,
+} from '@/types/chat';
 import { chatService } from '../app/api/services/chat';
 
-type Attachment = {
-  type?: string;
-  url?: string;
-  name?: string;
-  size?: number;
+// currentAttachments coming from Conversation can be looser than server type
+type CurrentAttachment = Partial<ChatAttachmentFromServer> & {
+  file?: File;
 };
 
 type UseMessageSubmissionArgs = {
   message: string;
-  currentAttachments?: Attachment[];
+  currentAttachments?: CurrentAttachment[];
 
   chatMessages: ChatMessageFromServer[];
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
 
   setMessage?: (v: string) => void;
-  setCurrentAttachments?: (v: Attachment[]) => void;
+  setCurrentAttachments?: (v: CurrentAttachment[]) => void;
 
-  // streaming and thoughts UI
   setIsStreaming?: (v: boolean) => void;
   setCurrentThoughtText?: (v: string) => void;
 
   setLastAssistantMessageId?: (id: string) => void;
 
-  // sending UI state that Conversation passes
   isSearchActive?: boolean;
   isSending?: boolean;
   setIsSending?: (v: boolean) => void;
   setJustSentMessage?: (v: boolean) => void;
 
-  // Conversation now also passes this ref
   lastOptimisticMessageIdRef?: React.MutableRefObject<string | null>;
 
-  // Allow any other future props from Conversation without breaking build
+  // allow extra props without breaking build
   [key: string]: unknown;
 };
 
@@ -71,7 +70,19 @@ export function useMessageSubmission({
   const submitMessageInternal = useCallback(
     async (userText: string, isRetry: boolean) => {
       const text = (userText || '').trim();
-      if (!text && currentAttachments.length === 0) return;
+
+      // Normalize attachments to strict server shape (no undefined fields)
+      const safeAttachments: ChatAttachmentFromServer[] = currentAttachments
+        .filter((a) => typeof a.url === 'string' && a.url.trim().length > 0)
+        .map((a) => ({
+          name: a.name ?? 'attachment',
+          type: a.type ?? 'document',
+          url: a.url ?? '',
+          size: a.size,
+          file: a.file,
+        }));
+
+      if (!text && safeAttachments.length === 0) return;
 
       setIsSending?.(true);
       setIsStreaming?.(true);
@@ -82,14 +93,13 @@ export function useMessageSubmission({
         content_type: 'user',
         content: text,
         timestamp: new Date().toISOString(),
-        attachments: currentAttachments,
+        attachments: safeAttachments,
         is_call: false,
         failed: false,
         finish_reason: null,
         try_number: isRetry ? 2 : 1,
       };
 
-      // Let Conversation know our optimistic id, if it wants it
       if (lastOptimisticMessageIdRef) {
         lastOptimisticMessageIdRef.current = optimisticUser.message_id;
       }
