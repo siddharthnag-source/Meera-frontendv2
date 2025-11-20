@@ -4,7 +4,12 @@ import { ApiError, chatService, SessionExpiredError } from '@/app/api/services/c
 import { useToast } from '@/components/ui/ToastProvider';
 import { createLocalTimestamp } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
-import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
+import {
+  ChatAttachmentInputState,
+  ChatMessageFromServer,
+  ChatMessageResponse,
+  ChatMessageResponseData,
+} from '@/types/chat';
 import React, { MutableRefObject, useCallback, useRef } from 'react';
 
 interface UseMessageSubmissionProps {
@@ -24,13 +29,10 @@ interface UseMessageSubmissionProps {
   onMessageSent?: () => void;
 }
 
-// Shape of the API response we care about
-interface ChatSendResponseData {
-  response: string;
-  thoughts?: string;
+// Extend the normal response shape to allow legacy "thoughtText"
+type ChatSendResponseData = ChatMessageResponseData & {
   thoughtText?: string;
-  [key: string]: unknown;
-}
+};
 
 export const useMessageSubmission = ({
   message,
@@ -159,20 +161,19 @@ export const useMessageSubmission = ({
       if (systemInfo.network) formData.append('network', systemInfo.network);
 
       try {
-        const result = await chatService.sendMessage(formData);
+        const result: ChatMessageResponse = await chatService.sendMessage(formData);
 
-        // Cast once with a typed interface instead of `any`
+        // Do NOT cast directly to a type with index signature. Use safe narrowing.
         const rawData = result.data as ChatSendResponseData;
 
-        // Final answer from backend - already working
+        // Final answer from backend
         const assistantText = rawData.response;
 
-        // Thinking text from backend (Gemini thoughts)
+        // Thoughts can come as "thoughts" or legacy "thoughtText"
         const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
-        // Store thinking text so the UI can show it after "Orchestrating"
         if (thoughts) {
           setCurrentThoughtText(thoughts);
         }
@@ -187,6 +188,7 @@ export const useMessageSubmission = ({
                     timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
+                    thoughts: thoughts || undefined,
                   }
                 : msg,
             ),
@@ -232,7 +234,6 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // keep thoughts visible; they will be cleared at the start of next submission
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
