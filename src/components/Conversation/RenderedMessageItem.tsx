@@ -38,76 +38,54 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 
-// ------------------- Thinking status text (rotating pill text) -------------------
+/* ---------------- Thinking status text inside the pill ---------------- */
 
-const FALLBACK_THOUGHT_ITEMS = ['Orchestrating...', 'Searching memories...', 'Thinking...'];
+type ThinkingPhase = 'idle' | 'orchestrating' | 'searching' | 'thinking' | 'thoughts';
 
-const WIDTH_ANCHOR = 'Searching your previous context carefully...';
+const WIDTH_ANCHOR = 'Searching memories...';
 
 type ThinkingStatusTextProps = {
-  showOrchestrating: boolean;
+  phase: ThinkingPhase;
   thoughtText?: string;
 };
 
-const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ showOrchestrating, thoughtText }) => {
-  const items = useMemo(() => {
-    // 1) If we have model thoughts, use them (split by lines, strip markdown)
-    if (thoughtText && thoughtText.trim()) {
-      const lines = thoughtText
-        .split('\n')
-        .map((line) =>
-          line
-            .replace(/\*\*/g, '') // remove markdown bold
-            .replace(/^[-*]\s*/, '') // remove bullet markers
-            .trim(),
-        )
-        .filter(Boolean);
+const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtText }) => {
+  const text = useMemo(() => {
+    if (phase === 'orchestrating') return 'Orchestrating...';
+    if (phase === 'searching') return 'Searching memories...';
+    if (phase === 'thinking') return 'Thinking...';
 
-      return lines.length ? lines : [thoughtText.replace(/\*\*/g, '').trim()];
+    if (phase === 'thoughts' && thoughtText) {
+      const firstLine =
+        thoughtText
+          .split('\n')
+          .map((line) =>
+            line
+              .replace(/\*\*/g, '')
+              .replace(/^[-*]\s*/, '')
+              .trim(),
+          )
+          .find(Boolean) || '';
+
+      return firstLine;
     }
 
-    // 2) Before thoughts arrive, show generic phases after orchestrating kicks in
-    if (showOrchestrating) {
-      return FALLBACK_THOUGHT_ITEMS;
-    }
+    return '';
+  }, [phase, thoughtText]);
 
-    // 3) At the very beginning, show nothing (only bouncing dots)
-    return [];
-  }, [showOrchestrating, thoughtText]);
+  if (!text) return null;
 
-  const [index, setIndex] = useState(0);
-
-  useEffect(() => {
-    if (!items.length) return;
-
-    setIndex(0);
-    const id = setInterval(() => {
-      setIndex((prev) => (prev + 1) % items.length);
-    }, 1200); // change every 1.2s
-
-    return () => clearInterval(id);
-  }, [items]);
-
-  if (!items.length) return null;
-
-  const text = items[index];
-
-  // Fixed-width span: invisible anchor sets width, visible text sits on top
   return (
     <span className="relative inline-flex items-center text-primary text-[15px] whitespace-nowrap">
-      {/* width anchor so pill never grows/shrinks */}
-      <span className="invisible">
-        {WIDTH_ANCHOR} ● ● ●
-      </span>
-
-      <span className="absolute inset-0 flex items-center justify-center">
-        {text}
-      </span>
+      {/* Invisible anchor fixes width so pill never grows */}
+      <span className="invisible">{WIDTH_ANCHOR}</span>
+      {/* Visible text centered on top */}
+      <span className="absolute inset-0 flex items-center justify-center">{text}</span>
     </span>
   );
 };
 
-// ------------------------- Main rendered message component -------------------------
+/* ---------------- Main component ---------------- */
 
 export const RenderedMessageItem: React.FC<{
   message: ChatMessageFromServer;
@@ -119,43 +97,69 @@ export const RenderedMessageItem: React.FC<{
   hasMinHeight?: boolean;
   dynamicMinHeight?: number;
 }> = React.memo(
-  ({ message, isStreaming, onRetry, isLastFailedMessage, showTypingIndicator, thoughtText, hasMinHeight, dynamicMinHeight }) => {
+  ({
+    message,
+    isStreaming,
+    onRetry,
+    isLastFailedMessage,
+    showTypingIndicator,
+    thoughtText,
+    hasMinHeight,
+    dynamicMinHeight,
+  }) => {
     const [isCopied, setIsCopied] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [showExpandButton, setShowExpandButton] = useState(false);
-    const [showOrchestrating, setShowOrchestrating] = useState(false);
     const [imageModalOpen, setImageModalOpen] = useState(false);
     const [currentImageUrl, setCurrentImageUrl] = useState('');
+    const [phase, setPhase] = useState<ThinkingPhase>('idle');
+
     const contentRef = useRef<HTMLDivElement>(null);
-    const timerRef = useRef<NodeJS.Timeout | null>(null);
 
     const isUser = message.content_type === 'user';
     const bgColor = isUser ? 'bg-primary' : 'bg-card';
     const textColor = isUser ? 'text-background' : 'text-primary';
 
-    // Handle progressive typing indicator
+    /* Phase progression: Orchestrating -> Searching memories -> Thinking */
     useEffect(() => {
       if (showTypingIndicator && !isUser) {
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-        }
-        if (message.try_number && message.try_number > 1) {
-          setShowOrchestrating(true);
-        } else {
-          setShowOrchestrating(false);
-          timerRef.current = setTimeout(() => {
-            setShowOrchestrating(true);
-          }, 1000);
-        }
-      } else {
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-          timerRef.current = null;
-        }
-        setShowOrchestrating(false);
-      }
-    }, [showTypingIndicator, isUser, message.try_number]);
+        setPhase('orchestrating');
 
+        const timeouts: NodeJS.Timeout[] = [];
+
+        // After 0.8s show "Searching memories..."
+        timeouts.push(
+          setTimeout(() => {
+            setPhase((prev) => (prev === 'orchestrating' ? 'searching' : prev));
+          }, 800),
+        );
+
+        // After 1.6s show "Thinking..."
+        timeouts.push(
+          setTimeout(() => {
+            setPhase((prev) => (prev === 'searching' ? 'thinking' : prev));
+          }, 1600),
+        );
+
+        return () => {
+          timeouts.forEach(clearTimeout);
+        };
+      } else {
+        // When indicator stops and there are no thoughts, reset
+        if (!thoughtText) {
+          setPhase('idle');
+        }
+      }
+    }, [showTypingIndicator, isUser, thoughtText]);
+
+    /* When model thoughts arrive, switch to thoughts phase */
+    useEffect(() => {
+      if (!isUser && thoughtText && thoughtText.trim()) {
+        setPhase('thoughts');
+      }
+    }, [thoughtText, isUser]);
+
+    /* Handle overflow and expand button for user messages */
     useEffect(() => {
       const element = contentRef.current;
       if (isUser && element && !isExpanded) {
@@ -217,7 +221,7 @@ export const RenderedMessageItem: React.FC<{
                 : `rounded-r-lg rounded-bl-lg after:left-0 after:border-t-[6px] after:border-r-[6px] after:border-r-transparent after:border-t-card`
             }`}
           >
-            {/* Show text message first - only if there's content OR if it's a failed assistant message */}
+            {/* Text content */}
             {(message.content || (message.content_type === 'assistant' && message.failed)) && (
               <>
                 {message.content_type === 'user' ? (
@@ -308,17 +312,15 @@ export const RenderedMessageItem: React.FC<{
               </>
             )}
 
-            {/* Show attachments below text */}
+            {/* Attachments */}
             {message.attachments && message.attachments.length > 0 && (
               <div className={message.content ? 'mt-3' : ''}>
-                {/* Separate images and documents */}
                 {(() => {
                   const images = message.attachments.filter((att) => att.type === 'image');
                   const documents = message.attachments.filter((att) => att.type !== 'image');
 
                   return (
                     <>
-                      {/* Images - 2 per row, but handle single image properly */}
                       {images.length > 0 && (
                         <div className={`grid gap-2 mb-3 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                           {images.map((att, index) => (
@@ -354,7 +356,6 @@ export const RenderedMessageItem: React.FC<{
                         </div>
                       )}
 
-                      {/* Documents - one per row */}
                       {documents.length > 0 && (
                         <div className="space-y-2">
                           {documents.map((att, index) => (
@@ -409,11 +410,10 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Show typing indicator inside assistant message when showTypingIndicator is true */}
+            {/* Orchestrating / thoughts row with dots, only while typing indicator is active */}
             {showTypingIndicator && !isUser && !message.isGeneratingImage && (
               <div className="flex items-center space-x-2">
-                <ThinkingStatusText showOrchestrating={showOrchestrating} thoughtText={thoughtText} />
-                {/* Always show dots when typing indicator is active */}
+                <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
                 <div className="flex space-x-1">
                   <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
                   <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
@@ -422,10 +422,9 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Show image skeleton when generating image */}
+            {/* Image generation skeleton */}
             {message.isGeneratingImage && (
               <div className="mt-3">
-                {/* <div className="text-primary text-[15px] mb-2">Generating image</div> */}
                 <ImageSkeleton />
               </div>
             )}
@@ -438,7 +437,7 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Footer for Timestamp and Copy Icon - Only render when not showing typing indicator */}
+            {/* Footer: copy icon, timestamp, etc. */}
             {!showTypingIndicator && (
               <div className="mt-1.5 flex items-center justify-between pt-1">
                 <div className="flex items-center space-x-1 pr-1">
@@ -467,7 +466,7 @@ export const RenderedMessageItem: React.FC<{
                             downloadFile(firstAttachment.url);
                           }
                         }}
-                        className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg:white/10 transition-colors focus:outline-none cursor-pointer"
+                        className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                         title="Download attachment"
                       >
                         <FiDownload size={14} className="text-primary/60 hover:text-primary/80" />
@@ -504,7 +503,6 @@ export const RenderedMessageItem: React.FC<{
 
                 <p className={`text-xs whitespace-nowrap ${isUser ? 'text-background/60' : 'text-primary/60'}`}>
                   {(() => {
-                    // For user messages, always show timestamp
                     if (isUser) {
                       const timestamp = message.timestamp;
                       if (!timestamp) return '';
@@ -524,12 +522,10 @@ export const RenderedMessageItem: React.FC<{
                       }
                     }
 
-                    // For assistant messages - hide timestamp only if currently generating
                     if (message.content_type === 'assistant' && isStreaming) {
                       return '';
                     }
 
-                    // Show timestamp for all other messages
                     const timestamp = message.timestamp;
                     if (!timestamp) return '';
 
@@ -553,7 +549,6 @@ export const RenderedMessageItem: React.FC<{
           </div>
         </div>
 
-        {/* Image modal for fullscreen viewing */}
         {imageModalOpen && (
           <ImageModal isOpen={imageModalOpen} onClose={() => setImageModalOpen(false)} imageUrl={currentImageUrl} />
         )}
@@ -561,4 +556,5 @@ export const RenderedMessageItem: React.FC<{
     );
   },
 );
+
 RenderedMessageItem.displayName = 'RenderedMessageItem';
