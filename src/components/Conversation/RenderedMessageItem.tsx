@@ -33,7 +33,15 @@ import { ChatMessageFromServer } from '@/types/chat';
 import Image from 'next/image';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FaFilePdf } from 'react-icons/fa';
-import { FiCheck, FiChevronDown, FiChevronUp, FiCopy, FiDownload, FiPaperclip, FiRefreshCw } from 'react-icons/fi';
+import {
+  FiCheck,
+  FiChevronDown,
+  FiChevronUp,
+  FiCopy,
+  FiDownload,
+  FiPaperclip,
+  FiRefreshCw,
+} from 'react-icons/fi';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
@@ -73,7 +81,6 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
 
   if (!text) return null;
 
-  // Centered text + dots, with a small but clear gap
   return (
     <span className="inline-flex items-center justify-center text-primary text-[15px] leading-none whitespace-nowrap">
       <span>{text}</span>
@@ -133,16 +140,18 @@ export const RenderedMessageItem: React.FC<{
 
         const timeouts: NodeJS.Timeout[] = [];
 
+        // Orchestrating for 2.5s -> Searching memories
         timeouts.push(
           setTimeout(() => {
             setPhase((prev) => (prev === 'orchestrating' ? 'searching' : prev));
-          }, 800),
+          }, 2500),
         );
 
+        // Searching memories for 2.5s -> Thinking
         timeouts.push(
           setTimeout(() => {
             setPhase((prev) => (prev === 'searching' ? 'thinking' : prev));
-          }, 1600),
+          }, 5000),
         );
 
         return () => {
@@ -223,16 +232,16 @@ export const RenderedMessageItem: React.FC<{
         ? `rounded-l-lg rounded-br-lg after:right-0 after:border-t-[6px] after:border-l-[6px] after:border-l-transparent after:border-t-primary`
         : `rounded-r-lg rounded-bl-lg after:left-0 after:border-t-[6px] after:border-r-[6px] after:border-r-transparent after:border-t-card`);
 
-    const bubbleClasses = onlyThinking
-      ? `${bubbleBase} flex items-center justify-center`
-      : bubbleBase;
+    const bubbleClasses = onlyThinking ? `${bubbleBase} flex items-center justify-center` : bubbleBase;
 
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-3 group`}>
         <div
           style={hasMinHeight && !isUser ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
           className={`flex flex-col md:pr-1 ${
-            message.attachments && message.attachments.length > 0 ? 'w-[85%] md:w-[55%]' : 'max-w-[99%] md:max-w-[99%]'
+            message.attachments && message.attachments.length > 0
+              ? 'w-[85%] md:w-[55%]'
+              : 'max-w-[99%] md:max-w-[99%]'
           }`}
         >
           <div className={bubbleClasses}>
@@ -428,9 +437,7 @@ export const RenderedMessageItem: React.FC<{
 
             {/* Orchestrating / searching / thinking / thoughts row */}
             {showThinkingRow && (
-              <div
-                className={`${onlyThinking ? '' : 'mt-1'} flex w-full items-center justify-center`}
-              >
+              <div className={`${onlyThinking ? '' : 'mt-1'} flex w-full items-center justify-center`}>
                 <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
               </div>
             )}
@@ -444,9 +451,9 @@ export const RenderedMessageItem: React.FC<{
 
             {isStreaming && message.content && !message.isGeneratingImage && (
               <div className="flex items-center space-x-1 mt-2">
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
               </div>
             )}
 
@@ -497,7 +504,7 @@ export const RenderedMessageItem: React.FC<{
                   {isUser && showExpandButton && !isExpanded && (
                     <button
                       onClick={() => setIsExpanded(true)}
-                      className="p-0.5 rounded text-xs text-background/60 hover:text-background/90 transition-colors focus:outline-none cursor-pointer "
+                      className="p-0.5 rounded text-xs text-background/60 hover:text-background/90 transition-colors focus:outline-none cursor-pointer"
                       title="Show more"
                     >
                       <FiChevronDown size={16} />
