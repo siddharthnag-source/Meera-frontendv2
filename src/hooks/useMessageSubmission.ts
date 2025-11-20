@@ -6,19 +6,13 @@ import type {
   ChatMessageResponse,
   ChatMessageResponseData,
   ChatAttachmentFromServer,
+  ChatAttachmentInputState,
 } from '@/types/chat';
-
-type AttachmentInput = {
-  name?: string;
-  type: string;
-  url: string;
-  size?: number;
-  file?: File;
-};
 
 export type UseMessageSubmissionArgs = {
   message: string;
-  currentAttachments: AttachmentInput[];
+  // Conversation passes ChatAttachmentInputState[]
+  currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
   isSending: boolean;
@@ -29,7 +23,7 @@ export type UseMessageSubmissionArgs = {
   setJustSentMessage?: () => void;
   messageRelationshipMapRef: React.MutableRefObject<Map<string, string>>;
   lastOptimisticMessageIdRef?: React.MutableRefObject<string | null>;
-  // Allow Conversation/index.tsx to pass extra props without TS excess property errors.
+  // allow extra props without TS excess property errors
   [key: string]: unknown;
 };
 
@@ -61,7 +55,7 @@ export const useMessageSubmission = ({
   const handleSubmit = useCallback(
     async (userTextOverride?: string) => {
       const userText = (userTextOverride ?? message).trim();
-      if (!userText || isSending) return;
+      if ((!userText && currentAttachments.length === 0) || isSending) return;
 
       setIsSending(true);
       setIsAssistantTyping(true);
@@ -71,13 +65,16 @@ export const useMessageSubmission = ({
       const optimisticUserId = crypto.randomUUID();
       if (lastOptimisticMessageIdRef) lastOptimisticMessageIdRef.current = optimisticUserId;
 
-      const mappedAttachments: ChatAttachmentFromServer[] = (currentAttachments ?? []).map((att) => ({
-        name: att.name ?? 'attachment',
-        type: att.type,
-        url: att.url,
-        size: att.size,
-        file: att.file,
-      }));
+      // Map Conversation attachments to the strict server shape for optimistic render
+      const mappedAttachments: ChatAttachmentFromServer[] = (currentAttachments ?? [])
+        .map((att) => ({
+          name: att.file?.name ?? 'attachment',
+          type: att.type === 'image' ? 'image' : 'document',
+          url: att.previewUrl ?? '', // previewUrl is what Conversation has
+          size: att.file?.size,
+          file: att.file,
+        }))
+        .filter((a) => a.url && a.url.trim().length > 0);
 
       const optimisticUserMessage: ChatMessageFromServer = {
         message_id: optimisticUserId,
@@ -140,7 +137,7 @@ export const useMessageSubmission = ({
           ),
         );
 
-        // After final answer, optionally render model thoughts as a separate assistant message.
+        // After final answer, show model thoughts as a separate assistant message
         if (thoughtsText.trim().length > 0) {
           const thoughtsMsg: ChatMessageFromServer = {
             message_id: crypto.randomUUID(),
