@@ -1,22 +1,36 @@
 // src/hooks/useMessageSubmission.ts
 import { useCallback, useRef } from 'react';
-import { ChatMessageFromServer } from '@/types/chat';
+import { ChatMessageFromServer, ChatMessageResponse } from '@/types/chat';
 import { chatService } from '../app/api/services/chat';
+
+type Attachment = {
+  type?: string;
+  url?: string;
+  name?: string;
+  size?: number;
+};
 
 type UseMessageSubmissionArgs = {
   message: string;
-  currentAttachments?: any[];
+  currentAttachments?: Attachment[];
 
   chatMessages: ChatMessageFromServer[];
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
 
   setMessage?: (v: string) => void;
-  setCurrentAttachments?: (v: any[]) => void;
+  setCurrentAttachments?: (v: Attachment[]) => void;
 
   setIsStreaming?: (v: boolean) => void;
   setCurrentThoughtText?: (v: string) => void;
 
   setLastAssistantMessageId?: (id: string) => void;
+};
+
+// Local extension for optimistic fields your UI may use
+type ChatMessageLocal = ChatMessageFromServer & {
+  message_id: string;
+  try_number?: number;
+  failedMessage?: string;
 };
 
 export function useMessageSubmission({
@@ -30,39 +44,35 @@ export function useMessageSubmission({
   setCurrentThoughtText,
   setLastAssistantMessageId,
 }: UseMessageSubmissionArgs) {
-  // Keep old ref used elsewhere in your UI
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
 
-  const getMostRecentAssistantMessageId = useCallback(() => {
-    const last = [...chatMessages]
+  const getMostRecentAssistantMessageId = useCallback((): string | null => {
+    const lastAssistant = [...chatMessages]
       .reverse()
       .find((m) => m.content_type === 'assistant' && !m.failed);
 
-    return (last as any)?.message_id || (last as any)?.id || null;
+    return lastAssistant?.message_id ?? null;
   }, [chatMessages]);
 
   const submitMessageInternal = useCallback(
-    async (userText: string, isRetry: boolean = false) => {
+    async (userText: string, isRetry: boolean) => {
       const text = (userText || '').trim();
       if (!text && currentAttachments.length === 0) return;
 
-      // optimistic user message for immediate UI
-      const optimisticUser: ChatMessageFromServer = {
+      const optimisticUser: ChatMessageLocal = {
         message_id: crypto.randomUUID(),
         content_type: 'user',
         content: text,
         timestamp: new Date().toISOString(),
-        attachments: currentAttachments || [],
+        attachments: currentAttachments,
         is_call: false,
         failed: false,
         finish_reason: null,
-        // keep retry counter if your UI reads it
         try_number: isRetry ? 2 : 1,
-      } as any;
+      };
 
       setChatMessages((prev) => [...prev, optimisticUser]);
 
-      // clear input
       setMessage?.('');
       setCurrentAttachments?.([]);
 
@@ -73,31 +83,28 @@ export function useMessageSubmission({
         const formData = new FormData();
         formData.append('message', text);
 
-        const resp = await chatService.sendMessage(formData);
+        const resp: ChatMessageResponse = await chatService.sendMessage(formData);
 
-        // If your Edge Function returns thoughts and you later add it to the service,
-        // this will show them automatically without changing UI.
-        const thoughts = (resp as any)?.data?.thoughts;
-        if (thoughts && typeof thoughts === 'string') {
-          setCurrentThoughtText?.(thoughts);
+        // thoughts are returned by edge function, pass through if present
+        const thoughtsMaybe = (resp as unknown as { data?: { thoughts?: string } })?.data?.thoughts;
+        if (typeof thoughtsMaybe === 'string' && thoughtsMaybe.trim().length > 0) {
+          setCurrentThoughtText?.(thoughtsMaybe);
         }
 
         const assistantMsg = resp.data.message;
 
         setChatMessages((prev) => [...prev, assistantMsg]);
 
-        const asstId = (assistantMsg as any)?.message_id || (assistantMsg as any)?.id;
-        if (asstId) {
-          setLastAssistantMessageId?.(asstId);
-          messageRelationshipMapRef.current.set(
-            optimisticUser.message_id as any,
-            asstId,
-          );
+        const assistantId = assistantMsg.message_id;
+        if (assistantId) {
+          setLastAssistantMessageId?.(assistantId);
+          messageRelationshipMapRef.current.set(optimisticUser.message_id, assistantId);
         }
-      } catch (err: any) {
-        console.error('handleSubmit failed', err);
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Sorry, I could not generate a reply.';
 
-        const failedAssistant: ChatMessageFromServer = {
+        const failedAssistant: ChatMessageLocal = {
           message_id: crypto.randomUUID(),
           content_type: 'assistant',
           content: '',
@@ -105,11 +112,10 @@ export function useMessageSubmission({
           attachments: [],
           is_call: false,
           failed: true,
-          failedMessage:
-            err?.message || 'Sorry, I could not generate a reply.',
+          failedMessage: errorMessage,
           finish_reason: null,
           try_number: isRetry ? 2 : 1,
-        } as any;
+        };
 
         setChatMessages((prev) => [...prev, failedAssistant]);
       } finally {
@@ -127,7 +133,6 @@ export function useMessageSubmission({
     ],
   );
 
-  // This is what Conversation/index.tsx expects
   const handleSubmit = useCallback(
     async (e?: React.FormEvent) => {
       e?.preventDefault();
@@ -138,7 +143,7 @@ export function useMessageSubmission({
 
   const handleRetryMessage = useCallback(
     async (failedUserMessage: ChatMessageFromServer) => {
-      const retryText = (failedUserMessage?.content || '').trim();
+      const retryText = (failedUserMessage.content || '').trim();
       if (!retryText) return;
       await submitMessageInternal(retryText, true);
     },
