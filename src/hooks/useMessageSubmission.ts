@@ -4,12 +4,7 @@ import { ApiError, chatService, SessionExpiredError } from '@/app/api/services/c
 import { useToast } from '@/components/ui/ToastProvider';
 import { createLocalTimestamp } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
-import {
-  ChatAttachmentInputState,
-  ChatMessageFromServer,
-  ChatMessageResponse,
-  ChatMessageResponseData,
-} from '@/types/chat';
+import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import React, { MutableRefObject, useCallback, useRef } from 'react';
 
 interface UseMessageSubmissionProps {
@@ -29,10 +24,13 @@ interface UseMessageSubmissionProps {
   onMessageSent?: () => void;
 }
 
-type ChatSendResponseData = ChatMessageResponseData & {
+// Shape of the API response we care about
+interface ChatSendResponseData {
+  response: string;
   thoughts?: string;
   thoughtText?: string;
-};
+  [key: string]: unknown;
+}
 
 export const useMessageSubmission = ({
   message,
@@ -52,6 +50,7 @@ export const useMessageSubmission = ({
 }: UseMessageSubmissionProps) => {
   const { showToast } = useToast();
 
+  // userMessageId -> assistantMessageId
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
 
@@ -111,6 +110,7 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
+      // If not a retry, create user + empty assistant messages
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
 
@@ -134,6 +134,7 @@ export const useMessageSubmission = ({
         onMessageSent?.();
         setTimeout(() => scrollToBottom(true), 300);
       } else {
+        // Retry: clear failed state
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
@@ -158,14 +159,20 @@ export const useMessageSubmission = ({
       if (systemInfo.network) formData.append('network', systemInfo.network);
 
       try {
-        const result: ChatMessageResponse = await chatService.sendMessage(formData);
-        const rawData: ChatSendResponseData = result.data;
+        const result = await chatService.sendMessage(formData);
 
+        // Cast once with a typed interface instead of `any`
+        const rawData = result.data as ChatSendResponseData;
+
+        // Final answer from backend - already working
         const assistantText = rawData.response;
+
+        // Thinking text from backend (Gemini thoughts)
         const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
+        // Store thinking text so the UI can show it after "Orchestrating"
         if (thoughts) {
           setCurrentThoughtText(thoughts);
         }
@@ -177,7 +184,6 @@ export const useMessageSubmission = ({
                 ? {
                     ...msg,
                     content: assistantText,
-                    thoughts: thoughts || undefined,
                     timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
@@ -226,6 +232,7 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
+        // keep thoughts visible; they will be cleared at the start of next submission
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
