@@ -69,6 +69,7 @@ export const chatService = {
       const { data, error } = await supabase
         .from('messages')
         .select(
+          // attachments removed, column does not exist anymore
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model',
         )
         .eq('user_id', userId)
@@ -122,7 +123,7 @@ export const chatService = {
 
       const userId = session.user.id;
 
-      // 2) Call Edge Function to get reply + thoughts
+      // 2) Call Edge Function to get Meera reply
       const response = await fetch(SUPABASE_CHAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -142,13 +143,7 @@ export const chatService = {
         );
       }
 
-      // IMPORTANT: include thoughts fields if returned
-      const body = (await response.json()) as {
-        reply: string;
-        thoughts?: string;
-        thoughtText?: string;
-        model?: string;
-      };
+      const body = (await response.json()) as { reply: string; model?: string };
 
       const nowIso = new Date().toISOString();
 
@@ -179,8 +174,6 @@ export const chatService = {
         console.error('sendMessage: failed to save messages to DB', insertError);
       }
 
-      const thoughts = body.thoughts ?? body.thoughtText ?? '';
-
       // 4) Build assistant message object for UI
       const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.find(
         (row) => row.content_type === 'assistant',
@@ -196,9 +189,9 @@ export const chatService = {
             is_call: false,
             failed: false,
             finish_reason: null,
-            thoughts: thoughts || undefined,
           }
         : {
+            // fallback if insert failed
             message_id: crypto.randomUUID(),
             content_type: 'assistant',
             content: body.reply,
@@ -207,7 +200,6 @@ export const chatService = {
             is_call: false,
             failed: false,
             finish_reason: null,
-            thoughts: thoughts || undefined,
           };
 
       const chatResponse: ChatMessageResponse = {
@@ -215,7 +207,6 @@ export const chatService = {
         data: {
           response: body.reply,
           message: assistantMessage,
-          thoughts: thoughts || undefined,
         } as ChatMessageResponse['data'],
       };
 
