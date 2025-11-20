@@ -1,131 +1,154 @@
 // src/hooks/useMessageSubmission.ts
 import { useCallback, useRef } from 'react';
 import { ChatMessageFromServer } from '@/types/chat';
+import { chatService } from '../app/api/services/chat';
 
-type LLMMessage = { role: 'user' | 'assistant'; content: string };
+type UseMessageSubmissionArgs = {
+  message: string;
+  currentAttachments?: any[];
 
-// keep last N turns for context
-const CONTEXT_WINDOW = 20;
+  chatMessages: ChatMessageFromServer[];
+  setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
+
+  setMessage?: (v: string) => void;
+  setCurrentAttachments?: (v: any[]) => void;
+
+  setIsStreaming?: (v: boolean) => void;
+  setCurrentThoughtText?: (v: string) => void;
+
+  setLastAssistantMessageId?: (id: string) => void;
+};
 
 export function useMessageSubmission({
-  messages,
-  setMessages,
+  message,
+  currentAttachments = [],
+  chatMessages,
+  setChatMessages,
+  setMessage,
+  setCurrentAttachments,
   setIsStreaming,
   setCurrentThoughtText,
-  conversationId,
-}: {
-  messages: ChatMessageFromServer[];
-  setMessages: (m: ChatMessageFromServer[]) => void;
-  setIsStreaming: (b: boolean) => void;
-  setCurrentThoughtText: (t: string) => void;
-  conversationId: string;
-}) {
+  setLastAssistantMessageId,
+}: UseMessageSubmissionArgs) {
+  // Keep old ref used elsewhere in your UI
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
 
-  const buildHistory = useCallback(
-    (all: ChatMessageFromServer[]): LLMMessage[] => {
-      const core = all
-        .filter((m) => m.content_type === 'user' || m.content_type === 'assistant')
-        .filter((m) => !!m.content && m.content.trim().length > 0)
-        .map((m) => ({
-          role: m.content_type as 'user' | 'assistant',
-          content: m.content,
-        }));
+  const getMostRecentAssistantMessageId = useCallback(() => {
+    const last = [...chatMessages]
+      .reverse()
+      .find((m) => m.content_type === 'assistant' && !m.failed);
 
-      return core.slice(-CONTEXT_WINDOW);
-    },
-    [],
-  );
+    return (last as any)?.message_id || (last as any)?.id || null;
+  }, [chatMessages]);
 
-  const submitMessage = useCallback(
-    async (userText: string) => {
-      if (!userText.trim()) return;
+  const submitMessageInternal = useCallback(
+    async (userText: string, isRetry: boolean = false) => {
+      const text = (userText || '').trim();
+      if (!text && currentAttachments.length === 0) return;
 
-      // optimistic user message
+      // optimistic user message for immediate UI
       const optimisticUser: ChatMessageFromServer = {
-        id: crypto.randomUUID(),
+        message_id: crypto.randomUUID(),
         content_type: 'user',
-        content: userText,
+        content: text,
         timestamp: new Date().toISOString(),
-      };
+        attachments: currentAttachments || [],
+        is_call: false,
+        failed: false,
+        finish_reason: null,
+        // keep retry counter if your UI reads it
+        try_number: isRetry ? 2 : 1,
+      } as any;
 
-      const nextMessages = [...messages, optimisticUser];
-      setMessages(nextMessages);
+      setChatMessages((prev) => [...prev, optimisticUser]);
 
-      const historyPayload = buildHistory(nextMessages);
+      // clear input
+      setMessage?.('');
+      setCurrentAttachments?.([]);
 
-      setIsStreaming(true);
-      setCurrentThoughtText(''); // reset thoughts per turn
+      setIsStreaming?.(true);
+      setCurrentThoughtText?.('');
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId,
-          messages: historyPayload, // <-- THIS is the key change
-        }),
-      });
+      try {
+        const formData = new FormData();
+        formData.append('message', text);
 
-      if (!res.body) {
-        setIsStreaming(false);
-        return;
-      }
+        const resp = await chatService.sendMessage(formData);
 
-      // streaming reader (keep your existing logic if different)
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-
-      let assistantText = '';
-      let thoughts = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-
-        // expected server format:
-        // {type:"thought", content:"..."} or {type:"token", content:"..."}
-        const lines = chunk.split('\n').filter(Boolean);
-
-        for (const line of lines) {
-          try {
-            const evt = JSON.parse(line);
-
-            if (evt.type === 'thought') {
-              thoughts += evt.content;
-              setCurrentThoughtText(thoughts);
-            }
-
-            if (evt.type === 'token') {
-              assistantText += evt.content;
-
-              const assistantMsg: ChatMessageFromServer = {
-                id: crypto.randomUUID(),
-                content_type: 'assistant',
-                content: assistantText,
-                timestamp: new Date().toISOString(),
-              };
-
-              setMessages([...nextMessages, assistantMsg]);
-            }
-          } catch {
-            // ignore non json noise
-          }
+        // If your Edge Function returns thoughts and you later add it to the service,
+        // this will show them automatically without changing UI.
+        const thoughts = (resp as any)?.data?.thoughts;
+        if (thoughts && typeof thoughts === 'string') {
+          setCurrentThoughtText?.(thoughts);
         }
-      }
 
-      setIsStreaming(false);
+        const assistantMsg = resp.data.message;
+
+        setChatMessages((prev) => [...prev, assistantMsg]);
+
+        const asstId = (assistantMsg as any)?.message_id || (assistantMsg as any)?.id;
+        if (asstId) {
+          setLastAssistantMessageId?.(asstId);
+          messageRelationshipMapRef.current.set(
+            optimisticUser.message_id as any,
+            asstId,
+          );
+        }
+      } catch (err: any) {
+        console.error('handleSubmit failed', err);
+
+        const failedAssistant: ChatMessageFromServer = {
+          message_id: crypto.randomUUID(),
+          content_type: 'assistant',
+          content: '',
+          timestamp: new Date().toISOString(),
+          attachments: [],
+          is_call: false,
+          failed: true,
+          failedMessage:
+            err?.message || 'Sorry, I could not generate a reply.',
+          finish_reason: null,
+          try_number: isRetry ? 2 : 1,
+        } as any;
+
+        setChatMessages((prev) => [...prev, failedAssistant]);
+      } finally {
+        setIsStreaming?.(false);
+      }
     },
     [
-      messages,
-      setMessages,
+      currentAttachments,
+      setChatMessages,
+      setMessage,
+      setCurrentAttachments,
       setIsStreaming,
       setCurrentThoughtText,
-      conversationId,
-      buildHistory,
+      setLastAssistantMessageId,
     ],
   );
 
-  return { submitMessage, messageRelationshipMapRef };
+  // This is what Conversation/index.tsx expects
+  const handleSubmit = useCallback(
+    async (e?: React.FormEvent) => {
+      e?.preventDefault();
+      await submitMessageInternal(message, false);
+    },
+    [message, submitMessageInternal],
+  );
+
+  const handleRetryMessage = useCallback(
+    async (failedUserMessage: ChatMessageFromServer) => {
+      const retryText = (failedUserMessage?.content || '').trim();
+      if (!retryText) return;
+      await submitMessageInternal(retryText, true);
+    },
+    [submitMessageInternal],
+  );
+
+  return {
+    handleSubmit,
+    handleRetryMessage,
+    getMostRecentAssistantMessageId,
+    messageRelationshipMapRef,
+  };
 }
