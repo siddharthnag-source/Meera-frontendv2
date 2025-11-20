@@ -172,7 +172,10 @@ export const Conversation: React.FC = () => {
   }, [chatMessages]);
 
   // Debounced input handling
-  const debouncedSetMessage = useMemo(() => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS), []);
+  const debouncedSetMessage = useMemo(
+    () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
+    [],
+  );
 
   useEffect(() => {
     debouncedSetMessage(inputValue);
@@ -196,7 +199,10 @@ export const Conversation: React.FC = () => {
     const footerHeight = (footerRef.current?.offsetHeight || 0) - 45;
     const userMessageHeight = latestUserMessageRef.current?.offsetHeight || 0;
 
-    const calculatedMinHeight = Math.max(0, viewportHeight - headerHeight - footerHeight - userMessageHeight - 100);
+    const calculatedMinHeight = Math.max(
+      0,
+      viewportHeight - headerHeight - footerHeight - userMessageHeight - 100,
+    );
 
     setDynamicMinHeight(calculatedMinHeight);
   }, []);
@@ -222,7 +228,9 @@ export const Conversation: React.FC = () => {
         });
 
         for (const sessionId in callSessions) {
-          const sessionMessages = callSessions[sessionId].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+          const sessionMessages = callSessions[sessionId].sort((a, b) =>
+            a.timestamp.localeCompare(b.timestamp),
+          );
           if (sessionMessages.length > 0) {
             displayItems.push({
               type: 'call_session',
@@ -268,7 +276,8 @@ export const Conversation: React.FC = () => {
     [chatMessages, processMessagesForDisplay],
   );
 
-  const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
+  const lastMessage =
+    chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
   const canSubmit = useMemo(
     () => (message.trim() || currentAttachments.length > 0) && !isSending,
@@ -351,18 +360,20 @@ export const Conversation: React.FC = () => {
           return;
         }
 
-        const mapped: ChatMessageFromServer[] = (data as LegacyMessageRow[]).map((row) => ({
-          message_id: row.message_id,
-          user_id: row.user_id,
-          content_type: row.content_type,
-          content: row.content,
-          timestamp: row.timestamp,
-          session_id: row.session_id ?? undefined,
-          is_call: row.is_call ?? false,
-          attachments: [],
-          failed: false,
-          finish_reason: null,
-        }));
+        const mapped: ChatMessageFromServer[] = (data as LegacyMessageRow[]).map(
+          (row) => ({
+            message_id: row.message_id,
+            user_id: row.user_id,
+            content_type: row.content_type,
+            content: row.content,
+            timestamp: row.timestamp,
+            session_id: row.session_id ?? undefined,
+            is_call: row.is_call ?? false,
+            attachments: [],
+            failed: false,
+            finish_reason: null,
+          }),
+        );
 
         setChatMessages(mapped);
         setHasLoadedLegacyHistory(true);
@@ -417,7 +428,10 @@ export const Conversation: React.FC = () => {
 
           if (response.data && response.data.length > 0) {
             const messages = response.data
-              .map((msg: ChatMessageFromServer) => ({ ...msg, attachments: msg.attachments || [] }))
+              .map((msg: ChatMessageFromServer) => ({
+                ...msg,
+                attachments: msg.attachments || [],
+              }))
               .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
             if (isInitial && !hasLoadedLegacyHistory) {
@@ -433,7 +447,9 @@ export const Conversation: React.FC = () => {
 
               setChatMessages((prev) => {
                 const existingIds = new Set(prev.map((msg) => msg.message_id));
-                const newMessages = messages.filter((msg) => !existingIds.has(msg.message_id));
+                const newMessages = messages.filter(
+                  (msg) => !existingIds.has(msg.message_id),
+                );
                 return [...newMessages, ...prev];
               });
             }
@@ -467,15 +483,14 @@ export const Conversation: React.FC = () => {
 
           if (
             retryCount < 2 &&
-            ((error instanceof Error && 'code' in error && (error as { code?: string }).code === 'NETWORK_ERROR') ||
+            ((error instanceof Error &&
+              'code' in error &&
+              (error as { code?: string }).code === 'NETWORK_ERROR') ||
               !navigator.onLine)
           ) {
-            setTimeout(
-              () => {
-                loadChatHistory(page, isInitial, retryCount + 1);
-              },
-              1000 * (retryCount + 1),
-            );
+            setTimeout(() => {
+              loadChatHistory(page, isInitial, retryCount + 1);
+            }, 1000 * (retryCount + 1));
             return;
           }
 
@@ -576,14 +591,20 @@ export const Conversation: React.FC = () => {
     ],
   );
 
-  const handleScroll = useMemo(() => throttle(handleScrollInternal, SCROLL_THROTTLE_MS), [handleScrollInternal]);
+  const handleScroll = useMemo(
+    () => throttle(handleScrollInternal, SCROLL_THROTTLE_MS),
+    [handleScrollInternal],
+  );
 
   const handleResize = useCallback(() => {
     setDynamicMaxHeight(window.innerHeight / DYNAMIC_MAX_HEIGHT_RATIO);
     calculateMinHeight();
   }, [calculateMinHeight]);
 
-  const debouncedHandleResize = useMemo(() => debounce(handleResize, RESIZE_DEBOUNCE_MS), [handleResize]);
+  const debouncedHandleResize = useMemo(
+    () => debounce(handleResize, RESIZE_DEBOUNCE_MS),
+    [handleResize],
+  );
 
   const clearAllInput = useCallback(() => {
     setMessage('');
@@ -610,7 +631,8 @@ export const Conversation: React.FC = () => {
         const cursorPosition = textarea.selectionStart;
         const selectionEnd = textarea.selectionEnd;
         const currentScrollTop = textarea.scrollTop;
-        const isScrolledToBottom = textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
+        const isScrolledToBottom =
+          textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
         const isCursorAtEnd = cursorPosition === textarea.value.length;
 
         const shouldAutoScroll = !shouldPreserveCursor || isScrolledToBottom || isCursorAtEnd;
@@ -648,34 +670,38 @@ export const Conversation: React.FC = () => {
         e.preventDefault();
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
-        setTimeout(() => inputRef.current && handleTextareaResize(inputRef.current, false), 10);
+        setTimeout(
+          () => inputRef.current && handleTextareaResize(inputRef.current, false),
+          10,
+        );
       }
     },
     [handleTextareaResize],
   );
 
-  const { handleSubmit, handleRetryMessage, getMostRecentAssistantMessageId } = useMessageSubmission({
-    message,
-    currentAttachments,
-    chatMessages,
-    isSearchActive,
-    isSending,
-    setIsSending,
-    setJustSentMessage: () => {
-      justSentMessageRef.current = true;
-    },
-    setCurrentThoughtText,
-    lastOptimisticMessageIdRef,
-    setChatMessages,
-    setIsAssistantTyping,
-    clearAllInput,
-    scrollToBottom,
-    onMessageSent: () => {
-      setTimeout(() => {
-        calculateMinHeight();
-      }, 200);
-    },
-  });
+  const { handleSubmit, handleRetryMessage, getMostRecentAssistantMessageId } =
+    useMessageSubmission({
+      message,
+      currentAttachments,
+      chatMessages,
+      isSearchActive,
+      isSending,
+      setIsSending,
+      setJustSentMessage: () => {
+        justSentMessageRef.current = true;
+      },
+      setCurrentThoughtText,
+      lastOptimisticMessageIdRef,
+      setChatMessages,
+      setIsAssistantTyping,
+      clearAllInput,
+      scrollToBottom,
+      onMessageSent: () => {
+        setTimeout(() => {
+          calculateMinHeight();
+        }, 200);
+      },
+    });
 
   const { isDraggingOver } = useDragAndDrop({
     maxAttachments: MAX_ATTACHMENTS_CONFIG,
@@ -697,9 +723,14 @@ export const Conversation: React.FC = () => {
   );
 
   useLayoutEffect(() => {
-    if (!fetchState.isLoading && previousScrollHeight.current > 0 && mainScrollRef.current) {
+    if (
+      !fetchState.isLoading &&
+      previousScrollHeight.current > 0 &&
+      mainScrollRef.current
+    ) {
       const scrollContainer = mainScrollRef.current;
-      const heightDifference = scrollContainer.scrollHeight - previousScrollHeight.current;
+      const heightDifference =
+        scrollContainer.scrollHeight - previousScrollHeight.current;
 
       if (heightDifference > 0) {
         requestAnimationFrame(() => {
@@ -723,7 +754,10 @@ export const Conversation: React.FC = () => {
     if (justSentMessageRef.current && latestUserMessageRef.current) {
       requestAnimationFrame(() => {
         if (latestUserMessageRef.current) {
-          latestUserMessageRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          latestUserMessageRef.current.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
           justSentMessageRef.current = false;
         }
       });
@@ -805,7 +839,9 @@ export const Conversation: React.FC = () => {
             <FiMenu size={20} className="text-primary" />
           </button>
           <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
-            <h1 className="text-lg text-primary md:text-xl font-sans">{process.env.NEXT_PUBLIC_APP_NAME}</h1>
+            <h1 className="text-lg text-primary md:text-xl font-sans">
+              {process.env.NEXT_PUBLIC_APP_NAME}
+            </h1>
           </div>
           <button
             onClick={() => setShowMeeraVoice(true)}
@@ -817,7 +853,11 @@ export const Conversation: React.FC = () => {
         </div>
       </header>
 
-      <main ref={mainScrollRef} className="overflow-y-auto w-full scroll-pt-2.5" onScroll={handleScroll}>
+      <main
+        ref={mainScrollRef}
+        className="overflow-y-auto w-full scroll-pt-2.5"
+        onScroll={handleScroll}
+      >
         <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
           {isInitialLoading && (
             <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
@@ -869,28 +909,38 @@ export const Conversation: React.FC = () => {
                     <div className="messages-container">
                       {messages.map((item) => {
                         if (item.type === 'call_session') {
-                          return <MemoizedCallSessionItem key={item.id} messages={item.messages} />;
+                          return (
+                            <MemoizedCallSessionItem
+                              key={item.id}
+                              messages={item.messages}
+                            />
+                          );
                         }
 
                         const msg = item.message;
+
                         const isStreamingMessage =
                           isSending &&
                           msg.content_type === 'assistant' &&
                           msg.message_id === lastMessage?.message_id &&
                           msg.finish_reason == null;
 
-                        const isLastFailedMessage = msg.message_id === lastFailedMessageId;
-
-                        // Updated: show indicator if we have live thoughts OR stored thoughts.
-                        const shouldShowTypingIndicator =
-                          msg.content_type === 'assistant' &&
-                          msg.message_id === lastMessage?.message_id &&
-                          (isAssistantTyping || !!currentThoughtText || !!msg.thoughts);
+                        const isLastFailedMessage =
+                          msg.message_id === lastFailedMessageId;
 
                         const isLatestUserMessage =
-                          msg.content_type === 'user' && msg.message_id === lastOptimisticMessageIdRef.current;
+                          msg.content_type === 'user' &&
+                          msg.message_id === lastOptimisticMessageIdRef.current;
+
                         const isLatestAssistantMessage =
-                          msg.content_type === 'assistant' && msg.message_id === getMostRecentAssistantMessageId();
+                          msg.content_type === 'assistant' &&
+                          msg.message_id === getMostRecentAssistantMessageId();
+
+                        const shouldShowTypingIndicator =
+                          isLatestAssistantMessage &&
+                          (isAssistantTyping ||
+                            !!currentThoughtText ||
+                            !!msg.thoughts);
 
                         return (
                           <div
@@ -913,7 +963,7 @@ export const Conversation: React.FC = () => {
                               showTypingIndicator={shouldShowTypingIndicator}
                               thoughtText={
                                 shouldShowTypingIndicator
-                                  ? (currentThoughtText || msg.thoughts || undefined)
+                                  ? (currentThoughtText || msg.thoughts)
                                   : undefined
                               }
                               hasMinHeight={isLatestAssistantMessage}
@@ -933,19 +983,28 @@ export const Conversation: React.FC = () => {
         </div>
       </main>
 
-      <footer ref={footerRef} className="w-full z-40 p-2 md:pr-[13px] bg-transparent">
+      <footer
+        ref={footerRef}
+        className="w-full z-40 p-2 md:pr-[13px] bg-transparent"
+      >
         <div className="relative">
           <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
             {!isSubscriptionLoading &&
               !isSubscriptionError &&
               subscriptionData?.plan_type === 'paid' &&
-              !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
+              !(new Date(subscriptionData?.subscription_end_date || 0) >=
+                new Date()) && (
                 <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
                   <span className="text-sm">
                     Your subscription has expired.{' '}
                     <span
                       className="text-primary font-medium cursor-pointer underline"
-                      onClick={() => openModal('subscription_has_ended_renew_here_toast_clicked', true)}
+                      onClick={() =>
+                        openModal(
+                          'subscription_has_ended_renew_here_toast_clicked',
+                          true,
+                        )
+                      }
                     >
                       Renew here
                     </span>
@@ -959,10 +1018,14 @@ export const Conversation: React.FC = () => {
               subscriptionData?.tokens_left != null &&
               subscriptionData.tokens_left <= 5000 && (
                 <div className="w-fit mx_auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
-                  <span className="text-sm">You have {subscriptionData?.tokens_left} tokens left. </span>
+                  <span className="text-sm">
+                    You have {subscriptionData?.tokens_left} tokens left.
+                  </span>
                   <span
                     className="text-primary font-medium cursor-pointer underline"
-                    onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
+                    onClick={() =>
+                      openModal('5000_tokens_left_toast_clicked', true)
+                    }
                   >
                     Add more
                   </span>
@@ -983,7 +1046,10 @@ export const Conversation: React.FC = () => {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]">
+          <form
+            onSubmit={handleSubmit}
+            className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]"
+          >
             <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200 transform-gpu will-change-transform">
               {currentAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 px-4 pt-2.5 pb-1">
@@ -1028,7 +1094,9 @@ export const Conversation: React.FC = () => {
                     type="button"
                     onClick={stableCallbacks.toggleSearchActive}
                     className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform  ${
-                      isSearchActive ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-50'
+                      isSearchActive
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-gray-500 hover:bg-gray-50'
                     }`}
                     title="Search"
                   >
@@ -1068,7 +1136,10 @@ export const Conversation: React.FC = () => {
         </div>
       </footer>
 
-      <UserProfile isOpen={showUserProfile} onClose={() => setShowUserProfile(false)} />
+      <UserProfile
+        isOpen={showUserProfile}
+        onClose={() => setShowUserProfile(false)}
+      />
       <MeeraVoice
         isOpen={showMeeraVoice}
         onClose={(wasConnected) => {
