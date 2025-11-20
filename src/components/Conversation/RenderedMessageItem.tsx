@@ -42,7 +42,8 @@ import remarkGfm from 'remark-gfm';
 
 type ThinkingPhase = 'idle' | 'orchestrating' | 'searching' | 'thinking' | 'thoughts';
 
-const WIDTH_ANCHOR = 'Searching memories...';
+// Longest label, without dots
+const WIDTH_ANCHOR = 'Searching memories';
 
 type ThinkingStatusTextProps = {
   phase: ThinkingPhase;
@@ -51,18 +52,20 @@ type ThinkingStatusTextProps = {
 
 const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtText }) => {
   const text = useMemo(() => {
-    if (phase === 'orchestrating') return 'Orchestrating...';
-    if (phase === 'searching') return 'Searching memories...';
-    if (phase === 'thinking') return 'Thinking...';
+    // Phase labels without "..."
+    if (phase === 'orchestrating') return 'Orchestrating';
+    if (phase === 'searching') return 'Searching memories';
+    if (phase === 'thinking') return 'Thinking';
 
+    // Model thoughts (first non-empty line, markdown cleaned)
     if (phase === 'thoughts' && thoughtText) {
       const firstLine =
         thoughtText
           .split('\n')
           .map((line) =>
             line
-              .replace(/\*\*/g, '')
-              .replace(/^[-*]\s*/, '')
+              .replace(/\*\*/g, '') // remove **bold**
+              .replace(/^[-*]\s*/, '') // remove bullet markers
               .trim(),
           )
           .find(Boolean) || '';
@@ -77,8 +80,9 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
 
   return (
     <span className="relative inline-flex items-center text-primary text-[15px] whitespace-nowrap">
-      {/* Invisible anchor fixes width so pill never grows/shrinks */}
+      {/* Invisible anchor fixes width so pill never grows or shrinks */}
       <span className="opacity-0">{WIDTH_ANCHOR}</span>
+
       {/* Visible text, left aligned inside the pill */}
       <span className="absolute inset-y-0 left-0 flex items-center">
         {text}
@@ -129,14 +133,14 @@ export const RenderedMessageItem: React.FC<{
 
         const timeouts: NodeJS.Timeout[] = [];
 
-        // After 0.8s show "Searching memories..."
+        // After 0.8s show "Searching memories"
         timeouts.push(
           setTimeout(() => {
             setPhase((prev) => (prev === 'orchestrating' ? 'searching' : prev));
           }, 800),
         );
 
-        // After 1.6s show "Thinking..."
+        // After 1.6s show "Thinking"
         timeouts.push(
           setTimeout(() => {
             setPhase((prev) => (prev === 'searching' ? 'thinking' : prev));
@@ -147,7 +151,7 @@ export const RenderedMessageItem: React.FC<{
           timeouts.forEach(clearTimeout);
         };
       } else {
-        // When typing stops and no thoughts, reset
+        // When typing stops and there are no thoughts, reset
         if (!thoughtText) {
           setPhase('idle');
         }
@@ -210,7 +214,7 @@ export const RenderedMessageItem: React.FC<{
 
     // Show thinking row:
     //  - while generating (showTypingIndicator)
-    //  - or when we have thoughts and phase is 'thoughts' (even if generation just finished)
+    //  - or when we have thoughts and phase is 'thoughts'
     const showThinkingRow =
       !isUser &&
       !message.isGeneratingImage &&
