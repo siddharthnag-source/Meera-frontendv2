@@ -31,12 +31,83 @@ import { downloadFile } from '@/lib/downloadFile';
 import { truncateFileName } from '@/lib/stringUtils';
 import { ChatMessageFromServer } from '@/types/chat';
 import Image from 'next/image';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FaFilePdf } from 'react-icons/fa';
 import { FiCheck, FiChevronDown, FiChevronUp, FiCopy, FiDownload, FiPaperclip, FiRefreshCw } from 'react-icons/fi';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
+
+// ------------------- Thinking status text (rotating pill text) -------------------
+
+const FALLBACK_THOUGHT_ITEMS = ['Orchestrating...', 'Searching memories...', 'Thinking...'];
+
+const WIDTH_ANCHOR = 'Searching your previous context carefully...';
+
+type ThinkingStatusTextProps = {
+  showOrchestrating: boolean;
+  thoughtText?: string;
+};
+
+const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ showOrchestrating, thoughtText }) => {
+  const items = useMemo(() => {
+    // 1) If we have model thoughts, use them (split by lines, strip markdown)
+    if (thoughtText && thoughtText.trim()) {
+      const lines = thoughtText
+        .split('\n')
+        .map((line) =>
+          line
+            .replace(/\*\*/g, '') // remove markdown bold
+            .replace(/^[-*]\s*/, '') // remove bullet markers
+            .trim(),
+        )
+        .filter(Boolean);
+
+      return lines.length ? lines : [thoughtText.replace(/\*\*/g, '').trim()];
+    }
+
+    // 2) Before thoughts arrive, show generic phases after orchestrating kicks in
+    if (showOrchestrating) {
+      return FALLBACK_THOUGHT_ITEMS;
+    }
+
+    // 3) At the very beginning, show nothing (only bouncing dots)
+    return [];
+  }, [showOrchestrating, thoughtText]);
+
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (!items.length) return;
+
+    setIndex(0);
+    const id = setInterval(() => {
+      setIndex((prev) => (prev + 1) % items.length);
+    }, 1200); // change every 1.2s
+
+    return () => clearInterval(id);
+  }, [items]);
+
+  if (!items.length) return null;
+
+  const text = items[index];
+
+  // Fixed-width span: invisible anchor sets width, visible text sits on top
+  return (
+    <span className="relative inline-flex items-center text-primary text-[15px] whitespace-nowrap">
+      {/* width anchor so pill never grows/shrinks */}
+      <span className="invisible">
+        {WIDTH_ANCHOR} ● ● ●
+      </span>
+
+      <span className="absolute inset-0 flex items-center justify-center">
+        {text}
+      </span>
+    </span>
+  );
+};
+
+// ------------------------- Main rendered message component -------------------------
 
 export const RenderedMessageItem: React.FC<{
   message: ChatMessageFromServer;
@@ -48,16 +119,7 @@ export const RenderedMessageItem: React.FC<{
   hasMinHeight?: boolean;
   dynamicMinHeight?: number;
 }> = React.memo(
-  ({
-    message,
-    isStreaming,
-    onRetry,
-    isLastFailedMessage,
-    showTypingIndicator,
-    thoughtText,
-    hasMinHeight,
-    dynamicMinHeight,
-  }) => {
+  ({ message, isStreaming, onRetry, isLastFailedMessage, showTypingIndicator, thoughtText, hasMinHeight, dynamicMinHeight }) => {
     const [isCopied, setIsCopied] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [showExpandButton, setShowExpandButton] = useState(false);
@@ -92,11 +154,7 @@ export const RenderedMessageItem: React.FC<{
         }
         setShowOrchestrating(false);
       }
-    }, [
-      showTypingIndicator,
-      isUser,
-      message.try_number,
-    ]);
+    }, [showTypingIndicator, isUser, message.try_number]);
 
     useEffect(() => {
       const element = contentRef.current;
@@ -113,11 +171,7 @@ export const RenderedMessageItem: React.FC<{
 
         return () => resizeObserver.disconnect();
       }
-    }, [
-      isUser,
-      isExpanded,
-      showExpandButton,
-    ]);
+    }, [isUser, isExpanded, showExpandButton]);
 
     if (message.content_type === 'system') {
       return (
@@ -169,7 +223,9 @@ export const RenderedMessageItem: React.FC<{
                 {message.content_type === 'user' ? (
                   <div
                     ref={contentRef}
-                    className={`font-sans text-[15px] ${textColor} ${!isExpanded ? 'max-h-[34vh] overflow-hidden' : ''} whitespace-pre-wrap`}
+                    className={`font-sans text-[15px] ${textColor} ${
+                      !isExpanded ? 'max-h-[34vh] overflow-hidden' : ''
+                    } whitespace-pre-wrap`}
                   >
                     {message.content}
                   </div>
@@ -356,14 +412,7 @@ export const RenderedMessageItem: React.FC<{
             {/* Show typing indicator inside assistant message when showTypingIndicator is true */}
             {showTypingIndicator && !isUser && !message.isGeneratingImage && (
               <div className="flex items-center space-x-2">
-                {thoughtText ? (
-                  // When thought text is available, show it with dots
-                  <span className="text-primary text-[15px] whitespace-nowrap">
-                    {thoughtText.split('\n')[0].replace(/\*\*/g, '')}
-                  </span>
-                ) : showOrchestrating ? (
-                  <span className="text-primary text-[15px] whitespace-nowrap">Orchestrating</span>
-                ) : null}
+                <ThinkingStatusText showOrchestrating={showOrchestrating} thoughtText={thoughtText} />
                 {/* Always show dots when typing indicator is active */}
                 <div className="flex space-x-1">
                   <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
@@ -418,7 +467,7 @@ export const RenderedMessageItem: React.FC<{
                             downloadFile(firstAttachment.url);
                           }
                         }}
-                        className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
+                        className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg:white/10 transition-colors focus:outline-none cursor-pointer"
                         title="Download attachment"
                       >
                         <FiDownload size={14} className="text-primary/60 hover:text-primary/80" />
