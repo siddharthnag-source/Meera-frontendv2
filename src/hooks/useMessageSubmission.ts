@@ -8,6 +8,7 @@ import {
   ChatAttachmentInputState,
   ChatMessageFromServer,
   ChatMessageResponse,
+  ChatMessageResponseData,
 } from '@/types/chat';
 import React, { MutableRefObject, useCallback, useRef } from 'react';
 
@@ -28,6 +29,11 @@ interface UseMessageSubmissionProps {
   onMessageSent?: () => void;
 }
 
+type ChatSendResponseData = ChatMessageResponseData & {
+  thoughts?: string;
+  thoughtText?: string;
+};
+
 export const useMessageSubmission = ({
   message,
   currentAttachments,
@@ -46,7 +52,6 @@ export const useMessageSubmission = ({
 }: UseMessageSubmissionProps) => {
   const { showToast } = useToast();
 
-  // userMessageId -> assistantMessageId
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
 
@@ -81,7 +86,6 @@ export const useMessageSubmission = ({
           file: att.file,
         })),
         try_number: 1,
-        failed: false,
       };
     },
     [chatMessages],
@@ -107,7 +111,6 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // If not a retry, create user + empty assistant messages
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
 
@@ -120,7 +123,6 @@ export const useMessageSubmission = ({
           attachments: [],
           try_number: tryNumber,
           failed: false,
-          thoughts: '',
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
@@ -132,12 +134,9 @@ export const useMessageSubmission = ({
         onMessageSent?.();
         setTimeout(() => scrollToBottom(true), 300);
       } else {
-        // Retry: clear failed state on the user message and linked assistant placeholder
         setChatMessages((prev) =>
           prev.map((msg) =>
-            msg.message_id === optimisticId
-              ? { ...msg, failed: false, try_number: tryNumber }
-              : msg,
+            msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
           ),
         );
       }
@@ -160,12 +159,10 @@ export const useMessageSubmission = ({
 
       try {
         const result: ChatMessageResponse = await chatService.sendMessage(formData);
+        const rawData: ChatSendResponseData = result.data;
 
-        const assistantText = result.data.response;
-        const thoughts =
-          result.data.thoughts ||
-          result.data.message?.thoughts ||
-          '';
+        const assistantText = rawData.response;
+        const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
@@ -183,7 +180,7 @@ export const useMessageSubmission = ({
                     timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
-                    thoughts, // store on message for later expand / render
+                    thoughts: thoughts || undefined,
                   }
                 : msg,
             ),
@@ -212,9 +209,7 @@ export const useMessageSubmission = ({
 
           setChatMessages((prev) =>
             prev.map((msg) => {
-              if (msg.message_id === optimisticId) {
-                return { ...msg, failed: true };
-              }
+              if (msg.message_id === optimisticId) return { ...msg, failed: true };
               if (assistantId && msg.message_id === assistantId) {
                 return {
                   ...msg,
