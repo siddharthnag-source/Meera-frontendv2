@@ -1,307 +1,131 @@
-'use client';
+// src/hooks/useMessageSubmission.ts
+import { useCallback, useRef } from 'react';
+import { ChatMessageFromServer } from '@/types/chat';
 
-import { ApiError, chatService, SessionExpiredError } from '@/app/api/services/chat';
-import { useToast } from '@/components/ui/ToastProvider';
-import { createLocalTimestamp } from '@/lib/dateUtils';
-import { getSystemInfo } from '@/lib/deviceInfo';
-import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
-import React, { MutableRefObject, useCallback, useRef } from 'react';
+type LLMMessage = { role: 'user' | 'assistant'; content: string };
 
-interface UseMessageSubmissionProps {
-  message: string;
-  currentAttachments: ChatAttachmentInputState[];
-  chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean;
-  isSending: boolean;
-  setIsSending: (isSending: boolean) => void;
-  setJustSentMessage: (justSent: boolean) => void;
-  setCurrentThoughtText: (text: string) => void;
-  lastOptimisticMessageIdRef: MutableRefObject<string | null>;
-  setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
-  setIsAssistantTyping: (isTyping: boolean) => void;
-  clearAllInput: () => void;
-  scrollToBottom: (smooth?: boolean) => void;
-  onMessageSent?: () => void;
-}
+// keep last N turns for context
+const CONTEXT_WINDOW = 20;
 
-// Shape of the API response we care about
-interface ChatSendResponseData {
-  response: string;
-  thoughts?: string;
-  thoughtText?: string;
-  [key: string]: unknown;
-}
-
-export const useMessageSubmission = ({
-  message,
-  currentAttachments,
-  chatMessages,
-  isSearchActive,
-  isSending,
-  setIsSending,
-  setJustSentMessage,
+export function useMessageSubmission({
+  messages,
+  setMessages,
+  setIsStreaming,
   setCurrentThoughtText,
-  lastOptimisticMessageIdRef,
-  setChatMessages,
-  setIsAssistantTyping,
-  clearAllInput,
-  scrollToBottom,
-  onMessageSent,
-}: UseMessageSubmissionProps) => {
-  const { showToast } = useToast();
-
-  // userMessageId -> assistantMessageId
+  conversationId,
+}: {
+  messages: ChatMessageFromServer[];
+  setMessages: (m: ChatMessageFromServer[]) => void;
+  setIsStreaming: (b: boolean) => void;
+  setCurrentThoughtText: (t: string) => void;
+  conversationId: string;
+}) {
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
-  const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
 
-  const createOptimisticMessage = useCallback(
-    (
-      optimisticId: string,
-      messageText: string,
-      attachments: ChatAttachmentInputState[],
-    ): ChatMessageFromServer => {
-      const lastMessage = chatMessages[chatMessages.length - 1];
-      let newTimestamp = new Date();
+  const buildHistory = useCallback(
+    (all: ChatMessageFromServer[]): LLMMessage[] => {
+      const core = all
+        .filter((m) => m.content_type === 'user' || m.content_type === 'assistant')
+        .filter((m) => !!m.content && m.content.trim().length > 0)
+        .map((m) => ({
+          role: m.content_type as 'user' | 'assistant',
+          content: m.content,
+        }));
 
-      if (lastMessage && new Date(lastMessage.timestamp) >= newTimestamp) {
-        newTimestamp = new Date(new Date(lastMessage.timestamp).getTime() + 6);
-      }
-
-      return {
-        message_id: optimisticId,
-        content: messageText,
-        content_type: 'user',
-        timestamp: createLocalTimestamp(newTimestamp),
-        attachments: attachments.map((att) => ({
-          name: att.file.name,
-          type:
-            att.file.type === 'application/pdf'
-              ? 'pdf'
-              : att.type === 'image'
-                ? 'image'
-                : att.file.type.split('/')[1] || 'file',
-          url: att.previewUrl || '',
-          size: att.file.size,
-          file: att.file,
-        })),
-        try_number: 1,
-      };
+      return core.slice(-CONTEXT_WINDOW);
     },
-    [chatMessages],
+    [],
   );
 
-  const clearMessageRelationshipMap = useCallback(() => {
-    messageRelationshipMapRef.current.clear();
-    mostRecentAssistantMessageIdRef.current = null;
-  }, []);
+  const submitMessage = useCallback(
+    async (userText: string) => {
+      if (!userText.trim()) return;
 
-  const executeSubmission = useCallback(
-    async (
-      messageText: string,
-      attachments: ChatAttachmentInputState[] = [],
-      tryNumber: number = 1,
-      optimisticIdToUpdate?: string,
-      isFromManualRetry: boolean = false,
-    ) => {
-      if (isSending) return;
+      // optimistic user message
+      const optimisticUser: ChatMessageFromServer = {
+        id: crypto.randomUUID(),
+        content_type: 'user',
+        content: userText,
+        timestamp: new Date().toISOString(),
+      };
 
-      const trimmedMessage = messageText.trim();
-      if (!trimmedMessage && attachments.length === 0) return;
+      const nextMessages = [...messages, optimisticUser];
+      setMessages(nextMessages);
 
-      const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
+      const historyPayload = buildHistory(nextMessages);
 
-      // If not a retry, create user + empty assistant messages
-      if (!optimisticIdToUpdate) {
-        const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
+      setIsStreaming(true);
+      setCurrentThoughtText(''); // reset thoughts per turn
 
-        const assistantMessageId = `assistant-${Date.now()}`;
-        const emptyAssistantMessage: ChatMessageFromServer = {
-          message_id: assistantMessageId,
-          content: '',
-          content_type: 'assistant',
-          timestamp: createLocalTimestamp(),
-          attachments: [],
-          try_number: tryNumber,
-          failed: false,
-        };
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId,
+          messages: historyPayload, // <-- THIS is the key change
+        }),
+      });
 
-        messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
-        mostRecentAssistantMessageIdRef.current = assistantMessageId;
-
-        setChatMessages((prev) => [...prev, userMessage, emptyAssistantMessage]);
-
-        clearAllInput();
-        onMessageSent?.();
-        setTimeout(() => scrollToBottom(true), 300);
-      } else {
-        // Retry: clear failed state
-        setChatMessages((prev) =>
-          prev.map((msg) =>
-            msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
-          ),
-        );
+      if (!res.body) {
+        setIsStreaming(false);
+        return;
       }
 
-      setIsSending(true);
-      setJustSentMessage(true);
-      setCurrentThoughtText('');
-      lastOptimisticMessageIdRef.current = optimisticId;
-      setIsAssistantTyping(true);
+      // streaming reader (keep your existing logic if different)
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
 
-      const formData = new FormData();
-      if (trimmedMessage) formData.append('message', trimmedMessage);
-      attachments.forEach((att) => formData.append('files', att.file, att.file.name));
-      if (isSearchActive) formData.append('google_search', 'true');
+      let assistantText = '';
+      let thoughts = '';
 
-      const systemInfo = await getSystemInfo();
-      if (systemInfo.device) formData.append('device', systemInfo.device);
-      if (systemInfo.location) formData.append('location', systemInfo.location);
-      if (systemInfo.network) formData.append('network', systemInfo.network);
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
 
-      try {
-        const result = await chatService.sendMessage(formData);
+        const chunk = decoder.decode(value);
 
-        // Cast once with a typed interface instead of `any`
-        const rawData = result.data as ChatSendResponseData;
+        // expected server format:
+        // {type:"thought", content:"..."} or {type:"token", content:"..."}
+        const lines = chunk.split('\n').filter(Boolean);
 
-        // Final answer from backend - already working
-        const assistantText = rawData.response;
+        for (const line of lines) {
+          try {
+            const evt = JSON.parse(line);
 
-        // Thinking text from backend (Gemini thoughts)
-        const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
+            if (evt.type === 'thought') {
+              thoughts += evt.content;
+              setCurrentThoughtText(thoughts);
+            }
 
-        const assistantId = messageRelationshipMapRef.current.get(optimisticId);
+            if (evt.type === 'token') {
+              assistantText += evt.content;
 
-        // Store thinking text so the UI can show it after "Orchestrating"
-        if (thoughts) {
-          setCurrentThoughtText(thoughts);
-        }
+              const assistantMsg: ChatMessageFromServer = {
+                id: crypto.randomUUID(),
+                content_type: 'assistant',
+                content: assistantText,
+                timestamp: new Date().toISOString(),
+              };
 
-        if (assistantId) {
-          setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === assistantId
-                ? {
-                    ...msg,
-                    content: assistantText,
-                    timestamp: createLocalTimestamp(),
-                    failed: false,
-                    try_number: tryNumber,
-                  }
-                : msg,
-            ),
-          );
-        }
-      } catch (error) {
-        console.error('Error sending message:', error);
-
-        if (error instanceof SessionExpiredError) {
-          setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === optimisticId ? { ...msg, failed: true } : msg,
-            ),
-          );
-        } else if (error instanceof ApiError && error.status === 400) {
-          showToast('Unsupported file', { type: 'error', position: 'conversation' });
-          setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === optimisticId ? { ...msg, failed: true } : msg,
-            ),
-          );
-        } else {
-          showToast('Failed to respond, try again', { type: 'error', position: 'conversation' });
-
-          const assistantId = messageRelationshipMapRef.current.get(optimisticId);
-
-          setChatMessages((prev) =>
-            prev.map((msg) => {
-              if (msg.message_id === optimisticId) {
-                return { ...msg, failed: true };
-              }
-              if (assistantId && msg.message_id === assistantId) {
-                return {
-                  ...msg,
-                  failed: true,
-                  failedMessage: 'Failed to respond, try again',
-                };
-              }
-              return msg;
-            }),
-          );
-        }
-      } finally {
-        setIsSending(false);
-        setIsAssistantTyping(false);
-        // keep thoughts visible; they will be cleared at the start of next submission
-        lastOptimisticMessageIdRef.current = null;
-
-        if (isFromManualRetry) {
-          setTimeout(() => scrollToBottom(true), 150);
+              setMessages([...nextMessages, assistantMsg]);
+            }
+          } catch {
+            // ignore non json noise
+          }
         }
       }
+
+      setIsStreaming(false);
     },
     [
-      isSending,
-      isSearchActive,
-      createOptimisticMessage,
-      setChatMessages,
-      clearAllInput,
-      scrollToBottom,
-      setIsSending,
-      setJustSentMessage,
+      messages,
+      setMessages,
+      setIsStreaming,
       setCurrentThoughtText,
-      lastOptimisticMessageIdRef,
-      setIsAssistantTyping,
-      showToast,
-      onMessageSent,
+      conversationId,
+      buildHistory,
     ],
   );
 
-  const handleRetryMessage = useCallback(
-    (failedMessage: ChatMessageFromServer) => {
-      const messageContent = failedMessage.content;
-      const messageAttachments = failedMessage.attachments || [];
-      const currentTryNumber = failedMessage.try_number || 0;
-      const nextTryNumber = currentTryNumber + 1;
-      const failedMessageId = failedMessage.message_id;
-
-      const retryAttachments: ChatAttachmentInputState[] = messageAttachments
-        .filter((att) => att.file)
-        .map((att) => {
-          const file = att.file as File;
-          const blob = file.slice(0, file.size, file.type);
-          const newFile = new File([blob], file.name, { type: file.type });
-          return {
-            file: newFile,
-            previewUrl: att.url,
-            type: att.type === 'image' ? 'image' : 'document',
-          };
-        });
-
-      if (messageContent || retryAttachments.length > 0) {
-        executeSubmission(messageContent, retryAttachments, nextTryNumber, failedMessageId, true);
-      }
-    },
-    [executeSubmission],
-  );
-
-  const handleSubmit = useCallback(
-    (e: React.SyntheticEvent) => {
-      e.preventDefault();
-      executeSubmission(message, currentAttachments);
-    },
-    [executeSubmission, message, currentAttachments],
-  );
-
-  const getMostRecentAssistantMessageId = useCallback(() => {
-    return mostRecentAssistantMessageIdRef.current;
-  }, []);
-
-  return {
-    handleSubmit,
-    executeSubmission,
-    handleRetryMessage,
-    getMostRecentAssistantMessageId,
-    clearMessageRelationshipMap,
-  };
-};
+  return { submitMessage, messageRelationshipMapRef };
+}
