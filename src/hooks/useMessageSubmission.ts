@@ -20,10 +20,17 @@ type UseMessageSubmissionArgs = {
   setMessage?: (v: string) => void;
   setCurrentAttachments?: (v: Attachment[]) => void;
 
+  // streaming and thoughts UI
   setIsStreaming?: (v: boolean) => void;
   setCurrentThoughtText?: (v: string) => void;
 
   setLastAssistantMessageId?: (id: string) => void;
+
+  // these are passed by Conversation/index.tsx
+  isSearchActive?: boolean;
+  isSending?: boolean;
+  setIsSending?: (v: boolean) => void;
+  setJustSentMessage?: (v: boolean) => void;
 };
 
 type ChatMessageLocal = ChatMessageFromServer & {
@@ -41,6 +48,8 @@ export function useMessageSubmission({
   setIsStreaming,
   setCurrentThoughtText,
   setLastAssistantMessageId,
+  setIsSending,
+  setJustSentMessage,
 }: UseMessageSubmissionArgs) {
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
 
@@ -55,6 +64,10 @@ export function useMessageSubmission({
     async (userText: string, isRetry: boolean) => {
       const text = (userText || '').trim();
       if (!text && currentAttachments.length === 0) return;
+
+      setIsSending?.(true);
+      setIsStreaming?.(true);
+      setCurrentThoughtText?.('');
 
       const optimisticUser: ChatMessageLocal = {
         message_id: crypto.randomUUID(),
@@ -73,19 +86,13 @@ export function useMessageSubmission({
       setMessage?.('');
       setCurrentAttachments?.([]);
 
-      setIsStreaming?.(true);
-      setCurrentThoughtText?.('');
-
       try {
         const formData = new FormData();
         formData.append('message', text);
 
-        // IMPORTANT: use the real response type, no custom cast
         const result: ChatMessageResponse = await chatService.sendMessage(formData);
-
         const assistantMsg = result.data.message;
 
-        // If thoughts came back, keep them both on message + optional live state
         const thoughts = assistantMsg.thoughts || result.data.thoughts || '';
         if (thoughts.trim().length > 0) {
           setCurrentThoughtText?.(thoughts);
@@ -96,6 +103,8 @@ export function useMessageSubmission({
         const assistantId = assistantMsg.message_id;
         setLastAssistantMessageId?.(assistantId);
         messageRelationshipMapRef.current.set(optimisticUser.message_id, assistantId);
+
+        setJustSentMessage?.(true);
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : 'Sorry, I could not generate a reply.';
@@ -116,6 +125,7 @@ export function useMessageSubmission({
         setChatMessages((prev) => [...prev, failedAssistant]);
       } finally {
         setIsStreaming?.(false);
+        setIsSending?.(false);
       }
     },
     [
@@ -126,6 +136,8 @@ export function useMessageSubmission({
       setIsStreaming,
       setCurrentThoughtText,
       setLastAssistantMessageId,
+      setIsSending,
+      setJustSentMessage,
     ],
   );
 
