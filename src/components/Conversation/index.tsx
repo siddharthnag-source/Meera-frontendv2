@@ -268,8 +268,7 @@ export const Conversation: React.FC = () => {
     [chatMessages, processMessagesForDisplay],
   );
 
-  const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
-  const lastMessageIsFromAssistant = lastMessage?.content_type === 'assistant';
+ const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
   const canSubmit = useMemo(
     () => (message.trim() || currentAttachments.length > 0) && !isSending,
