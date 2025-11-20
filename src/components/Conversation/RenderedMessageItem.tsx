@@ -73,11 +73,11 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
 
   if (!text) return null;
 
-  // Text + dots inline, spacing like the original pill, and width auto-expands with text
+  // Centered text + dots, with very small spacing
   return (
-    <span className="inline-flex items-center text-primary text-[15px] whitespace-nowrap">
+    <span className="inline-flex items-center justify-center text-primary text-[15px] whitespace-nowrap">
       <span>{text}</span>
-      <span className="ml-1 flex space-x-1">
+      <span className="ml-0.5 flex items-center space-x-0.5">
         <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
         <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
         <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
@@ -413,9 +413,9 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Orchestrating / searching / thinking / thoughts row */}
+            {/* Orchestrating / searching / thinking / thoughts row, perfectly centered */}
             {showThinkingRow && (
-              <div className="mt-1 flex items-center">
+              <div className="mt-1 flex items-center justify-center">
                 <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
               </div>
             )}
