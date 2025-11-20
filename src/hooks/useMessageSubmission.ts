@@ -35,8 +35,6 @@ type ChatSendResponseData = ChatMessageResponseData & {
   thoughtText?: string;
 };
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 export const useMessageSubmission = ({
   message,
   currentAttachments,
@@ -128,7 +126,7 @@ export const useMessageSubmission = ({
           attachments: [],
           try_number: tryNumber,
           failed: false,
-          thoughts: '',
+          thoughts: '', // important: placeholder for thoughts
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
@@ -174,29 +172,11 @@ export const useMessageSubmission = ({
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
-        // Stage 1: show thoughts in the placeholder bubble
-        if (assistantId && thoughts) {
+        // keep live thoughts for the typing phase
+        if (thoughts) {
           setCurrentThoughtText(thoughts);
-
-          setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === assistantId
-                ? {
-                    ...msg,
-                    thoughts,
-                    content: '',
-                    failed: false,
-                    try_number: tryNumber,
-                  }
-                : msg,
-            ),
-          );
-
-          // Tiny delay so UI renders the thinking box before final text
-          await sleep(60);
         }
 
-        // Stage 2: fill the final assistant message
         if (assistantId) {
           setChatMessages((prev) =>
             prev.map((msg) =>
@@ -204,10 +184,10 @@ export const useMessageSubmission = ({
                 ? {
                     ...msg,
                     content: assistantText,
-                    thoughts: thoughts || msg.thoughts,
                     timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
+                    thoughts: thoughts || undefined, // important: persist thoughts on the message
                   }
                 : msg,
             ),
@@ -253,10 +233,6 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-
-        // clear live thoughts so they do not stick inside final bubble
-        setCurrentThoughtText('');
-
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
