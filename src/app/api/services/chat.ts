@@ -41,6 +41,13 @@ type DbMessageRow = {
   model?: string | null;
 };
 
+type LLMHistoryMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+const CONTEXT_WINDOW = 20;
+
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
@@ -104,7 +111,7 @@ export const chatService = {
   /**
    * Non-streaming sendMessage.
    * Calls Supabase Edge Function and persists both user and assistant messages.
-   * Passes through model thoughts.
+   * Includes conversation history for continuity.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
@@ -122,10 +129,41 @@ export const chatService = {
 
       const userId = session.user.id;
 
+      // Fetch last CONTEXT_WINDOW messages for continuity
+      const { data: historyRows, error: historyError } = await supabase
+        .from('messages')
+        .select('content_type, content, timestamp')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false })
+        .limit(CONTEXT_WINDOW);
+
+      if (historyError) {
+        console.error('sendMessage: failed to fetch history', historyError);
+      }
+
+      const sortedHistory = (
+        (historyRows ?? []) as Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[]
+      )
+        .slice()
+        .reverse();
+
+      const historyForModel: LLMHistoryMessage[] = sortedHistory
+        .filter((row) => row.content && row.content.trim().length > 0)
+        .map((row) => ({
+          role: row.content_type === 'assistant' ? 'assistant' : 'user',
+          content: row.content,
+        }));
+
+      historyForModel.push({ role: 'user', content: message });
+
       const response = await fetch(SUPABASE_CHAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({
+          message,
+          messages: historyForModel,
+          userId,
+        }),
       });
 
       if (!response.ok) {
@@ -141,10 +179,10 @@ export const chatService = {
         );
       }
 
-      // Edge function returns { reply, thoughts }
       const body = (await response.json()) as {
         reply: string;
         thoughts?: string;
+        thoughtText?: string;
         model?: string;
       };
 
@@ -190,7 +228,7 @@ export const chatService = {
             is_call: false,
             failed: false,
             finish_reason: null,
-            thoughts: body.thoughts ?? '',
+            thoughts: body.thoughts ?? body.thoughtText ?? undefined,
           }
         : {
             message_id: crypto.randomUUID(),
@@ -201,16 +239,16 @@ export const chatService = {
             is_call: false,
             failed: false,
             finish_reason: null,
-            thoughts: body.thoughts ?? '',
+            thoughts: body.thoughts ?? body.thoughtText ?? undefined,
           };
 
       const chatResponse: ChatMessageResponse = {
         message: 'ok',
         data: {
           response: body.reply,
-          thoughts: body.thoughts ?? '',
           message: assistantMessage,
-        } as ChatMessageResponse['data'],
+          thoughts: body.thoughts ?? body.thoughtText,
+        },
       };
 
       return chatResponse;
