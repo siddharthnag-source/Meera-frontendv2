@@ -29,10 +29,13 @@ interface UseMessageSubmissionProps {
   onMessageSent?: () => void;
 }
 
+// Shape of the API response we care about
 type ChatSendResponseData = ChatMessageResponseData & {
   thoughts?: string;
   thoughtText?: string;
 };
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const useMessageSubmission = ({
   message,
@@ -52,6 +55,7 @@ export const useMessageSubmission = ({
 }: UseMessageSubmissionProps) => {
   const { showToast } = useToast();
 
+  // userMessageId -> assistantMessageId
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
 
@@ -111,6 +115,7 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
+      // If not a retry, create user + empty assistant messages
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
 
@@ -123,6 +128,7 @@ export const useMessageSubmission = ({
           attachments: [],
           try_number: tryNumber,
           failed: false,
+          thoughts: '',
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
@@ -134,6 +140,7 @@ export const useMessageSubmission = ({
         onMessageSent?.();
         setTimeout(() => scrollToBottom(true), 300);
       } else {
+        // Retry: clear failed state
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
@@ -159,6 +166,7 @@ export const useMessageSubmission = ({
 
       try {
         const result: ChatMessageResponse = await chatService.sendMessage(formData);
+
         const rawData: ChatSendResponseData = result.data;
 
         const assistantText = rawData.response;
@@ -166,10 +174,29 @@ export const useMessageSubmission = ({
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
-        if (thoughts) {
+        // Stage 1: show thoughts in the placeholder bubble
+        if (assistantId && thoughts) {
           setCurrentThoughtText(thoughts);
+
+          setChatMessages((prev) =>
+            prev.map((msg) =>
+              msg.message_id === assistantId
+                ? {
+                    ...msg,
+                    thoughts,
+                    content: '',
+                    failed: false,
+                    try_number: tryNumber,
+                  }
+                : msg,
+            ),
+          );
+
+          // Tiny delay so UI renders the thinking box before final text
+          await sleep(60);
         }
 
+        // Stage 2: fill the final assistant message
         if (assistantId) {
           setChatMessages((prev) =>
             prev.map((msg) =>
@@ -177,10 +204,10 @@ export const useMessageSubmission = ({
                 ? {
                     ...msg,
                     content: assistantText,
+                    thoughts: thoughts || msg.thoughts,
                     timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
-                    thoughts: thoughts || undefined,
                   }
                 : msg,
             ),
@@ -209,7 +236,9 @@ export const useMessageSubmission = ({
 
           setChatMessages((prev) =>
             prev.map((msg) => {
-              if (msg.message_id === optimisticId) return { ...msg, failed: true };
+              if (msg.message_id === optimisticId) {
+                return { ...msg, failed: true };
+              }
               if (assistantId && msg.message_id === assistantId) {
                 return {
                   ...msg,
@@ -224,6 +253,10 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
+
+        // clear live thoughts so they do not stick inside final bubble
+        setCurrentThoughtText('');
+
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
