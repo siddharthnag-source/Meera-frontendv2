@@ -135,13 +135,13 @@ export const RenderedMessageItem: React.FC<{
         timeouts.push(
           setTimeout(() => {
             setPhase((prev) => (prev === 'orchestrating' ? 'searching' : prev));
-          }, 2500),
+          }, 3500),
         );
 
         timeouts.push(
           setTimeout(() => {
             setPhase((prev) => (prev === 'searching' ? 'thinking' : prev));
-          }, 5000),
+          }, 7000),
         );
 
         return () => {
