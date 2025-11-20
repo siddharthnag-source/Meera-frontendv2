@@ -31,62 +31,12 @@ import { downloadFile } from '@/lib/downloadFile';
 import { truncateFileName } from '@/lib/stringUtils';
 import { ChatMessageFromServer } from '@/types/chat';
 import Image from 'next/image';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FaFilePdf } from 'react-icons/fa';
 import { FiCheck, FiChevronDown, FiChevronUp, FiCopy, FiDownload, FiPaperclip, FiRefreshCw } from 'react-icons/fi';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-
-/* ---------------- Thinking status text inside the pill ---------------- */
-
-type ThinkingPhase = 'idle' | 'orchestrating' | 'searching' | 'thinking' | 'thoughts';
-
-type ThinkingStatusTextProps = {
-  phase: ThinkingPhase;
-  thoughtText?: string;
-};
-
-const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtText }) => {
-  const text = useMemo(() => {
-    if (phase === 'orchestrating') return 'Orchestrating';
-    if (phase === 'searching') return 'Searching memories';
-    if (phase === 'thinking') return 'Thinking';
-
-    if (phase === 'thoughts' && thoughtText) {
-      const firstLine =
-        thoughtText
-          .split('\n')
-          .map((line) =>
-            line
-              .replace(/\*\*/g, '')
-              .replace(/^[-*]\s*/, '')
-              .trim(),
-          )
-          .find(Boolean) || '';
-
-      return firstLine;
-    }
-
-    return '';
-  }, [phase, thoughtText]);
-
-  if (!text) return null;
-
-  // Centered text + dots, with a small but clear gap
-  return (
-    <span className="inline-flex items-center justify-center text-primary text-[15px] leading-none whitespace-nowrap">
-      <span>{text}</span>
-      <span className="flex items-center ml-1 gap-1">
-        <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
-        <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
-        <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
-      </span>
-    </span>
-  );
-};
-
-/* ---------------- Main component ---------------- */
 
 export const RenderedMessageItem: React.FC<{
   message: ChatMessageFromServer;
@@ -111,58 +61,43 @@ export const RenderedMessageItem: React.FC<{
     const [isCopied, setIsCopied] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [showExpandButton, setShowExpandButton] = useState(false);
+    const [showOrchestrating, setShowOrchestrating] = useState(false);
     const [imageModalOpen, setImageModalOpen] = useState(false);
     const [currentImageUrl, setCurrentImageUrl] = useState('');
-    const [phase, setPhase] = useState<ThinkingPhase>('idle');
-
     const contentRef = useRef<HTMLDivElement>(null);
+    const timerRef = useRef<NodeJS.Timeout | null>(null);
 
     const isUser = message.content_type === 'user';
     const bgColor = isUser ? 'bg-primary' : 'bg-card';
     const textColor = isUser ? 'text-background' : 'text-primary';
 
-    const hasTextContent =
-      !!message.content || (message.content_type === 'assistant' && !!message.failed);
-    const hasAttachments = !!(message.attachments && message.attachments.length > 0);
-    const hasMainContent = hasTextContent || hasAttachments;
-
-    /* Phase progression: Orchestrating -> Searching memories -> Thinking (once each) */
+    // Handle progressive typing indicator
     useEffect(() => {
       if (showTypingIndicator && !isUser) {
-        setPhase('orchestrating');
-
-        const timeouts: NodeJS.Timeout[] = [];
-
-        timeouts.push(
-          setTimeout(() => {
-            setPhase((prev) => (prev === 'orchestrating' ? 'searching' : prev));
-          }, 800),
-        );
-
-        timeouts.push(
-          setTimeout(() => {
-            setPhase((prev) => (prev === 'searching' ? 'thinking' : prev));
-          }, 1600),
-        );
-
-        return () => {
-          timeouts.forEach(clearTimeout);
-        };
-      } else {
-        if (!thoughtText) {
-          setPhase('idle');
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
         }
+        if (message.try_number && message.try_number > 1) {
+          setShowOrchestrating(true);
+        } else {
+          setShowOrchestrating(false);
+          timerRef.current = setTimeout(() => {
+            setShowOrchestrating(true);
+          }, 1000);
+        }
+      } else {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        setShowOrchestrating(false);
       }
-    }, [showTypingIndicator, isUser, thoughtText]);
+    }, [
+      showTypingIndicator,
+      isUser,
+      message.try_number,
+    ]);
 
-    /* When model thoughts arrive, show them */
-    useEffect(() => {
-      if (!isUser && thoughtText && thoughtText.trim()) {
-        setPhase('thoughts');
-      }
-    }, [thoughtText, isUser]);
-
-    /* Overflow handling for user bubble */
     useEffect(() => {
       const element = contentRef.current;
       if (isUser && element && !isExpanded) {
@@ -178,7 +113,11 @@ export const RenderedMessageItem: React.FC<{
 
         return () => resizeObserver.disconnect();
       }
-    }, [isUser, isExpanded, showExpandButton]);
+    }, [
+      isUser,
+      isExpanded,
+      showExpandButton,
+    ]);
 
     if (message.content_type === 'system') {
       return (
@@ -209,24 +148,6 @@ export const RenderedMessageItem: React.FC<{
       }
     };
 
-    const showThinkingRow =
-      !isUser &&
-      !message.isGeneratingImage &&
-      (showTypingIndicator || (phase === 'thoughts' && !!thoughtText));
-
-    const onlyThinking = showThinkingRow && !hasMainContent;
-
-    const bubbleBase =
-      `px-4 py-4 shadow-sm relative ${bgColor} ${textColor} ` +
-      `after:content-[''] after:absolute after:w-0 after:h-0 after:border-solid after:top-0 ` +
-      (isUser
-        ? `rounded-l-lg rounded-br-lg after:right-0 after:border-t-[6px] after:border-l-[6px] after:border-l-transparent after:border-t-primary`
-        : `rounded-r-lg rounded-bl-lg after:left-0 after:border-t-[6px] after:border-r-[6px] after:border-r-transparent after:border-t-card`);
-
-    const bubbleClasses = onlyThinking
-      ? `${bubbleBase} flex items-center justify-center`
-      : bubbleBase;
-
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-3 group`}>
         <div
@@ -235,16 +156,20 @@ export const RenderedMessageItem: React.FC<{
             message.attachments && message.attachments.length > 0 ? 'w-[85%] md:w-[55%]' : 'max-w-[99%] md:max-w-[99%]'
           }`}
         >
-          <div className={bubbleClasses}>
-            {/* Main content (only when there is content) */}
-            {hasTextContent && (
+          <div
+            className={`px-4 py-4 shadow-sm relative ${bgColor} ${textColor} after:content-[''] after:absolute after:w-0 after:h-0 after:border-solid after:top-0 ${
+              isUser
+                ? `rounded-l-lg rounded-br-lg after:right-0 after:border-t-[6px] after:border-l-[6px] after:border-l-transparent after:border-t-primary`
+                : `rounded-r-lg rounded-bl-lg after:left-0 after:border-t-[6px] after:border-r-[6px] after:border-r-transparent after:border-t-card`
+            }`}
+          >
+            {/* Show text message first - only if there's content OR if it's a failed assistant message */}
+            {(message.content || (message.content_type === 'assistant' && message.failed)) && (
               <>
                 {message.content_type === 'user' ? (
                   <div
                     ref={contentRef}
-                    className={`font-sans text-[15px] ${textColor} ${
-                      !isExpanded ? 'max-h-[34vh] overflow-hidden' : ''
-                    } whitespace-pre-wrap`}
+                    className={`font-sans text-[15px] ${textColor} ${!isExpanded ? 'max-h-[34vh] overflow-hidden' : ''} whitespace-pre-wrap`}
                   >
                     {message.content}
                   </div>
@@ -327,16 +252,17 @@ export const RenderedMessageItem: React.FC<{
               </>
             )}
 
-            {/* Attachments */}
-            {hasAttachments && (
-              <div className={hasTextContent ? 'mt-3' : ''}>
+            {/* Show attachments below text */}
+            {message.attachments && message.attachments.length > 0 && (
+              <div className={message.content ? 'mt-3' : ''}>
+                {/* Separate images and documents */}
                 {(() => {
-                  const attachments = message.attachments ?? [];
-                  const images = attachments.filter((att) => att.type === 'image');
-                  const documents = attachments.filter((att) => att.type !== 'image');
+                  const images = message.attachments.filter((att) => att.type === 'image');
+                  const documents = message.attachments.filter((att) => att.type !== 'image');
 
                   return (
                     <>
+                      {/* Images - 2 per row, but handle single image properly */}
                       {images.length > 0 && (
                         <div className={`grid gap-2 mb-3 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                           {images.map((att, index) => (
@@ -372,6 +298,7 @@ export const RenderedMessageItem: React.FC<{
                         </div>
                       )}
 
+                      {/* Documents - one per row */}
                       {documents.length > 0 && (
                         <div className="space-y-2">
                           {documents.map((att, index) => (
@@ -426,18 +353,30 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Orchestrating / searching / thinking / thoughts row */}
-            {showThinkingRow && (
-              <div
-                className={`${onlyThinking ? '' : 'mt-1'} flex w-full items-center justify-center`}
-              >
-                <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
+            {/* Show typing indicator inside assistant message when showTypingIndicator is true */}
+            {showTypingIndicator && !isUser && !message.isGeneratingImage && (
+              <div className="flex items-center space-x-2">
+                {thoughtText ? (
+                  // When thought text is available, show it with dots
+                  <span className="text-primary text-[15px] whitespace-nowrap">
+                    {thoughtText.split('\n')[0].replace(/\*\*/g, '')}
+                  </span>
+                ) : showOrchestrating ? (
+                  <span className="text-primary text-[15px] whitespace-nowrap">Orchestrating</span>
+                ) : null}
+                {/* Always show dots when typing indicator is active */}
+                <div className="flex space-x-1">
+                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                  <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce"></div>
+                </div>
               </div>
             )}
 
-            {/* Image generation skeleton */}
+            {/* Show image skeleton when generating image */}
             {message.isGeneratingImage && (
               <div className="mt-3">
+                {/* <div className="text-primary text-[15px] mb-2">Generating image</div> */}
                 <ImageSkeleton />
               </div>
             )}
@@ -450,7 +389,7 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Footer */}
+            {/* Footer for Timestamp and Copy Icon - Only render when not showing typing indicator */}
             {!showTypingIndicator && (
               <div className="mt-1.5 flex items-center justify-between pt-1">
                 <div className="flex items-center space-x-1 pr-1">
@@ -516,6 +455,7 @@ export const RenderedMessageItem: React.FC<{
 
                 <p className={`text-xs whitespace-nowrap ${isUser ? 'text-background/60' : 'text-primary/60'}`}>
                   {(() => {
+                    // For user messages, always show timestamp
                     if (isUser) {
                       const timestamp = message.timestamp;
                       if (!timestamp) return '';
@@ -535,10 +475,12 @@ export const RenderedMessageItem: React.FC<{
                       }
                     }
 
+                    // For assistant messages - hide timestamp only if currently generating
                     if (message.content_type === 'assistant' && isStreaming) {
                       return '';
                     }
 
+                    // Show timestamp for all other messages
                     const timestamp = message.timestamp;
                     if (!timestamp) return '';
 
@@ -562,6 +504,7 @@ export const RenderedMessageItem: React.FC<{
           </div>
         </div>
 
+        {/* Image modal for fullscreen viewing */}
         {imageModalOpen && (
           <ImageModal isOpen={imageModalOpen} onClose={() => setImageModalOpen(false)} imageUrl={currentImageUrl} />
         )}
@@ -569,5 +512,4 @@ export const RenderedMessageItem: React.FC<{
     );
   },
 );
-
 RenderedMessageItem.displayName = 'RenderedMessageItem';
