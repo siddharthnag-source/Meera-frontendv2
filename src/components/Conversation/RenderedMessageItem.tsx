@@ -73,11 +73,11 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
 
   if (!text) return null;
 
-  // Centered text + dots, with very small spacing
+  // Centered text + dots, minimal spacing, no extra vertical offset
   return (
-    <span className="inline-flex items-center justify-center text-primary text-[15px] whitespace-nowrap">
+    <span className="inline-flex items-center justify-center text-primary text-[15px] leading-none whitespace-nowrap">
       <span>{text}</span>
-      <span className="ml-0.5 flex items-center space-x-0.5">
+      <span className="flex items-center ml-[3px] gap-[3px]">
         <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
         <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
         <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
@@ -415,7 +415,7 @@ export const RenderedMessageItem: React.FC<{
 
             {/* Orchestrating / searching / thinking / thoughts row, perfectly centered */}
             {showThinkingRow && (
-              <div className="mt-1 flex items-center justify-center">
+              <div className="mt-1 flex w-full items-center justify-center">
                 <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
               </div>
             )}
