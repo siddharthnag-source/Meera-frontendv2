@@ -69,7 +69,6 @@ export const chatService = {
       const { data, error } = await supabase
         .from('messages')
         .select(
-          // attachments removed, column does not exist anymore
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model',
         )
         .eq('user_id', userId)
@@ -105,12 +104,12 @@ export const chatService = {
   /**
    * Non-streaming sendMessage.
    * Calls Supabase Edge Function and persists both user and assistant messages.
+   * Passes through model thoughts.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
 
     try {
-      // 1) Get current Supabase user
       const {
         data: { session },
         error: sessionError,
@@ -123,7 +122,6 @@ export const chatService = {
 
       const userId = session.user.id;
 
-      // 2) Call Edge Function to get Meera reply
       const response = await fetch(SUPABASE_CHAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -143,11 +141,15 @@ export const chatService = {
         );
       }
 
-      const body = (await response.json()) as { reply: string; model?: string };
+      // Edge function returns { reply, thoughts }
+      const body = (await response.json()) as {
+        reply: string;
+        thoughts?: string;
+        model?: string;
+      };
 
       const nowIso = new Date().toISOString();
 
-      // 3) Persist user message + assistant reply
       const { data: insertedRows, error: insertError } = await supabase
         .from('messages')
         .insert([
@@ -174,7 +176,6 @@ export const chatService = {
         console.error('sendMessage: failed to save messages to DB', insertError);
       }
 
-      // 4) Build assistant message object for UI
       const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.find(
         (row) => row.content_type === 'assistant',
       );
@@ -189,9 +190,9 @@ export const chatService = {
             is_call: false,
             failed: false,
             finish_reason: null,
+            thoughts: body.thoughts ?? '',
           }
         : {
-            // fallback if insert failed
             message_id: crypto.randomUUID(),
             content_type: 'assistant',
             content: body.reply,
@@ -200,12 +201,14 @@ export const chatService = {
             is_call: false,
             failed: false,
             finish_reason: null,
+            thoughts: body.thoughts ?? '',
           };
 
       const chatResponse: ChatMessageResponse = {
         message: 'ok',
         data: {
           response: body.reply,
+          thoughts: body.thoughts ?? '',
           message: assistantMessage,
         } as ChatMessageResponse['data'],
       };
