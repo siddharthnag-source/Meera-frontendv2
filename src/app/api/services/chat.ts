@@ -41,14 +41,11 @@ type DbMessageRow = {
   model?: string | null;
 };
 
-type LLMHistoryMessage = {
-  role: 'user' | 'assistant';
-  content: string;
-};
-
-const CONTEXT_WINDOW = 20;
-
 export const chatService = {
+  /**
+   * Load chat history directly from Supabase for the logged-in user.
+   * Fetches newest messages first, then reverses each page so UI sees oldest → newest.
+   */
   async getChatHistory(
     page: number = 1,
   ): Promise<{ message: string; data: ChatMessageFromServer[] }> {
@@ -72,6 +69,7 @@ export const chatService = {
       const { data, error } = await supabase
         .from('messages')
         .select(
+          // attachments removed, column does not exist anymore
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model',
         )
         .eq('user_id', userId)
@@ -95,7 +93,6 @@ export const chatService = {
         attachments: [],
         failed: false,
         finish_reason: null,
-        thoughts: '',
       }));
 
       return { message: 'ok', data: mapped };
@@ -105,10 +102,15 @@ export const chatService = {
     }
   },
 
+  /**
+   * Non-streaming sendMessage.
+   * Calls Supabase Edge Function and persists both user and assistant messages.
+   */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
 
     try {
+      // 1) Get current Supabase user
       const {
         data: { session },
         error: sessionError,
@@ -121,41 +123,11 @@ export const chatService = {
 
       const userId = session.user.id;
 
-      const { data: historyRows, error: historyError } = await supabase
-        .from('messages')
-        .select('content_type, content, timestamp')
-        .eq('user_id', userId)
-        .order('timestamp', { ascending: false })
-        .limit(CONTEXT_WINDOW);
-
-      if (historyError) {
-        console.error('sendMessage: failed to fetch history', historyError);
-      }
-
-      const sortedHistory = ((historyRows ?? []) as Pick<
-        DbMessageRow,
-        'content_type' | 'content' | 'timestamp'
-      >[])
-        .slice()
-        .reverse();
-
-      const historyForModel: LLMHistoryMessage[] = sortedHistory
-        .filter((row) => row.content && row.content.trim().length > 0)
-        .map((row) => ({
-          role: row.content_type === 'assistant' ? 'assistant' : 'user',
-          content: row.content,
-        }));
-
-      historyForModel.push({ role: 'user', content: message });
-
+      // 2) Call Edge Function to get Meera reply
       const response = await fetch(SUPABASE_CHAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message,
-          messages: historyForModel,
-          userId,
-        }),
+        body: JSON.stringify({ message }),
       });
 
       if (!response.ok) {
@@ -171,14 +143,11 @@ export const chatService = {
         );
       }
 
-      const body = (await response.json()) as {
-        reply: string;
-        thoughts?: string;
-        model?: string;
-      };
+      const body = (await response.json()) as { reply: string; model?: string };
 
       const nowIso = new Date().toISOString();
 
+      // 3) Persist user message + assistant reply
       const { data: insertedRows, error: insertError } = await supabase
         .from('messages')
         .insert([
@@ -205,6 +174,7 @@ export const chatService = {
         console.error('sendMessage: failed to save messages to DB', insertError);
       }
 
+      // 4) Build assistant message object for UI
       const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.find(
         (row) => row.content_type === 'assistant',
       );
@@ -219,9 +189,9 @@ export const chatService = {
             is_call: false,
             failed: false,
             finish_reason: null,
-            thoughts: body.thoughts || '',
           }
         : {
+            // fallback if insert failed
             message_id: crypto.randomUUID(),
             content_type: 'assistant',
             content: body.reply,
@@ -230,17 +200,17 @@ export const chatService = {
             is_call: false,
             failed: false,
             finish_reason: null,
-            thoughts: body.thoughts || '',
           };
 
-      return {
+      const chatResponse: ChatMessageResponse = {
         message: 'ok',
         data: {
           response: body.reply,
           message: assistantMessage,
-          thoughts: body.thoughts || '',
-        },
+        } as ChatMessageResponse['data'],
       };
+
+      return chatResponse;
     } catch (err) {
       console.error('Error in sendMessage:', err);
       throw err;
