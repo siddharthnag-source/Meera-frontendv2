@@ -269,6 +269,7 @@ export const Conversation: React.FC = () => {
   );
 
   const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
+  const lastMessageIsFromAssistant = lastMessage?.content_type === 'assistant';
 
   const canSubmit = useMemo(
     () => (message.trim() || currentAttachments.length > 0) && !isSending,
@@ -664,6 +665,7 @@ export const Conversation: React.FC = () => {
     setJustSentMessage: () => {
       justSentMessageRef.current = true;
     },
+
     setCurrentThoughtText,
     lastOptimisticMessageIdRef,
     setChatMessages,
@@ -881,11 +883,11 @@ export const Conversation: React.FC = () => {
 
                         const isLastFailedMessage = msg.message_id === lastFailedMessageId;
 
-                        // Updated: show indicator if we have live thoughts OR stored thoughts.
                         const shouldShowTypingIndicator =
                           msg.content_type === 'assistant' &&
                           msg.message_id === lastMessage?.message_id &&
-                          (isAssistantTyping || !!currentThoughtText || !!msg.thoughts);
+                          lastMessageIsFromAssistant &&
+                          (isAssistantTyping || !!currentThoughtText);
 
                         const isLatestUserMessage =
                           msg.content_type === 'user' && msg.message_id === lastOptimisticMessageIdRef.current;
@@ -912,9 +914,7 @@ export const Conversation: React.FC = () => {
                               isLastFailedMessage={isLastFailedMessage}
                               showTypingIndicator={shouldShowTypingIndicator}
                               thoughtText={
-                                shouldShowTypingIndicator
-                                  ? (currentThoughtText || msg.thoughts || undefined)
-                                  : undefined
+                                shouldShowTypingIndicator && currentThoughtText ? currentThoughtText : undefined
                               }
                               hasMinHeight={isLatestAssistantMessage}
                               dynamicMinHeight={dynamicMinHeight}
