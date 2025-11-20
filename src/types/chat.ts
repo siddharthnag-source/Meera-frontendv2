@@ -34,7 +34,7 @@ export interface ChatMessageFromServer {
   failedMessage?: string;
   isGeneratingImage?: boolean;
 
-  // NEW: model thoughts returned by Edge Function
+  // Model thoughts returned by Edge Function
   thoughts?: string;
 }
 
@@ -71,8 +71,11 @@ export interface ChatMessageResponseData {
   response: string;
   message: ChatMessageFromServer;
 
-  // NEW: pass-through thoughts
+  // Pass-through thoughts
   thoughts?: string;
+
+  // Optional alias if backend ever sends thoughtText
+  thoughtText?: string;
 }
 
 export interface ChatMessageResponse {
