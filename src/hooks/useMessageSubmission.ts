@@ -8,7 +8,6 @@ import {
   ChatAttachmentInputState,
   ChatMessageFromServer,
   ChatMessageResponse,
-  ChatMessageResponseData,
 } from '@/types/chat';
 import React, { MutableRefObject, useCallback, useRef } from 'react';
 
@@ -28,12 +27,6 @@ interface UseMessageSubmissionProps {
   scrollToBottom: (smooth?: boolean) => void;
   onMessageSent?: () => void;
 }
-
-// Shape of the API response we care about
-type ChatSendResponseData = ChatMessageResponseData & {
-  thoughts?: string;
-  thoughtText?: string;
-};
 
 export const useMessageSubmission = ({
   message,
@@ -88,6 +81,7 @@ export const useMessageSubmission = ({
           file: att.file,
         })),
         try_number: 1,
+        failed: false,
       };
     },
     [chatMessages],
@@ -126,6 +120,7 @@ export const useMessageSubmission = ({
           attachments: [],
           try_number: tryNumber,
           failed: false,
+          thoughts: '',
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
@@ -137,10 +132,12 @@ export const useMessageSubmission = ({
         onMessageSent?.();
         setTimeout(() => scrollToBottom(true), 300);
       } else {
-        // Retry: clear failed state
+        // Retry: clear failed state on the user message and linked assistant placeholder
         setChatMessages((prev) =>
           prev.map((msg) =>
-            msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
+            msg.message_id === optimisticId
+              ? { ...msg, failed: false, try_number: tryNumber }
+              : msg,
           ),
         );
       }
@@ -164,17 +161,14 @@ export const useMessageSubmission = ({
       try {
         const result: ChatMessageResponse = await chatService.sendMessage(formData);
 
-        const rawData: ChatSendResponseData = result.data;
-
-        // Final answer from backend - already working
-        const assistantText = rawData.response;
-
-        // Thinking text from backend (Gemini thoughts)
-        const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
+        const assistantText = result.data.response;
+        const thoughts =
+          result.data.thoughts ||
+          result.data.message?.thoughts ||
+          '';
 
         const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
-        // Store thinking text so the UI can show it after "Orchestrating"
         if (thoughts) {
           setCurrentThoughtText(thoughts);
         }
@@ -189,6 +183,7 @@ export const useMessageSubmission = ({
                     timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
+                    thoughts, // store on message for later expand / render
                   }
                 : msg,
             ),
@@ -234,7 +229,6 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // keep thoughts visible; they will be cleared at the start of next submission
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
