@@ -4,6 +4,7 @@ import { ApiError, chatService, SessionExpiredError } from '@/app/api/services/c
 import { useToast } from '@/components/ui/ToastProvider';
 import { createLocalTimestamp } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
+import { supabase } from '@/lib/supabaseClient';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import React, { MutableRefObject, useCallback, useRef } from 'react';
 
@@ -24,13 +25,17 @@ interface UseMessageSubmissionProps {
   onMessageSent?: () => void;
 }
 
-// Shape of the API response we care about
-interface ChatSendResponseData {
-  response: string;
-  thoughts?: string;
-  thoughtText?: string;
-  [key: string]: unknown;
-}
+// Streaming event shapes we might receive
+type StreamEvent =
+  | { delta?: string; response?: string; done?: boolean; finish_reason?: string | null; thoughts?: string; thoughtText?: string }
+  | string;
+
+type DbInsertRow = {
+  message_id: string;
+  content_type: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+};
 
 export const useMessageSubmission = ({
   message,
@@ -95,6 +100,93 @@ export const useMessageSubmission = ({
     mostRecentAssistantMessageIdRef.current = null;
   }, []);
 
+  // Helper: update assistant bubble content incrementally
+  const appendToAssistant = useCallback(
+    (assistantId: string, nextText: string, tryNumber: number) => {
+      setChatMessages((prev) =>
+        prev.map((m) =>
+          m.message_id === assistantId
+            ? {
+                ...m,
+                content: nextText,
+                timestamp: createLocalTimestamp(),
+                failed: false,
+                try_number: tryNumber,
+              }
+            : m,
+        ),
+      );
+    },
+    [setChatMessages],
+  );
+
+  // Helper: persist to DB and swap optimistic ids to real ids
+  const persistAndSwapIds = useCallback(
+    async (optimisticUserId: string, optimisticAssistantId: string, userText: string, assistantText: string) => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const userId = session?.user?.id;
+        if (!userId) return;
+
+        const nowIso = new Date().toISOString();
+
+        const { data: inserted, error } = await supabase
+          .from('messages')
+          .insert([
+            {
+              user_id: userId,
+              content_type: 'user',
+              content: userText,
+              timestamp: nowIso,
+              is_call: false,
+            },
+            {
+              user_id: userId,
+              content_type: 'assistant',
+              content: assistantText,
+              timestamp: nowIso,
+              is_call: false,
+            },
+          ])
+          .select('message_id, content_type, content, timestamp');
+
+        if (error || !inserted) {
+          console.error('persistAndSwapIds: insert error', error);
+          return;
+        }
+
+        const rows = inserted as DbInsertRow[];
+        const dbUser = rows.find((r) => r.content_type === 'user');
+        const dbAssistant = rows.find((r) => r.content_type === 'assistant');
+
+        if (!dbUser || !dbAssistant) return;
+
+        // Swap ids in UI so history de-dupe works
+        setChatMessages((prev) =>
+          prev.map((m) => {
+            if (m.message_id === optimisticUserId) {
+              return { ...m, message_id: dbUser.message_id, timestamp: dbUser.timestamp };
+            }
+            if (m.message_id === optimisticAssistantId) {
+              return { ...m, message_id: dbAssistant.message_id, timestamp: dbAssistant.timestamp };
+            }
+            return m;
+          }),
+        );
+
+        // Update relationship map and most recent assistant id
+        messageRelationshipMapRef.current.delete(optimisticUserId);
+        messageRelationshipMapRef.current.set(dbUser.message_id, dbAssistant.message_id);
+        mostRecentAssistantMessageIdRef.current = dbAssistant.message_id;
+      } catch (e) {
+        console.error('persistAndSwapIds: unexpected', e);
+      }
+    },
+    [setChatMessages],
+  );
+
   const executeSubmission = useCallback(
     async (
       messageText: string,
@@ -108,15 +200,17 @@ export const useMessageSubmission = ({
       const trimmedMessage = messageText.trim();
       if (!trimmedMessage && attachments.length === 0) return;
 
-      const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
+      const optimisticUserId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
+
+      let optimisticAssistantId = messageRelationshipMapRef.current.get(optimisticUserId) || '';
 
       // If not a retry, create user + empty assistant messages
       if (!optimisticIdToUpdate) {
-        const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
+        const userMessage = createOptimisticMessage(optimisticUserId, trimmedMessage, attachments);
 
-        const assistantMessageId = `assistant-${Date.now()}`;
+        optimisticAssistantId = `assistant-${Date.now()}`;
         const emptyAssistantMessage: ChatMessageFromServer = {
-          message_id: assistantMessageId,
+          message_id: optimisticAssistantId,
           content: '',
           content_type: 'assistant',
           timestamp: createLocalTimestamp(),
@@ -125,8 +219,8 @@ export const useMessageSubmission = ({
           failed: false,
         };
 
-        messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
-        mostRecentAssistantMessageIdRef.current = assistantMessageId;
+        messageRelationshipMapRef.current.set(optimisticUserId, optimisticAssistantId);
+        mostRecentAssistantMessageIdRef.current = optimisticAssistantId;
 
         setChatMessages((prev) => [...prev, userMessage, emptyAssistantMessage]);
 
@@ -137,7 +231,7 @@ export const useMessageSubmission = ({
         // Retry: clear failed state
         setChatMessages((prev) =>
           prev.map((msg) =>
-            msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
+            msg.message_id === optimisticUserId ? { ...msg, failed: false, try_number: tryNumber } : msg,
           ),
         );
       }
@@ -145,7 +239,7 @@ export const useMessageSubmission = ({
       setIsSending(true);
       setJustSentMessage(true);
       setCurrentThoughtText('');
-      lastOptimisticMessageIdRef.current = optimisticId;
+      lastOptimisticMessageIdRef.current = optimisticUserId;
       setIsAssistantTyping(true);
 
       const formData = new FormData();
@@ -158,38 +252,106 @@ export const useMessageSubmission = ({
       if (systemInfo.location) formData.append('location', systemInfo.location);
       if (systemInfo.network) formData.append('network', systemInfo.network);
 
+      let finalAssistantText = '';
+
       try {
-        const result = await chatService.sendMessage(formData);
+        const response = await chatService.sendMessage(formData);
 
-        // Cast once with a typed interface instead of `any`
-        const rawData = result.data as ChatSendResponseData;
+        const contentType = response.headers.get('content-type') || '';
+        const isSSE = contentType.includes('text/event-stream');
 
-        // Final answer from backend - already working
-        const assistantText = rawData.response;
-
-        // Thinking text from backend (Gemini thoughts)
-        const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
-
-        const assistantId = messageRelationshipMapRef.current.get(optimisticId);
-
-        // Store thinking text so the UI can show it after "Orchestrating"
-        if (thoughts) {
-          setCurrentThoughtText(thoughts);
+        if (!response.body) {
+          throw new Error('No response body for streaming');
         }
 
-        if (assistantId) {
-          setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === assistantId
-                ? {
-                    ...msg,
-                    content: assistantText,
-                    timestamp: createLocalTimestamp(),
-                    failed: false,
-                    try_number: tryNumber,
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+
+        let buffer = '';
+        let done = false;
+
+        while (!done) {
+          const { value, done: readDone } = await reader.read();
+          done = readDone;
+
+          if (value) {
+            const chunk = decoder.decode(value, { stream: true });
+
+            if (isSSE) {
+              buffer += chunk;
+              const events = buffer.split('\n\n');
+              buffer = events.pop() || '';
+
+              for (const evt of events) {
+                const lines = evt.split('\n');
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed.startsWith('data:')) continue;
+
+                  const dataStr = trimmed.replace(/^data:\s*/, '');
+
+                  if (dataStr === '[DONE]') {
+                    done = true;
+                    break;
                   }
-                : msg,
-            ),
+
+                  let parsed: StreamEvent = dataStr;
+
+                  try {
+                    parsed = JSON.parse(dataStr) as StreamEvent;
+                  } catch {
+                    // treat as plain text delta
+                  }
+
+                  if (typeof parsed === 'string') {
+                    finalAssistantText += parsed;
+                    if (optimisticAssistantId) {
+                      appendToAssistant(optimisticAssistantId, finalAssistantText, tryNumber);
+                    }
+                    continue;
+                  }
+
+                  const thoughts = parsed.thoughts ?? parsed.thoughtText ?? '';
+                  if (thoughts) {
+                    setCurrentThoughtText(thoughts);
+                  }
+
+                  if (parsed.delta) {
+                    finalAssistantText += parsed.delta;
+                    if (optimisticAssistantId) {
+                      appendToAssistant(optimisticAssistantId, finalAssistantText, tryNumber);
+                    }
+                  } else if (parsed.response) {
+                    finalAssistantText = parsed.response;
+                    if (optimisticAssistantId) {
+                      appendToAssistant(optimisticAssistantId, finalAssistantText, tryNumber);
+                    }
+                  }
+
+                  if (parsed.done || parsed.finish_reason != null) {
+                    done = true;
+                    break;
+                  }
+                }
+                if (done) break;
+              }
+            } else {
+              // raw text streaming
+              finalAssistantText += chunk;
+              if (optimisticAssistantId) {
+                appendToAssistant(optimisticAssistantId, finalAssistantText, tryNumber);
+              }
+            }
+          }
+        }
+
+        // Persist to DB and swap optimistic ids to real ids
+        if (optimisticAssistantId) {
+          await persistAndSwapIds(
+            optimisticUserId,
+            optimisticAssistantId,
+            trimmedMessage,
+            finalAssistantText || '',
           );
         }
       } catch (error) {
@@ -198,24 +360,24 @@ export const useMessageSubmission = ({
         if (error instanceof SessionExpiredError) {
           setChatMessages((prev) =>
             prev.map((msg) =>
-              msg.message_id === optimisticId ? { ...msg, failed: true } : msg,
+              msg.message_id === optimisticUserId ? { ...msg, failed: true } : msg,
             ),
           );
         } else if (error instanceof ApiError && error.status === 400) {
           showToast('Unsupported file', { type: 'error', position: 'conversation' });
           setChatMessages((prev) =>
             prev.map((msg) =>
-              msg.message_id === optimisticId ? { ...msg, failed: true } : msg,
+              msg.message_id === optimisticUserId ? { ...msg, failed: true } : msg,
             ),
           );
         } else {
           showToast('Failed to respond, try again', { type: 'error', position: 'conversation' });
 
-          const assistantId = messageRelationshipMapRef.current.get(optimisticId);
+          const assistantId = messageRelationshipMapRef.current.get(optimisticUserId);
 
           setChatMessages((prev) =>
             prev.map((msg) => {
-              if (msg.message_id === optimisticId) {
+              if (msg.message_id === optimisticUserId) {
                 return { ...msg, failed: true };
               }
               if (assistantId && msg.message_id === assistantId) {
@@ -232,7 +394,6 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // keep thoughts visible; they will be cleared at the start of next submission
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
@@ -254,6 +415,8 @@ export const useMessageSubmission = ({
       setIsAssistantTyping,
       showToast,
       onMessageSent,
+      appendToAssistant,
+      persistAndSwapIds,
     ],
   );
 
