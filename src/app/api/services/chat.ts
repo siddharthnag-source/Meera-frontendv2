@@ -1,15 +1,12 @@
 import {
   ChatMessageFromServer,
-  ChatMessageResponse,
   SaveInteractionPayload,
 } from '@/types/chat';
 import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
 import { supabase } from '@/lib/supabaseClient';
 
-const SUPABASE_CHAT_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_CHAT_URL ??
-  'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
+const CHAT_PROXY_URL = '/api/chat';
 
 export class SessionExpiredError extends Error {
   constructor(message: string) {
@@ -51,7 +48,7 @@ const CONTEXT_WINDOW = 20;
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
-   * Fetches newest messages first, then reverses each page so UI sees oldest → newest.
+   * Fetches newest messages first, then reverses each page so UI sees oldest to newest.
    */
   async getChatHistory(
     page: number = 1,
@@ -109,148 +106,85 @@ export const chatService = {
   },
 
   /**
-   * Non-streaming sendMessage.
-   * Calls Supabase Edge Function and persists both user and assistant messages.
-   * NOW includes conversation history for continuity.
+   * Streaming sendMessage.
+   * Fetches continuity history, then calls Next.js streaming proxy.
+   * Returns the raw Response so the hook can read the stream.
+   * Persist to DB after stream completes in useMessageSubmission.
    */
-  async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
+  async sendMessage(formData: FormData): Promise<Response> {
     const message = (formData.get('message') as string) || '';
 
-    try {
-      // 1) Get current Supabase user
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
+    // 1) Get current Supabase user
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
 
-      if (sessionError || !session?.user) {
-        console.error('sendMessage: no valid Supabase session', sessionError);
-        throw new SessionExpiredError('Your session has expired, please sign in again.');
-      }
+    if (sessionError || !session?.user) {
+      console.error('sendMessage: no valid Supabase session', sessionError);
+      throw new SessionExpiredError('Your session has expired, please sign in again.');
+    }
 
-      const userId = session.user.id;
+    const userId = session.user.id;
 
-      // 2) Fetch last CONTEXT_WINDOW messages for this user for continuity
-      const { data: historyRows, error: historyError } = await supabase
-        .from('messages')
-        .select('content_type, content, timestamp')
-        .eq('user_id', userId)
-        .order('timestamp', { ascending: false })
-        .limit(CONTEXT_WINDOW);
+    // 2) Fetch last CONTEXT_WINDOW messages for continuity
+    const { data: historyRows, error: historyError } = await supabase
+      .from('messages')
+      .select('content_type, content, timestamp')
+      .eq('user_id', userId)
+      .order('timestamp', { ascending: false })
+      .limit(CONTEXT_WINDOW);
 
-      if (historyError) {
-        console.error('sendMessage: failed to fetch history', historyError);
-      }
+    if (historyError) {
+      console.error('sendMessage: failed to fetch history', historyError);
+    }
 
-      const sortedHistory = ((historyRows ?? []) as Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[])
-        .slice()
-        .reverse();
+    const sortedHistory = (
+      (historyRows ?? []) as Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[]
+    )
+      .slice()
+      .reverse();
 
-      const historyForModel: LLMHistoryMessage[] = sortedHistory
-        .filter((row) => row.content && row.content.trim().length > 0)
-        .map((row) => ({
-          role: row.content_type === 'assistant' ? 'assistant' : 'user',
-          content: row.content,
-        }));
+    const historyForModel: LLMHistoryMessage[] = sortedHistory
+      .filter((row) => row.content && row.content.trim().length > 0)
+      .map((row) => ({
+        role: row.content_type === 'assistant' ? 'assistant' : 'user',
+        content: row.content,
+      }));
 
-      // Append current user message to the history
-      historyForModel.push({ role: 'user', content: message });
+    historyForModel.push({ role: 'user', content: message });
 
-      // 3) Call Edge Function with message + history
-      const response = await fetch(SUPABASE_CHAT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message,
-          messages: historyForModel, // <-- continuity fix
-          userId,
-        }),
-      });
+    // 3) Call streaming proxy with JSON payload
+    const payload = {
+      message,
+      messages: historyForModel,
+      userId,
+      stream: true,
+    };
 
-      if (!response.ok) {
-        const errorBody = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          detail?: string;
-        };
+    const response = await fetch(CHAT_PROXY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify(payload),
+    });
 
-        throw new ApiError(
-          errorBody.error || errorBody.detail || 'Failed to get reply from Meera',
-          response.status,
-          errorBody,
-        );
-      }
-
-      const body = (await response.json()) as { reply: string; model?: string };
-
-      const nowIso = new Date().toISOString();
-
-      // 4) Persist user message + assistant reply
-      const { data: insertedRows, error: insertError } = await supabase
-        .from('messages')
-        .insert([
-          {
-            user_id: userId,
-            content_type: 'user',
-            content: message,
-            timestamp: nowIso,
-            is_call: false,
-            model: body.model ?? null,
-          },
-          {
-            user_id: userId,
-            content_type: 'assistant',
-            content: body.reply,
-            timestamp: nowIso,
-            is_call: false,
-            model: body.model ?? null,
-          },
-        ])
-        .select('message_id, content_type, content, timestamp, model');
-
-      if (insertError) {
-        console.error('sendMessage: failed to save messages to DB', insertError);
-      }
-
-      // 5) Build assistant message object for UI
-      const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.find(
-        (row) => row.content_type === 'assistant',
-      );
-
-      const assistantMessage: ChatMessageFromServer = dbAssistantRow
-        ? {
-            message_id: dbAssistantRow.message_id,
-            content_type: 'assistant',
-            content: dbAssistantRow.content,
-            timestamp: dbAssistantRow.timestamp,
-            attachments: [],
-            is_call: false,
-            failed: false,
-            finish_reason: null,
-          }
-        : {
-            message_id: crypto.randomUUID(),
-            content_type: 'assistant',
-            content: body.reply,
-            timestamp: nowIso,
-            attachments: [],
-            is_call: false,
-            failed: false,
-            finish_reason: null,
-          };
-
-      const chatResponse: ChatMessageResponse = {
-        message: 'ok',
-        data: {
-          response: body.reply,
-          message: assistantMessage,
-        } as ChatMessageResponse['data'],
+    if (!response.ok) {
+      const errorBody = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
       };
 
-      return chatResponse;
-    } catch (err) {
-      console.error('Error in sendMessage:', err);
-      throw err;
+      throw new ApiError(
+        errorBody.error || errorBody.detail || 'Failed to get reply from Meera',
+        response.status,
+        errorBody,
+      );
     }
+
+    return response;
   },
 };
 
