@@ -141,7 +141,7 @@ export const RenderedMessageItem: React.FC<{
         timeouts.push(
           setTimeout(() => {
             setPhase((prev) => (prev === 'searching' ? 'thinking' : prev));
-          }, 10000),
+          }, 11000),
         );
 
         return () => {
