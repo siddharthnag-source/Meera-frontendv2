@@ -55,7 +55,6 @@ const authOptions: AuthOptions = {
     maxAge: 30 * 24 * 60 * 60,
   },
 
-  // IMPORTANT: Your sign-in page is /sign-in, not /
   pages: {
     signIn: '/sign-in',
     error: '/sign-in',
@@ -63,10 +62,8 @@ const authOptions: AuthOptions = {
 
   callbacks: {
     async redirect({ url, baseUrl }) {
-      // Allow relative redirects
       if (url.startsWith('/')) return `${baseUrl}${url}`;
 
-      // Allow same-origin absolute redirects
       try {
         const urlObj = new URL(url);
         if (urlObj.origin === baseUrl) return url;
@@ -74,7 +71,6 @@ const authOptions: AuthOptions = {
         return baseUrl;
       }
 
-      // Default safe fallback
       return baseUrl;
     },
 
@@ -88,17 +84,22 @@ const authOptions: AuthOptions = {
         let guestToken: string | null = null;
 
         try {
-          const cookieStore = cookies();
-          referralId = cookieStore.get('referral_id')?.value || null;
-          guestToken = cookieStore.get('guest_token')?.value || null;
+          const cookieStore = await cookies(); // Next 15: async cookies()
 
-          if (referralId) cookieStore.delete('referral_id');
-          if (guestToken) cookieStore.delete('guest_token');
+          referralId = cookieStore.get('referral_id')?.value ?? null;
+          guestToken = cookieStore.get('guest_token')?.value ?? null;
+
+          // Do not delete cookies here. cookies() is read-only in route handlers.
         } catch (error) {
           console.error('Error reading cookies:', error);
         }
 
-        return await exchangeGoogleToken(account.id_token, token, referralId, guestToken);
+        return await exchangeGoogleToken(
+          account.id_token,
+          token,
+          referralId,
+          guestToken,
+        );
       }
 
       if (token.access_token && token.access_token_expires_at) {
