@@ -106,7 +106,7 @@ function SignInClient() {
             <div className="text-center">
 <H1 className="text-2xl md:text-3xl text-center">
   World&apos;s first<br />
-  conscious intelligence (CI)
+  Conscious Intelligence (CI)
 </H1>
             </div>
 
