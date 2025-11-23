@@ -85,7 +85,7 @@ function SignInClient() {
               className="w-6 h-6"
             />
             <H1 className="text-lg text-primary font-sans">
-              <Italic>{`${(process.env.NEXT_PUBLIC_APP_NAME || 'meera')?.toLowerCase()} os `}</Italic>
+              <Italic>{`${(process.env.NEXT_PUBLIC_APP_NAME || 'meera')?.toLowerCase()}`}</Italic>
             </H1>
           </Link>
         </div>
