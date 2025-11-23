@@ -84,15 +84,11 @@ const authOptions: AuthOptions = {
         let guestToken: string | null = null;
 
         try {
-          // IMPORTANT FIX: cookies() is async in your Next.js types
+          // cookies() is async in your Next.js types
           const cookieStore = await cookies();
-
           referralId = cookieStore.get('referral_id')?.value ?? null;
           guestToken = cookieStore.get('guest_token')?.value ?? null;
-
-          // Clean up cookies after use
-          if (referralId) (cookieStore as any).delete('referral_id');
-          if (guestToken) (cookieStore as any).delete('guest_token');
+          // Do NOT delete here. cookieStore is readonly in Next 15 types.
         } catch (error) {
           console.error('Error reading cookies:', error);
         }
