@@ -138,7 +138,7 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
   }
 }
 
-export const authOptions: AuthOptions = {
+const authOptions: AuthOptions = {
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -187,7 +187,6 @@ export const authOptions: AuthOptions = {
         let guestToken: string | null = null;
 
         try {
-          // Next 15 cookies() is async
           const cookieStore = await cookies();
           referralId = cookieStore.get('referral_id')?.value ?? null;
           guestToken = cookieStore.get('guest_token')?.value ?? null;
