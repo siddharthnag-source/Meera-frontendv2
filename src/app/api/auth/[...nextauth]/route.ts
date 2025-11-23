@@ -35,7 +35,7 @@ interface SignupResponse {
   refresh_token: string;
 }
 
-const handler = NextAuth({
+const authOptions: AuthOptions = {
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -54,13 +54,19 @@ const handler = NextAuth({
     strategy: 'jwt',
     maxAge: 30 * 24 * 60 * 60,
   },
+
+  // IMPORTANT: Your sign-in page is /sign-in, not /
   pages: {
-    signIn: '/',
+    signIn: '/sign-in',
+    error: '/sign-in',
   },
+
   callbacks: {
     async redirect({ url, baseUrl }) {
+      // Allow relative redirects
       if (url.startsWith('/')) return `${baseUrl}${url}`;
 
+      // Allow same-origin absolute redirects
       try {
         const urlObj = new URL(url);
         if (urlObj.origin === baseUrl) return url;
@@ -68,6 +74,7 @@ const handler = NextAuth({
         return baseUrl;
       }
 
+      // Default safe fallback
       return baseUrl;
     },
 
@@ -80,19 +87,13 @@ const handler = NextAuth({
         let referralId: string | null = null;
         let guestToken: string | null = null;
 
-        // Get values from cookies instead of callbackUrl
         try {
-          const cookieStore = await cookies();
+          const cookieStore = cookies();
           referralId = cookieStore.get('referral_id')?.value || null;
           guestToken = cookieStore.get('guest_token')?.value || null;
 
-          // Clean up cookies after use
-          if (referralId) {
-            cookieStore.delete('referral_id');
-          }
-          if (guestToken) {
-            cookieStore.delete('guest_token');
-          }
+          if (referralId) cookieStore.delete('referral_id');
+          if (guestToken) cookieStore.delete('guest_token');
         } catch (error) {
           console.error('Error reading cookies:', error);
         }
@@ -117,7 +118,7 @@ const handler = NextAuth({
       return session;
     },
   },
-} as AuthOptions);
+};
 
 async function exchangeGoogleToken(
   googleToken: string,
@@ -130,7 +131,6 @@ async function exchangeGoogleToken(
       google_token: googleToken,
     };
 
-    // Add referral_id if provided
     if (referralId) {
       payload.referral_id = referralId;
     }
@@ -139,15 +139,18 @@ async function exchangeGoogleToken(
       'Content-Type': 'application/json',
     };
 
-    // Add guest token to headers if provided
     if (guestToken) {
       headers.Authorization = `Bearer ${guestToken}`;
     }
 
-    const response = await axios.post<SignupResponse>(`${process.env.NEXT_PUBLIC_BACKEND_URL}/user/signup`, payload, {
-      timeout: 10000,
-      headers,
-    });
+    const response = await axios.post<SignupResponse>(
+      `${process.env.NEXT_PUBLIC_BACKEND_URL}/user/signup`,
+      payload,
+      {
+        timeout: 10000,
+        headers,
+      },
+    );
 
     const { access_token, refresh_token } = response.data;
     const expiresAt = getTokenExpiry(access_token);
@@ -227,5 +230,7 @@ function getTokenExpiry(token: string): number | undefined {
     return undefined;
   }
 }
+
+const handler = NextAuth(authOptions);
 
 export { handler as GET, handler as POST };
