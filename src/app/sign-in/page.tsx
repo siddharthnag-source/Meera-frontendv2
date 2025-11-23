@@ -3,27 +3,25 @@
 import { SuccessDialog } from '@/components/SuccessDialog';
 import { H1, Italic } from '@/components/ui/Typography';
 import { cn } from '@/lib/utils';
-import { signIn, useSession } from 'next-auth/react';
+import { createClient } from '@supabase/supabase-js';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { FcGoogle } from 'react-icons/fc';
 
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
 function SearchParamsHandler() {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
 
   useEffect(() => {
-    // Handle non-standard URL format with multiple question marks
     const fullPath = window.location.pathname + window.location.search;
-
-    // Check if URL contains success=true pattern
     const hasSuccess = fullPath.includes('success=true');
-
-    if (hasSuccess) {
-      // Show success dialog
-      setShowSuccessDialog(true);
-    }
+    if (hasSuccess) setShowSuccessDialog(true);
   }, []);
 
   return (
@@ -45,17 +43,15 @@ function SignInClient() {
   const searchParams = useSearchParams();
   const referralId = searchParams.get('referral_id');
   const router = useRouter();
-  const { data: session } = useSession();
 
   useEffect(() => {
-    if (session?.user?.email) {
-      router.replace('/');
-    }
-  }, [session, router]);
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) router.replace('/');
+    });
+  }, [router]);
 
   const handleGoogleSignIn = async () => {
     try {
-      // Set cookies before initiating OAuth
       if (referralId) {
         document.cookie = `referral_id=${referralId}; path=/; max-age=3600; SameSite=Lax`;
       }
@@ -65,9 +61,11 @@ function SignInClient() {
         document.cookie = `guest_token=${guestToken}; path=/; max-age=3600; SameSite=Lax`;
       }
 
-      await signIn('google', {
-        callbackUrl: '/',
-        redirect: true,
+      await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
       });
     } catch (error) {
       console.error('Error signing in with Google:', error);
@@ -88,12 +86,11 @@ function SignInClient() {
             />
             <H1 className="text-lg text-primary font-sans">
               <Italic>{`${(process.env.NEXT_PUBLIC_APP_NAME || 'meera')?.toLowerCase()} os `}</Italic>
-            </H1> 
+            </H1>
           </Link>
         </div>
 
         <div className="flex flex-col flex-1 justify-center">
-          {/* Image section - centered vertically and horizontally */}
           <div className="flex justify-center items-center flex-1">
             <Image
               src="/images/home.svg"
@@ -105,14 +102,11 @@ function SignInClient() {
             />
           </div>
 
-          {/* Bottom section with fixed spacing */}
           <div className="mt-auto space-y-3 mb-1">
-            {/* Text section above button */}
             <div className="text-center">
               <H1 className="text-2xl md:text-3xl">India&apos;s AI </H1>
             </div>
 
-            {/* Button section */}
             <button
               onClick={handleGoogleSignIn}
               className={cn(
@@ -128,7 +122,6 @@ function SignInClient() {
               <span className="text-base font-[400] ml-6">Sign up to access your purchase</span>
             </button>
 
-            {/* Navigation links with preserved referral_id */}
             <div className="flex justify-center gap-4 mt-3">
               <Link href="/about" className="text-xs font-[500] text-primary hover:underline">
                 About
