@@ -104,7 +104,10 @@ function SignInClient() {
 
           <div className="mt-auto space-y-3 mb-1">
             <div className="text-center">
-              <H1 className="text-2xl md:text-3xl">India&apos;s AI </H1>
+<H1 className="text-2xl md:text-3xl text-center">
+  World&apos;s first<br />
+  conscious intelligence (CI)
+</H1>
             </div>
 
             <button
@@ -119,7 +122,7 @@ function SignInClient() {
               )}
             >
               <FcGoogle className="absolute left-6 text-2xl" />
-              <span className="text-base font-[400] ml-6">Sign up to access your purchase</span>
+              <span className="text-base font-[400] ml-6">Sign Up / Log In </span>
             </button>
 
             <div className="flex justify-center gap-4 mt-3">
