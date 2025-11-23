@@ -20,29 +20,29 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     metadataBase: new URL(siteUrl),
-    title: `${appName} OS`,
-    description: "India's AI",
+    title: `${appName}`,
+    description: "World's first Conscious Intelligence (CI)",
     openGraph: {
-      title: `${appName} OS`,
-      description: "India's AI",
+      title: `${appName}`,
+      description: "World's first Conscious Intelligence (CI)",
       url: canonicalUrl,
-      siteName: `${appName} OS`,
+      siteName: `${appName}`,
       type: 'website',
       images: [
         {
           url: new URL('/banner.png', canonicalUrl).toString(),
-          alt: `${appName} OS - India's AI`,
+          alt: `${appName} - World's first Conscious Intelligence (CI)`,
         },
       ],
     },
     twitter: {
       card: 'summary_large_image',
-      title: `${appName} OS`,
-      description: "India's AI",
+      title: `${appName}`,
+      description: "World's first Conscious Intelligence (CI)",
       images: [
         {
           url: new URL('/banner.png', canonicalUrl).toString(),
-          alt: `${appName} OS  - India's AI`,
+          alt: `${appName}  - World's first Conscious Intelligence (CI)`,
         },
       ],
     },
@@ -52,7 +52,7 @@ export async function generateMetadata(): Promise<Metadata> {
     appleWebApp: {
       capable: true,
       statusBarStyle: 'default',
-      title: `${appName} OS`,
+      title: `${appName}`,
     },
     formatDetection: {
       telephone: false,
