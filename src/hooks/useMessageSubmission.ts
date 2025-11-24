@@ -131,14 +131,17 @@ export const useMessageSubmission = ({
         clearAllInput();
         onMessageSent?.();
 
-        // Force scroll only on send
+        // Scroll once only when user sends a message
         setTimeout(() => scrollToBottom(true, true), 80);
       } else {
+        // Manual retry: clear failed state, then scroll once like a new send
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
           ),
         );
+
+        setTimeout(() => scrollToBottom(true, true), 80);
       }
 
       setIsSending(true);
@@ -168,7 +171,6 @@ export const useMessageSubmission = ({
           try {
             await chatService.streamMessage({
               message: trimmedMessage,
-              google_search: isSearchActive, // backend can ignore if unsupported
               onDelta: (delta: string) => {
                 fullAssistantText += delta;
                 if (!assistantId) return;
@@ -186,8 +188,7 @@ export const useMessageSubmission = ({
                   ),
                 );
 
-                // Auto scroll only if user is near bottom
-                scrollToBottom(true, false);
+                // IMPORTANT: no auto-scroll during streaming
               },
               onDone: (finalAssistantMessage: ChatMessageFromServer) => {
                 if (!assistantId) return;
@@ -208,6 +209,8 @@ export const useMessageSubmission = ({
                       : msg,
                   ),
                 );
+
+                // IMPORTANT: no auto-scroll on done
               },
               onError: (err: unknown) => {
                 throw err;
@@ -251,16 +254,12 @@ export const useMessageSubmission = ({
 
         if (error instanceof SessionExpiredError) {
           setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === optimisticId ? { ...msg, failed: true } : msg,
-            ),
+            prev.map((msg) => (msg.message_id === optimisticId ? { ...msg, failed: true } : msg)),
           );
         } else if (error instanceof ApiError && error.status === 400) {
           showToast('Unsupported file', { type: 'error', position: 'conversation' });
           setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === optimisticId ? { ...msg, failed: true } : msg,
-            ),
+            prev.map((msg) => (msg.message_id === optimisticId ? { ...msg, failed: true } : msg)),
           );
         } else {
           showToast('Failed to respond, try again', { type: 'error', position: 'conversation' });
@@ -286,9 +285,8 @@ export const useMessageSubmission = ({
         setIsAssistantTyping(false);
         lastOptimisticMessageIdRef.current = null;
 
-        if (isFromManualRetry) {
-          setTimeout(() => scrollToBottom(true, false), 150);
-        }
+        // IMPORTANT: no scroll here. You only scroll on send.
+        void isFromManualRetry;
       }
     },
     [
