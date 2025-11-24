@@ -699,8 +699,7 @@ export const Conversation: React.FC = () => {
   useLayoutEffect(() => {
     if (!fetchState.isLoading && previousScrollHeight.current > 0 && mainScrollRef.current) {
       const scrollContainer = mainScrollRef.current;
-      const heightDifference =
-        scrollContainer.scrollHeight - previousScrollHeight.current;
+      const heightDifference = scrollContainer.scrollHeight - previousScrollHeight.current;
 
       if (heightDifference > 0) {
         requestAnimationFrame(() => {
@@ -720,14 +719,23 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // IMPORTANT: removed auto scroll-to-user-message effect.
-  // We only auto scroll on send (forced) and on streaming deltas if user is near bottom.
+  // Scroll once on send, never on completion or deltas unless user is near bottom
+  useEffect(() => {
+    if (!justSentMessageRef.current) return;
+
+    const last = chatMessages[chatMessages.length - 1];
+    if (!last || last.content_type !== 'assistant') return;
+
+    requestAnimationFrame(() => {
+      scrollToBottom(true, true);
+      justSentMessageRef.current = false;
+    });
+  }, [chatMessages, scrollToBottom]);
 
   useEffect(() => {
     handleResize();
     window.addEventListener('resize', debouncedHandleResize);
-    const cleanup = () =>
-      window.removeEventListener('resize', debouncedHandleResize);
+    const cleanup = () => window.removeEventListener('resize', debouncedHandleResize);
     cleanupFunctions.current.push(cleanup);
 
     return cleanup;
@@ -857,12 +865,7 @@ export const Conversation: React.FC = () => {
                     <div className="messages-container">
                       {messages.map((item) => {
                         if (item.type === 'call_session') {
-                          return (
-                            <MemoizedCallSessionItem
-                              key={item.id}
-                              messages={item.messages}
-                            />
-                          );
+                          return <MemoizedCallSessionItem key={item.id} messages={item.messages} />;
                         }
 
                         const msg = item.message;
@@ -875,8 +878,7 @@ export const Conversation: React.FC = () => {
                         const isLastFailedMessage = msg.message_id === lastFailedMessageId;
 
                         const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
-                        const effectiveThoughtText =
-                          currentThoughtText || storedThoughts || undefined;
+                        const effectiveThoughtText = currentThoughtText || storedThoughts || undefined;
 
                         const shouldShowTypingIndicator =
                           msg.content_type === 'assistant' &&
