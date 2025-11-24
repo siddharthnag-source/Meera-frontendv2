@@ -283,26 +283,23 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  // Optimized scroll to bottom with RAF
- const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
-  const el = mainScrollRef.current;
-  if (!el) return;
+  // Manual only scroll to bottom
+  const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
+    const el = mainScrollRef.current;
+    if (!el) return;
 
-  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-  const isNearBottom = distanceFromBottom <= 120;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const isNearBottom = distanceFromBottom <= 120;
 
-  if (!force && !isNearBottom) {
-    return; // user is reading above, do not yank them down
-  }
+    if (!force && !isNearBottom) return;
 
-  requestAnimationFrame(() => {
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior: smooth ? 'smooth' : 'auto',
+    requestAnimationFrame(() => {
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto',
+      });
     });
-  });
-}, []);
-
+  }, []);
 
   /**
    * LEGACY MEERA REVIVE
@@ -381,10 +378,7 @@ export const Conversation: React.FC = () => {
 
         setChatMessages(mapped);
         setHasLoadedLegacyHistory(true);
-
-        requestAnimationFrame(() => {
-          setTimeout(() => scrollToBottom(false), 50);
-        });
+        // No auto scroll here
       } catch (err) {
         console.error('Error loading legacy messages', err);
       } finally {
@@ -393,7 +387,7 @@ export const Conversation: React.FC = () => {
     };
 
     loadLegacyHistory();
-  }, [legacyUserId, hasLoadedLegacyHistory, scrollToBottom]);
+  }, [legacyUserId, hasLoadedLegacyHistory]);
 
   // Optimized chat history loading with proper cleanup and caching (new backend)
   const loadChatHistory = useCallback(
@@ -437,9 +431,7 @@ export const Conversation: React.FC = () => {
 
             if (isInitial && !hasLoadedLegacyHistory) {
               setChatMessages(messages);
-              requestAnimationFrame(() => {
-                setTimeout(() => scrollToBottom(false), 50);
-              });
+              // No auto scroll here
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
               if (scrollContainer) {
@@ -531,7 +523,6 @@ export const Conversation: React.FC = () => {
       fetchState.isLoading,
       fetchState.abortController,
       showToast,
-      scrollToBottom,
       hasLoadedLegacyHistory,
     ],
   );
@@ -721,8 +712,7 @@ export const Conversation: React.FC = () => {
   useLayoutEffect(() => {
     if (!fetchState.isLoading && previousScrollHeight.current > 0 && mainScrollRef.current) {
       const scrollContainer = mainScrollRef.current;
-      const heightDifference =
-        scrollContainer.scrollHeight - previousScrollHeight.current;
+      const heightDifference = scrollContainer.scrollHeight - previousScrollHeight.current;
 
       if (heightDifference > 0) {
         requestAnimationFrame(() => {
@@ -743,24 +733,9 @@ export const Conversation: React.FC = () => {
   }, [loadChatHistory]);
 
   useEffect(() => {
-    if (justSentMessageRef.current && latestUserMessageRef.current) {
-      requestAnimationFrame(() => {
-        if (latestUserMessageRef.current) {
-          latestUserMessageRef.current.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-          });
-          justSentMessageRef.current = false;
-        }
-      });
-    }
-  }, [chatMessages]);
-
-  useEffect(() => {
     handleResize();
     window.addEventListener('resize', debouncedHandleResize);
-    const cleanup = () =>
-      window.removeEventListener('resize', debouncedHandleResize);
+    const cleanup = () => window.removeEventListener('resize', debouncedHandleResize);
     cleanupFunctions.current.push(cleanup);
 
     return cleanup;
@@ -805,7 +780,7 @@ export const Conversation: React.FC = () => {
   }, [fetchState.abortController, currentAttachments]);
 
   const handleScrollToBottomClick = useCallback(() => {
-    scrollToBottom(true);
+    scrollToBottom(true, true);
   }, [scrollToBottom]);
 
   return (
@@ -877,7 +852,7 @@ export const Conversation: React.FC = () => {
           )}
 
           {!isInitialLoading && chatMessages.length > 0 && (
-            <div className="flex flex-col space-y-0 w-full ">
+            <div className="flex flex-col space-y-0 w-full">
               {fetchState.isLoading && isUserNearTop && (
                 <div className="flex justify-center py-4 sticky top-0 z-10">
                   <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
@@ -923,14 +898,11 @@ export const Conversation: React.FC = () => {
                         const effectiveThoughtText =
                           currentThoughtText || storedThoughts || undefined;
 
-                        // Changed logic:
-                        // show typing only while assistant bubble is still empty
                         const shouldShowTypingIndicator =
-  msg.content_type === 'assistant' &&
-  msg.message_id === lastMessage?.message_id &&
-  isAssistantTyping &&
-  (msg.content ?? '').length === 0;
-
+                          msg.content_type === 'assistant' &&
+                          msg.message_id === lastMessage?.message_id &&
+                          isAssistantTyping &&
+                          (msg.content ?? '').length === 0;
 
                         const isLatestUserMessage =
                           msg.content_type === 'user' &&
@@ -950,7 +922,7 @@ export const Conversation: React.FC = () => {
                                   ? latestAssistantMessageRef
                                   : null
                             }
-                            className="message-item-wrapper w-full transform-gpu will-change-transform "
+                            className="message-item-wrapper w-full transform-gpu will-change-transform"
                           >
                             <MemoizedRenderedMessageItem
                               message={msg}
@@ -1019,7 +991,7 @@ export const Conversation: React.FC = () => {
             {showScrollToBottom && (
               <button
                 onClick={handleScrollToBottomClick}
-                className=" p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
+                className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
                 title="Scroll to bottom"
               >
                 <MdKeyboardArrowDown size={20} />
@@ -1074,7 +1046,7 @@ export const Conversation: React.FC = () => {
                   <button
                     type="button"
                     onClick={stableCallbacks.toggleSearchActive}
-                    className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform  ${
+                    className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform ${
                       isSearchActive
                         ? 'bg-primary/10 text-primary'
                         : 'text-gray-500 hover:bg-gray-50'
