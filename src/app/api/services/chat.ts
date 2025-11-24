@@ -1,3 +1,4 @@
+// src/app/api/services/chat.ts
 import {
   ChatMessageFromServer,
   ChatMessageResponse,
@@ -119,6 +120,7 @@ export const chatService = {
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
+    const google_search = formData.get('google_search') === 'true';
 
     try {
       const {
@@ -175,6 +177,8 @@ export const chatService = {
           message,
           messages: historyForModel,
           userId,
+          google_search,
+          stream: false,
         }),
       });
 
@@ -251,17 +255,12 @@ export const chatService = {
             finish_reason: null,
           };
 
-      // Return only what ChatMessageResponseData allows
       const chatResponse: ChatMessageResponse = {
         message: 'ok',
-        data: {
-          response: body.reply,
-        },
+        data: { response: body.reply },
       };
 
-      // keep assistantMessage for DB correctness
       void assistantMessage;
-
       return chatResponse;
     } catch (err) {
       console.error('Error in sendMessage:', err);
@@ -271,16 +270,18 @@ export const chatService = {
 
   /**
    * Streaming version.
-   * Call this from a client-side hook or component only.
+   * Supports web search streaming via google_search flag.
    */
   async streamMessage({
     message,
+    google_search = false,
     onDelta,
     onDone,
     onError,
     signal,
   }: {
     message: string;
+    google_search?: boolean;
     onDelta: (delta: string) => void;
     onDone?: (finalAssistantMessage: ChatMessageFromServer) => void;
     onError?: (err: unknown) => void;
@@ -348,74 +349,15 @@ export const chatService = {
 
       let assistantText = '';
 
-      await streamMeera({
+      // Cast to any so you do not get blocked if streamMeera types do not include google_search yet.
+      await (streamMeera as any)({
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
         messages: historyForModel,
-        onAnswerDelta: (delta) => {
+        google_search,
+        onAnswerDelta: (delta: string) => {
           assistantText += delta;
           onDelta(delta);
         },
         onDone: async () => {
-          const assistantNowIso = new Date().toISOString();
-
-          const { data: insertedRows, error: assistantInsertError } = await supabase
-            .from('messages')
-            .insert([
-              {
-                user_id: userId,
-                content_type: 'assistant',
-                content: assistantText,
-                timestamp: assistantNowIso,
-                is_call: false,
-                model: null,
-              },
-            ])
-            .select('message_id, content_type, content, timestamp, model');
-
-          if (assistantInsertError) {
-            console.error('streamMessage: failed to save assistant message', assistantInsertError);
-          }
-
-          const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
-
-          const assistantMessage: ChatMessageFromServer = dbAssistantRow
-            ? {
-                message_id: dbAssistantRow.message_id,
-                content_type: 'assistant',
-                content: dbAssistantRow.content,
-                timestamp: dbAssistantRow.timestamp,
-                attachments: [],
-                is_call: false,
-                failed: false,
-                finish_reason: null,
-              }
-            : {
-                message_id: crypto.randomUUID(),
-                content_type: 'assistant',
-                content: assistantText,
-                timestamp: assistantNowIso,
-                attachments: [],
-                is_call: false,
-                failed: false,
-                finish_reason: null,
-              };
-
-          onDone?.(assistantMessage);
-        },
-        onError: (err) => {
-          onError?.(err);
-        },
-        signal,
-      });
-    } catch (err) {
-      console.error('Error in streamMessage:', err);
-      onError?.(err);
-      throw err;
-    }
-  },
-};
-
-export const saveInteraction = (payload: SaveInteractionPayload) => {
-  return api.post(API_ENDPOINTS.CALL.SAVE_INTERACTION, payload);
-};
+          const assistantNowIso = new D
