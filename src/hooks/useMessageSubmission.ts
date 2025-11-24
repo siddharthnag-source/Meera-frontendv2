@@ -22,9 +22,6 @@ interface UseMessageSubmissionProps {
   clearAllInput: () => void;
   scrollToBottom: (smooth?: boolean) => void;
   onMessageSent?: () => void;
-
-  // NEW: passed from Conversation. True when user is already near bottom.
-  userAtBottomRef?: MutableRefObject<boolean>;
 }
 
 // Shape of the API response we care about
@@ -50,7 +47,6 @@ export const useMessageSubmission = ({
   clearAllInput,
   scrollToBottom,
   onMessageSent,
-  userAtBottomRef,
 }: UseMessageSubmissionProps) => {
   const { showToast } = useToast();
 
@@ -114,25 +110,16 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      let assistantMessageId: string | null = null;
-
       // If not a retry, create user + empty assistant messages
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
 
-        assistantMessageId = `assistant-${Date.now()}`;
-
-        // Ensure assistant timestamp is strictly after user timestamp
-        const userTsDate = new Date(userMessage.timestamp);
-        const assistantTs = isNaN(userTsDate.getTime())
-          ? createLocalTimestamp()
-          : createLocalTimestamp(new Date(userTsDate.getTime() + 6));
-
+        const assistantMessageId = `assistant-${Date.now()}`;
         const emptyAssistantMessage: ChatMessageFromServer = {
           message_id: assistantMessageId,
           content: '',
           content_type: 'assistant',
-          timestamp: assistantTs,
+          timestamp: createLocalTimestamp(),
           attachments: [],
           try_number: tryNumber,
           failed: false,
@@ -145,12 +132,7 @@ export const useMessageSubmission = ({
 
         clearAllInput();
         onMessageSent?.();
-
-        // Anchor view at the TOP of the assistant bubble once
-        setTimeout(() => {
-          const el = document.getElementById(`message-${assistantMessageId!}`);
-          el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 80);
+        setTimeout(() => scrollToBottom(true), 300);
       } else {
         // Retry: clear failed state
         setChatMessages((prev) =>
@@ -182,14 +164,22 @@ export const useMessageSubmission = ({
         const shouldStream = attachments.length === 0 && !isSearchActive;
 
         if (shouldStream) {
-          // Streaming path
           let fullAssistantText = '';
+          let hasStartedAnswer = false;
+          let didInitialScroll = false;
 
           await chatService.streamMessage({
             message: trimmedMessage,
             onDelta: (delta) => {
-              fullAssistantText += delta;
               if (!assistantId) return;
+
+              // As soon as the first real answer token arrives, stop showing thoughts in bubble
+              if (!hasStartedAnswer) {
+                hasStartedAnswer = true;
+                setCurrentThoughtText('');
+              }
+
+              fullAssistantText += delta;
 
               setChatMessages((prev) =>
                 prev.map((msg) =>
@@ -204,15 +194,19 @@ export const useMessageSubmission = ({
                 ),
               );
 
-              // Only auto scroll if user is already at bottom
-              if (userAtBottomRef?.current) {
+              // Do not keep auto scrolling on every delta.
+              // Only do a single gentle scroll when streaming begins,
+              // so the user stays at the top of the assistant message.
+              if (!didInitialScroll) {
+                didInitialScroll = true;
                 scrollToBottom(true);
               }
             },
             onDone: (finalAssistantMessage) => {
               if (!assistantId) return;
 
-              // IMPORTANT: do NOT replace message_id. Keep it stable to avoid remount/flicker.
+              // Keep the optimistic assistant id stable.
+              // Only update fields so React does not reorder or remount the message.
               mostRecentAssistantMessageIdRef.current = assistantId;
 
               setChatMessages((prev) =>
@@ -224,7 +218,7 @@ export const useMessageSubmission = ({
                         timestamp: finalAssistantMessage.timestamp || createLocalTimestamp(),
                         failed: false,
                         try_number: tryNumber,
-                        finish_reason: finalAssistantMessage.finish_reason ?? 'stop',
+                        finish_reason: finalAssistantMessage.finish_reason ?? null,
                       }
                     : msg,
                 ),
@@ -259,7 +253,7 @@ export const useMessageSubmission = ({
                     timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
-                    finish_reason: 'stop',
+                    finish_reason: null,
                   }
                 : msg,
             ),
@@ -324,7 +318,6 @@ export const useMessageSubmission = ({
       setIsAssistantTyping,
       showToast,
       onMessageSent,
-      userAtBottomRef,
     ],
   );
 
