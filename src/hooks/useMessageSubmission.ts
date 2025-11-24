@@ -163,22 +163,13 @@ export const useMessageSubmission = ({
       try {
         const shouldStream = attachments.length === 0 && !isSearchActive;
 
-        if (shouldStream) {
+        if (shouldStream && assistantId) {
+          // Streaming path
           let fullAssistantText = '';
-          let hasStartedAnswer = false;
-          let didInitialScroll = false;
 
           await chatService.streamMessage({
             message: trimmedMessage,
             onDelta: (delta) => {
-              if (!assistantId) return;
-
-              // As soon as the first real answer token arrives, stop showing thoughts in bubble
-              if (!hasStartedAnswer) {
-                hasStartedAnswer = true;
-                setCurrentThoughtText('');
-              }
-
               fullAssistantText += delta;
 
               setChatMessages((prev) =>
@@ -194,19 +185,12 @@ export const useMessageSubmission = ({
                 ),
               );
 
-              // Do not keep auto scrolling on every delta.
-              // Only do a single gentle scroll when streaming begins,
-              // so the user stays at the top of the assistant message.
-              if (!didInitialScroll) {
-                didInitialScroll = true;
-                scrollToBottom(true);
-              }
+              // IMPORTANT: do NOT auto-scroll on every delta.
+              // This prevents the viewport from jumping to the end of the response.
             },
             onDone: (finalAssistantMessage) => {
-              if (!assistantId) return;
-
-              // Keep the optimistic assistant id stable.
-              // Only update fields so React does not reorder or remount the message.
+              // Keep the optimistic assistant id and timestamp stable.
+              // Only finalize content and flags.
               mostRecentAssistantMessageIdRef.current = assistantId;
 
               setChatMessages((prev) =>
@@ -215,14 +199,16 @@ export const useMessageSubmission = ({
                     ? {
                         ...msg,
                         content: finalAssistantMessage.content || fullAssistantText,
-                        timestamp: finalAssistantMessage.timestamp || createLocalTimestamp(),
                         failed: false,
                         try_number: tryNumber,
-                        finish_reason: finalAssistantMessage.finish_reason ?? null,
+                        finish_reason: 'stop',
                       }
                     : msg,
                 ),
               );
+
+              // Scroll once after completion, gentle.
+              setTimeout(() => scrollToBottom(true), 80);
             },
             onError: (err) => {
               throw err;
@@ -253,7 +239,7 @@ export const useMessageSubmission = ({
                     timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
-                    finish_reason: null,
+                    finish_reason: 'stop',
                   }
                 : msg,
             ),
