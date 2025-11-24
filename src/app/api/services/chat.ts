@@ -6,10 +6,14 @@ import {
 import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
 import { supabase } from '@/lib/supabaseClient';
+import { streamMeera } from '@/lib/streamMeera';
 
 const SUPABASE_CHAT_URL =
   process.env.NEXT_PUBLIC_SUPABASE_CHAT_URL ??
   'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export class SessionExpiredError extends Error {
   constructor(message: string) {
@@ -111,13 +115,12 @@ export const chatService = {
   /**
    * Non-streaming sendMessage.
    * Calls Supabase Edge Function and persists both user and assistant messages.
-   * NOW includes conversation history for continuity.
+   * Includes conversation history for continuity.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
 
     try {
-      // 1) Get current Supabase user
       const {
         data: { session },
         error: sessionError,
@@ -130,7 +133,6 @@ export const chatService = {
 
       const userId = session.user.id;
 
-      // 2) Fetch last CONTEXT_WINDOW messages for this user for continuity
       const { data: historyRows, error: historyError } = await supabase
         .from('messages')
         .select('content_type, content, timestamp')
@@ -142,7 +144,10 @@ export const chatService = {
         console.error('sendMessage: failed to fetch history', historyError);
       }
 
-      const sortedHistory = ((historyRows ?? []) as Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[])
+      const sortedHistory = ((historyRows ?? []) as Pick<
+        DbMessageRow,
+        'content_type' | 'content' | 'timestamp'
+      >[])
         .slice()
         .reverse();
 
@@ -153,16 +158,22 @@ export const chatService = {
           content: row.content,
         }));
 
-      // Append current user message to the history
       historyForModel.push({ role: 'user', content: message });
 
-      // 3) Call Edge Function with message + history
       const response = await fetch(SUPABASE_CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(SUPABASE_ANON_KEY
+            ? {
+                apikey: SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              }
+            : {}),
+        },
         body: JSON.stringify({
           message,
-          messages: historyForModel, // <-- continuity fix
+          messages: historyForModel,
           userId,
         }),
       });
@@ -184,7 +195,6 @@ export const chatService = {
 
       const nowIso = new Date().toISOString();
 
-      // 4) Persist user message + assistant reply
       const { data: insertedRows, error: insertError } = await supabase
         .from('messages')
         .insert([
@@ -211,7 +221,6 @@ export const chatService = {
         console.error('sendMessage: failed to save messages to DB', insertError);
       }
 
-      // 5) Build assistant message object for UI
       const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.find(
         (row) => row.content_type === 'assistant',
       );
@@ -238,17 +247,162 @@ export const chatService = {
             finish_reason: null,
           };
 
-      const chatResponse: ChatMessageResponse = {
+      return {
         message: 'ok',
         data: {
           response: body.reply,
           message: assistantMessage,
-        } as ChatMessageResponse['data'],
+        },
       };
-
-      return chatResponse;
     } catch (err) {
       console.error('Error in sendMessage:', err);
+      throw err;
+    }
+  },
+
+  /**
+   * Streaming version.
+   * Call this from a client-side hook or component only.
+   */
+  async streamMessage({
+    message,
+    onDelta,
+    onDone,
+    onError,
+    signal,
+  }: {
+    message: string;
+    onDelta: (delta: string) => void;
+    onDone?: (finalAssistantMessage: ChatMessageFromServer) => void;
+    onError?: (err: any) => void;
+    signal?: AbortSignal;
+  }): Promise<void> {
+    try {
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
+      }
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.error('streamMessage: no valid Supabase session', sessionError);
+        throw new SessionExpiredError('Your session has expired, please sign in again.');
+      }
+
+      const userId = session.user.id;
+      const userNowIso = new Date().toISOString();
+
+      const { data: historyRows, error: historyError } = await supabase
+        .from('messages')
+        .select('content_type, content, timestamp')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false })
+        .limit(CONTEXT_WINDOW);
+
+      if (historyError) {
+        console.error('streamMessage: failed to fetch history', historyError);
+      }
+
+      const sortedHistory = ((historyRows ?? []) as Pick<
+        DbMessageRow,
+        'content_type' | 'content' | 'timestamp'
+      >[])
+        .slice()
+        .reverse();
+
+      const historyForModel: LLMHistoryMessage[] = sortedHistory
+        .filter((row) => row.content && row.content.trim().length > 0)
+        .map((row) => ({
+          role: row.content_type === 'assistant' ? 'assistant' : 'user',
+          content: row.content,
+        }));
+
+      historyForModel.push({ role: 'user', content: message });
+
+      // Save user message immediately
+      const { error: userInsertError } = await supabase.from('messages').insert([
+        {
+          user_id: userId,
+          content_type: 'user',
+          content: message,
+          timestamp: userNowIso,
+          is_call: false,
+          model: null,
+        },
+      ]);
+
+      if (userInsertError) {
+        console.error('streamMessage: failed to save user message', userInsertError);
+      }
+
+      let assistantText = '';
+
+      await streamMeera({
+        supabaseUrl: SUPABASE_URL,
+        supabaseAnonKey: SUPABASE_ANON_KEY,
+        messages: historyForModel,
+        onAnswerDelta: (delta) => {
+          assistantText += delta;
+          onDelta(delta);
+        },
+        onDone: async () => {
+          const assistantNowIso = new Date().toISOString();
+
+          const { data: insertedRows, error: assistantInsertError } = await supabase
+            .from('messages')
+            .insert([
+              {
+                user_id: userId,
+                content_type: 'assistant',
+                content: assistantText,
+                timestamp: assistantNowIso,
+                is_call: false,
+                model: null,
+              },
+            ])
+            .select('message_id, content_type, content, timestamp, model');
+
+          if (assistantInsertError) {
+            console.error('streamMessage: failed to save assistant message', assistantInsertError);
+          }
+
+          const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
+
+          const assistantMessage: ChatMessageFromServer = dbAssistantRow
+            ? {
+                message_id: dbAssistantRow.message_id,
+                content_type: 'assistant',
+                content: dbAssistantRow.content,
+                timestamp: dbAssistantRow.timestamp,
+                attachments: [],
+                is_call: false,
+                failed: false,
+                finish_reason: null,
+              }
+            : {
+                message_id: crypto.randomUUID(),
+                content_type: 'assistant',
+                content: assistantText,
+                timestamp: assistantNowIso,
+                attachments: [],
+                is_call: false,
+                failed: false,
+                finish_reason: null,
+              };
+
+          onDone?.(assistantMessage);
+        },
+        onError: (err) => {
+          onError?.(err);
+        },
+        signal,
+      });
+    } catch (err) {
+      console.error('Error in streamMessage:', err);
+      onError?.(err);
       throw err;
     }
   },
