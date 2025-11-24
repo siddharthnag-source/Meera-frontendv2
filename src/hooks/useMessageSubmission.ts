@@ -20,7 +20,7 @@ interface UseMessageSubmissionProps {
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
   setIsAssistantTyping: (isTyping: boolean) => void;
   clearAllInput: () => void;
-  scrollToBottom: (smooth?: boolean) => void; // kept for compatibility, not used
+  scrollToBottom: (smooth?: boolean, force?: boolean) => void;
   onMessageSent?: () => void;
 }
 
@@ -44,20 +44,16 @@ export const useMessageSubmission = ({
   setChatMessages,
   setIsAssistantTyping,
   clearAllInput,
+  scrollToBottom,
   onMessageSent,
 }: UseMessageSubmissionProps) => {
   const { showToast } = useToast();
 
-  // userMessageId -> assistantMessageId
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
 
   const createOptimisticMessage = useCallback(
-    (
-      optimisticId: string,
-      messageText: string,
-      attachments: ChatAttachmentInputState[],
-    ): ChatMessageFromServer => {
+    (optimisticId: string, messageText: string, attachments: ChatAttachmentInputState[]): ChatMessageFromServer => {
       const lastMessage = chatMessages[chatMessages.length - 1];
       let newTimestamp = new Date();
 
@@ -108,6 +104,7 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
+      // Not a retry: create user + empty assistant placeholders
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
 
@@ -116,11 +113,11 @@ export const useMessageSubmission = ({
           message_id: assistantMessageId,
           content: '',
           content_type: 'assistant',
+          // Keep this timestamp stable so ordering never changes later
           timestamp: createLocalTimestamp(),
           attachments: [],
           try_number: tryNumber,
           failed: false,
-          finish_reason: null,
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
@@ -130,7 +127,11 @@ export const useMessageSubmission = ({
 
         clearAllInput();
         onMessageSent?.();
+
+        // ONLY auto-scroll here, when user sends
+        setTimeout(() => scrollToBottom(true, true), 150);
       } else {
+        // Retry: clear failed state
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
@@ -180,26 +181,26 @@ export const useMessageSubmission = ({
                     : msg,
                 ),
               );
-            },
-            onDone: (finalAssistantMessage) => {
-              if (!assistantId) return;
 
-              // DO NOT change key or timestamp. Only finalize content.
-              mostRecentAssistantMessageIdRef.current = assistantId;
+              // IMPORTANT: no scrolling here
+            },
+            onDone: () => {
+              if (!assistantId) return;
 
               setChatMessages((prev) =>
                 prev.map((msg) =>
                   msg.message_id === assistantId
                     ? {
                         ...msg,
-                        content: finalAssistantMessage.content || fullAssistantText,
+                        content: msg.content || fullAssistantText,
                         failed: false,
                         try_number: tryNumber,
-                        server_message_id: finalAssistantMessage.message_id,
                       }
                     : msg,
                 ),
               );
+
+              // IMPORTANT: do not change message_id or timestamp, and no scrolling
             },
             onError: (err) => {
               throw err;
@@ -219,7 +220,6 @@ export const useMessageSubmission = ({
         if (thoughts) setCurrentThoughtText(thoughts);
 
         if (assistantId) {
-          // DO NOT touch timestamp, to avoid resort jumps.
           setChatMessages((prev) =>
             prev.map((msg) =>
               msg.message_id === assistantId
@@ -268,7 +268,7 @@ export const useMessageSubmission = ({
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
-          // no auto-scroll
+          setTimeout(() => scrollToBottom(true, true), 150);
         }
       }
     },
@@ -278,6 +278,7 @@ export const useMessageSubmission = ({
       createOptimisticMessage,
       setChatMessages,
       clearAllInput,
+      scrollToBottom,
       setIsSending,
       setJustSentMessage,
       setCurrentThoughtText,
