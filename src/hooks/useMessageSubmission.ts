@@ -189,17 +189,20 @@ export const useMessageSubmission = ({
 
               scrollToBottom(true);
             },
+
+            // ✅ FIX: do not change message_id on done
             onDone: (finalAssistantMessage) => {
               if (!assistantId) return;
 
-              mostRecentAssistantMessageIdRef.current = finalAssistantMessage.message_id;
+              // Keep pointing to the existing optimistic assistant id
+              mostRecentAssistantMessageIdRef.current = assistantId;
 
               setChatMessages((prev) =>
                 prev.map((msg) =>
                   msg.message_id === assistantId
                     ? {
                         ...msg,
-                        message_id: finalAssistantMessage.message_id,
+                        // DO NOT overwrite message_id here
                         content: finalAssistantMessage.content || fullAssistantText,
                         timestamp: finalAssistantMessage.timestamp || createLocalTimestamp(),
                         failed: false,
@@ -209,6 +212,7 @@ export const useMessageSubmission = ({
                 ),
               );
             },
+
             onError: (err) => {
               throw err;
             },
