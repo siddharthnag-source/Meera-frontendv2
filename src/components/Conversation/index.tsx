@@ -93,7 +93,7 @@ const MemoizedAttachmentPreview = React.memo(AttachmentPreview, (prevProps, next
 export const Conversation: React.FC = () => {
   // Core state
   const [message, setMessage] = useState('');
-  const [inputValue, setInputValue] = useState(''); // Separate input state for debouncing
+  const [inputValue, setInputValue] = useState('');
   const [currentAttachments, setCurrentAttachments] = useState<ChatAttachmentInputState[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessageFromServer[]>([]);
   const [isSearchActive, setIsSearchActive] = useState(true);
@@ -166,12 +166,10 @@ export const Conversation: React.FC = () => {
   const { showToast } = useToast();
   const { openModal } = usePricingModal();
 
-  // Update chatMessagesRef when chatMessages changes
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
-  // Debounced input handling
   const debouncedSetMessage = useMemo(
     () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
     [],
@@ -181,38 +179,16 @@ export const Conversation: React.FC = () => {
     debouncedSetMessage(inputValue);
   }, [inputValue, debouncedSetMessage]);
 
-  /**
-   * IMPORTANT FIX:
-   * Always render from a stable, safely sorted copy.
-   * This prevents new streamed assistants from jumping above older future-timestamp blocks,
-   * and prevents flicker when DB ids differ.
-   */
-  const stableSortedMessages = useMemo(() => {
-    return [...chatMessages].sort((a, b) => {
-      const ta = new Date(a.timestamp).getTime();
-      const tb = new Date(b.timestamp).getTime();
-
-      if (ta !== tb) return ta - tb;
-
-      if (a.content_type !== b.content_type) {
-        return a.content_type === 'user' ? -1 : 1;
-      }
-
-      return a.message_id.localeCompare(b.message_id);
-    });
-  }, [chatMessages]);
-
   const lastFailedMessageId = useMemo(() => {
-    for (let i = stableSortedMessages.length - 1; i >= 0; i--) {
-      const msg = stableSortedMessages[i];
+    for (let i = chatMessages.length - 1; i >= 0; i--) {
+      const msg = chatMessages[i];
       if (msg.content_type === 'user' && msg.failed) {
         return msg.message_id;
       }
     }
     return null;
-  }, [stableSortedMessages]);
+  }, [chatMessages]);
 
-  // Simple height calculation function
   const calculateMinHeight = useCallback(() => {
     const viewportHeight = window.innerHeight;
 
@@ -228,7 +204,6 @@ export const Conversation: React.FC = () => {
     setDynamicMinHeight(calculatedMinHeight);
   }, []);
 
-  // Optimized message processing
   const processMessagesForDisplay = useCallback(
     (messages: ChatMessageFromServer[]): [string, ChatDisplayItem[]][] => {
       const grouped: Record<string, ChatDisplayItem[]> = {};
@@ -293,21 +268,18 @@ export const Conversation: React.FC = () => {
   );
 
   const messagesByDate = useMemo(
-    () => processMessagesForDisplay(stableSortedMessages),
-    [stableSortedMessages, processMessagesForDisplay],
+    () => processMessagesForDisplay(chatMessages),
+    [chatMessages, processMessagesForDisplay],
   );
 
-  const lastMessage =
-    stableSortedMessages.length > 0
-      ? stableSortedMessages[stableSortedMessages.length - 1]
-      : null;
+  const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
+  // IMPORTANT FIX: use inputValue for canSubmit (no debounce lag).
   const canSubmit = useMemo(
-    () => (message.trim() || currentAttachments.length > 0) && !isSending,
-    [message, currentAttachments.length, isSending],
+    () => (inputValue.trim() || currentAttachments.length > 0) && !isSending,
+    [inputValue, currentAttachments.length, isSending],
   );
 
-  // Optimized scroll to bottom with RAF
   const scrollToBottom = useCallback((smooth: boolean = true) => {
     if (mainScrollRef.current) {
       requestAnimationFrame(() => {
@@ -320,12 +292,6 @@ export const Conversation: React.FC = () => {
       });
     }
   }, []);
-
-  /**
-   * LEGACY MEERA REVIVE
-   * 1. Map Google login email -> legacy users.id
-   * 2. If found, load messages from legacy `messages` table and map to ChatMessageFromServer
-   */
 
   // Step 1: find legacy user id by email
   useEffect(() => {
@@ -412,7 +378,6 @@ export const Conversation: React.FC = () => {
     loadLegacyHistory();
   }, [legacyUserId, hasLoadedLegacyHistory, scrollToBottom]);
 
-  // Optimized chat history loading with proper cleanup and caching (new backend)
   const loadChatHistory = useCallback(
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
@@ -507,12 +472,9 @@ export const Conversation: React.FC = () => {
               (error as { code?: string }).code === 'NETWORK_ERROR') ||
               !navigator.onLine)
           ) {
-            setTimeout(
-              () => {
-                loadChatHistory(page, isInitial, retryCount + 1);
-              },
-              1000 * (retryCount + 1),
-            );
+            setTimeout(() => {
+              loadChatHistory(page, isInitial, retryCount + 1);
+            }, 1000 * (retryCount + 1));
             return;
           }
 
@@ -559,7 +521,6 @@ export const Conversation: React.FC = () => {
     ],
   );
 
-  // Throttled scroll handler for better performance
   const handleScrollInternal = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
@@ -572,8 +533,8 @@ export const Conversation: React.FC = () => {
         currentScrollTop > lastScrollTopRef.current
           ? 'down'
           : currentScrollTop < lastScrollTopRef.current
-          ? 'up'
-          : 'still';
+            ? 'up'
+            : 'still';
       lastScrollTopRef.current = currentScrollTop;
 
       if (scrollTimeoutRef2.current) {
@@ -692,17 +653,21 @@ export const Conversation: React.FC = () => {
         e.preventDefault();
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
-        setTimeout(() => inputRef.current && handleTextareaResize(inputRef.current, false), 10);
+        setTimeout(
+          () => inputRef.current && handleTextareaResize(inputRef.current, false),
+          10,
+        );
       }
     },
     [handleTextareaResize],
   );
 
+  // IMPORTANT FIX: pass inputValue (not debounced message)
   const { handleSubmit, handleRetryMessage, getMostRecentAssistantMessageId } =
     useMessageSubmission({
-      message,
+      message: inputValue,
       currentAttachments,
-      chatMessages: stableSortedMessages, // pass sorted view
+      chatMessages,
       isSearchActive,
       isSending,
       setIsSending,
@@ -895,7 +860,9 @@ export const Conversation: React.FC = () => {
 
           {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
             <div className="flex justify-center items-center h-[calc(100vh-10rem)]">
-              <p className="text-primary/70">No messages yet. Start the conversation!</p>
+              <p className="text-primary/70">
+                No messages yet. Start the conversation!
+              </p>
             </div>
           )}
 
@@ -954,7 +921,6 @@ export const Conversation: React.FC = () => {
                         const isLatestUserMessage =
                           msg.content_type === 'user' &&
                           msg.message_id === lastOptimisticMessageIdRef.current;
-
                         const isLatestAssistantMessage =
                           msg.content_type === 'assistant' &&
                           msg.message_id === getMostRecentAssistantMessageId();
@@ -967,8 +933,8 @@ export const Conversation: React.FC = () => {
                               isLatestUserMessage
                                 ? latestUserMessageRef
                                 : isLatestAssistantMessage
-                                ? latestAssistantMessageRef
-                                : null
+                                  ? latestAssistantMessageRef
+                                  : null
                             }
                             className="message-item-wrapper w-full transform-gpu will-change-transform "
                           >
@@ -1009,10 +975,7 @@ export const Conversation: React.FC = () => {
                     <span
                       className="text-primary font-medium cursor-pointer underline"
                       onClick={() =>
-                        openModal(
-                          'subscription_has_ended_renew_here_toast_clicked',
-                          true,
-                        )
+                        openModal('subscription_has_ended_renew_here_toast_clicked', true)
                       }
                     >
                       Renew here
@@ -1097,10 +1060,8 @@ export const Conversation: React.FC = () => {
                   <button
                     type="button"
                     onClick={stableCallbacks.toggleSearchActive}
-                    className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in_out text-sm font-medium cursor-pointer transform-gpu will-change-transform  ${
-                      isSearchActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-gray-500 hover:bg-gray-50'
+                    className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform  ${
+                      isSearchActive ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-50'
                     }`}
                     title="Search"
                   >
@@ -1113,7 +1074,7 @@ export const Conversation: React.FC = () => {
                   <AttachmentInputArea
                     ref={attachmentInputAreaRef}
                     onAttachmentsChange={setCurrentAttachments}
-                    messageValue={message}
+                    messageValue={inputValue}
                     resetInputHeightState={() => {}}
                     maxAttachments={MAX_ATTACHMENTS_CONFIG}
                     existingAttachments={currentAttachments}
@@ -1123,7 +1084,7 @@ export const Conversation: React.FC = () => {
 
                   <button
                     type="submit"
-                    className={`rounded_full flex items_center justify_center focus:outline-none transition_all duration-150 ease_in_out cursor-pointer min-w-[38px] min-h-[38px] transform-gpu will-change-transform ${
+                    className={`rounded-full flex items-center justify-center focus:outline-none transition-all duration-150 ease-in-out cursor-pointer min-w-[38px] min-h-[38px] transform-gpu will-change-transform ${
                       canSubmit
                         ? 'bg-primary text-background hover:bg-primary/90 hover:scale-105'
                         : 'bg-primary/20 text-primary/50 cursor-not-allowed'
