@@ -49,6 +49,7 @@ export const useMessageSubmission = ({
 }: UseMessageSubmissionProps) => {
   const { showToast } = useToast();
 
+  // userMessageId -> assistantMessageId
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
 
@@ -57,20 +58,13 @@ export const useMessageSubmission = ({
       optimisticId: string,
       messageText: string,
       attachments: ChatAttachmentInputState[],
-      timestampDate?: Date,
+      timestampDate: Date,
     ): ChatMessageFromServer => {
-      const lastMessage = chatMessages[chatMessages.length - 1];
-      let newTimestamp = timestampDate ?? new Date();
-
-      if (!timestampDate && lastMessage && new Date(lastMessage.timestamp) >= newTimestamp) {
-        newTimestamp = new Date(new Date(lastMessage.timestamp).getTime() + 6);
-      }
-
       return {
         message_id: optimisticId,
         content: messageText,
         content_type: 'user',
-        timestamp: createLocalTimestamp(newTimestamp),
+        timestamp: createLocalTimestamp(timestampDate),
         attachments: attachments.map((att) => ({
           name: att.file.name,
           type:
@@ -86,7 +80,7 @@ export const useMessageSubmission = ({
         try_number: 1,
       };
     },
-    [chatMessages],
+    [],
   );
 
   const clearMessageRelationshipMap = useCallback(() => {
@@ -109,12 +103,15 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
+      // If not a retry, create user + empty assistant messages
       if (!optimisticIdToUpdate) {
-        const lastMessage = chatMessages[chatMessages.length - 1];
-        let baseTimestamp = new Date();
-        if (lastMessage && new Date(lastMessage.timestamp) >= baseTimestamp) {
-          baseTimestamp = new Date(new Date(lastMessage.timestamp).getTime() + 6);
-        }
+        // IMPORTANT: base timestamp must be after the true max timestamp in the list
+        const maxExistingMs = chatMessages.reduce((maxMs, m) => {
+          const t = new Date(m.timestamp).getTime();
+          return Number.isFinite(t) ? Math.max(maxMs, t) : maxMs;
+        }, Date.now());
+
+        const baseTimestamp = new Date(maxExistingMs + 6);
 
         const userMessage = createOptimisticMessage(
           optimisticId,
@@ -128,6 +125,7 @@ export const useMessageSubmission = ({
           message_id: assistantMessageId,
           content: '',
           content_type: 'assistant',
+          // Always 1 ms after user so sorting keeps order
           timestamp: createLocalTimestamp(new Date(baseTimestamp.getTime() + 1)),
           attachments: [],
           try_number: tryNumber,
@@ -143,6 +141,7 @@ export const useMessageSubmission = ({
         onMessageSent?.();
         setTimeout(() => scrollToBottom(true), 300);
       } else {
+        // Retry: clear failed state
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
@@ -163,7 +162,7 @@ export const useMessageSubmission = ({
 
       const systemInfo = await getSystemInfo();
       if (systemInfo.device) formData.append('device', systemInfo.device);
-      if (systemInfo.location) formData.append('location', systemInfo.location); // ✅ fixed
+      if (systemInfo.location) formData.append('location', systemInfo.location);
       if (systemInfo.network) formData.append('network', systemInfo.network);
 
       const assistantId = messageRelationshipMapRef.current.get(optimisticId);
@@ -196,6 +195,8 @@ export const useMessageSubmission = ({
 
               scrollToBottom(true);
             },
+
+            // IMPORTANT: do not change optimistic assistant id onDone
             onDone: (finalAssistantMessage) => {
               if (!assistantId) return;
 
@@ -215,6 +216,7 @@ export const useMessageSubmission = ({
                 ),
               );
             },
+
             onError: (err) => {
               throw err;
             },
@@ -223,13 +225,16 @@ export const useMessageSubmission = ({
           return;
         }
 
+        // Non streaming fallback (attachments or search)
         const result = await chatService.sendMessage(formData);
         const rawData = result.data as ChatSendResponseData;
 
         const assistantText = rawData.response;
         const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
 
-        if (thoughts) setCurrentThoughtText(thoughts);
+        if (thoughts) {
+          setCurrentThoughtText(thoughts);
+        }
 
         if (assistantId) {
           setChatMessages((prev) =>
@@ -267,9 +272,15 @@ export const useMessageSubmission = ({
 
           setChatMessages((prev) =>
             prev.map((msg) => {
-              if (msg.message_id === optimisticId) return { ...msg, failed: true };
+              if (msg.message_id === optimisticId) {
+                return { ...msg, failed: true };
+              }
               if (assistantId && msg.message_id === assistantId) {
-                return { ...msg, failed: true, failedMessage: 'Failed to respond, try again' };
+                return {
+                  ...msg,
+                  failed: true,
+                  failedMessage: 'Failed to respond, try again',
+                };
               }
               return msg;
             }),
@@ -288,6 +299,7 @@ export const useMessageSubmission = ({
     [
       isSending,
       isSearchActive,
+      chatMessages,
       createOptimisticMessage,
       setChatMessages,
       clearAllInput,
@@ -299,7 +311,6 @@ export const useMessageSubmission = ({
       setIsAssistantTyping,
       showToast,
       onMessageSent,
-      chatMessages,
     ],
   );
 
