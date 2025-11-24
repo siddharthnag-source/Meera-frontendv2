@@ -53,10 +53,30 @@ type LLMHistoryMessage = {
 
 const CONTEXT_WINDOW = 20;
 
+/**
+ * Local typing for streamMeera so we can extend with google_search
+ * without using any.
+ */
+type StreamMeeraArgs = {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  messages: LLMHistoryMessage[];
+  google_search?: boolean;
+  onAnswerDelta: (delta: string) => void;
+  onDone: () => void | Promise<void>;
+  onError?: (err: unknown) => void;
+  signal?: AbortSignal;
+};
+
+// Re-type streamMeera safely without any
+const streamMeeraWithSearch = streamMeera as unknown as (
+  args: StreamMeeraArgs
+) => Promise<void>;
+
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
-   * Fetches newest messages first, then reverses each page so UI sees oldest → newest.
+   * Fetches newest messages first, then reverses each page so UI sees oldest to newest.
    */
   async getChatHistory(
     page: number = 1,
@@ -116,7 +136,6 @@ export const chatService = {
   /**
    * Non-streaming sendMessage.
    * Calls Supabase Edge Function and persists both user and assistant messages.
-   * Includes conversation history for continuity.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
@@ -269,8 +288,7 @@ export const chatService = {
   },
 
   /**
-   * Streaming version.
-   * Supports web search streaming via google_search flag.
+   * Streaming send. Works for normal chat and search.
    */
   async streamMessage({
     message,
@@ -349,13 +367,12 @@ export const chatService = {
 
       let assistantText = '';
 
-      // Cast to any so you do not get blocked if streamMeera types do not include google_search yet.
-      await (streamMeera as any)({
+      await streamMeeraWithSearch({
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
         messages: historyForModel,
         google_search,
-        onAnswerDelta: (delta: string) => {
+        onAnswerDelta: (delta) => {
           assistantText += delta;
           onDelta(delta);
         },
@@ -406,7 +423,7 @@ export const chatService = {
 
           onDone?.(assistantMessage);
         },
-        onError: (err: unknown) => {
+        onError: (err) => {
           onError?.(err);
         },
         signal,
