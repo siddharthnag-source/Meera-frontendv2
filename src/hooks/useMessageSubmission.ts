@@ -25,7 +25,8 @@ interface UseMessageSubmissionProps {
 }
 
 interface ChatSendResponseData {
-  response: string;
+  response?: string;
+  reply?: string;
   thoughts?: string;
   thoughtText?: string;
   [key: string]: unknown;
@@ -53,7 +54,11 @@ export const useMessageSubmission = ({
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
 
   const createOptimisticMessage = useCallback(
-    (optimisticId: string, messageText: string, attachments: ChatAttachmentInputState[]): ChatMessageFromServer => {
+    (
+      optimisticId: string,
+      messageText: string,
+      attachments: ChatAttachmentInputState[],
+    ): ChatMessageFromServer => {
       const lastMessage = chatMessages[chatMessages.length - 1];
       let newTimestamp = new Date();
 
@@ -104,7 +109,6 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // Not a retry: create user + empty assistant placeholders
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
 
@@ -113,7 +117,6 @@ export const useMessageSubmission = ({
           message_id: assistantMessageId,
           content: '',
           content_type: 'assistant',
-          // Keep this timestamp stable so ordering never changes later
           timestamp: createLocalTimestamp(),
           attachments: [],
           try_number: tryNumber,
@@ -128,10 +131,9 @@ export const useMessageSubmission = ({
         clearAllInput();
         onMessageSent?.();
 
-        // ONLY auto-scroll here, when user sends
-        setTimeout(() => scrollToBottom(true, true), 150);
+        // Force scroll only on send
+        setTimeout(() => scrollToBottom(true, true), 80);
       } else {
-        // Retry: clear failed state
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
@@ -158,66 +160,76 @@ export const useMessageSubmission = ({
       const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
       try {
-        const shouldStream = attachments.length === 0 && !isSearchActive;
+        const canStream = attachments.length === 0; // allow streaming even when search is active
 
-        if (shouldStream) {
+        if (canStream) {
           let fullAssistantText = '';
 
-          await chatService.streamMessage({
-            message: trimmedMessage,
-            onDelta: (delta) => {
-              fullAssistantText += delta;
-              if (!assistantId) return;
+          try {
+            await chatService.streamMessage({
+              message: trimmedMessage,
+              google_search: isSearchActive, // backend can ignore if unsupported
+              onDelta: (delta: string) => {
+                fullAssistantText += delta;
+                if (!assistantId) return;
 
-              setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.message_id === assistantId
-                    ? {
-                        ...msg,
-                        content: (msg.content || '') + delta,
-                        failed: false,
-                        try_number: tryNumber,
-                      }
-                    : msg,
-                ),
-              );
+                setChatMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.message_id === assistantId
+                      ? {
+                          ...msg,
+                          content: (msg.content || '') + delta,
+                          failed: false,
+                          try_number: tryNumber,
+                        }
+                      : msg,
+                  ),
+                );
 
-              // IMPORTANT: no scrolling here
-            },
-            onDone: () => {
-              if (!assistantId) return;
+                // Auto scroll only if user is near bottom
+                scrollToBottom(true, false);
+              },
+              onDone: (finalAssistantMessage: ChatMessageFromServer) => {
+                if (!assistantId) return;
 
-              setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.message_id === assistantId
-                    ? {
-                        ...msg,
-                        content: msg.content || fullAssistantText,
-                        failed: false,
-                        try_number: tryNumber,
-                      }
-                    : msg,
-                ),
-              );
+                mostRecentAssistantMessageIdRef.current = finalAssistantMessage.message_id;
 
-              // IMPORTANT: do not change message_id or timestamp, and no scrolling
-            },
-            onError: (err) => {
-              throw err;
-            },
-          });
+                setChatMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.message_id === assistantId
+                      ? {
+                          ...msg,
+                          message_id: finalAssistantMessage.message_id,
+                          content: finalAssistantMessage.content || fullAssistantText,
+                          timestamp: finalAssistantMessage.timestamp || createLocalTimestamp(),
+                          failed: false,
+                          try_number: tryNumber,
+                        }
+                      : msg,
+                  ),
+                );
+              },
+              onError: (err: unknown) => {
+                throw err;
+              },
+            });
 
-          return;
+            return; // streaming succeeded
+          } catch (streamErr) {
+            console.warn('Streaming failed, falling back to non-stream mode', streamErr);
+            // continue to non-stream below
+          }
         }
 
-        // Non-streaming fallback
         const result = await chatService.sendMessage(formData);
         const rawData = result.data as ChatSendResponseData;
 
-        const assistantText = rawData.response;
+        const assistantText = rawData.response ?? rawData.reply ?? '';
         const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
 
-        if (thoughts) setCurrentThoughtText(thoughts);
+        if (thoughts) {
+          setCurrentThoughtText(thoughts);
+        }
 
         if (assistantId) {
           setChatMessages((prev) =>
@@ -226,6 +238,7 @@ export const useMessageSubmission = ({
                 ? {
                     ...msg,
                     content: assistantText,
+                    timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
                   }
@@ -254,9 +267,15 @@ export const useMessageSubmission = ({
 
           setChatMessages((prev) =>
             prev.map((msg) => {
-              if (msg.message_id === optimisticId) return { ...msg, failed: true };
+              if (msg.message_id === optimisticId) {
+                return { ...msg, failed: true };
+              }
               if (assistantId && msg.message_id === assistantId) {
-                return { ...msg, failed: true, failedMessage: 'Failed to respond, try again' };
+                return {
+                  ...msg,
+                  failed: true,
+                  failedMessage: 'Failed to respond, try again',
+                };
               }
               return msg;
             }),
@@ -268,7 +287,7 @@ export const useMessageSubmission = ({
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
-          setTimeout(() => scrollToBottom(true, true), 150);
+          setTimeout(() => scrollToBottom(true, false), 150);
         }
       }
     },
