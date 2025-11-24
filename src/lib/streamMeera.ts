@@ -1,97 +1,128 @@
-type LLMHistoryMessage = {
-  role: 'user' | 'assistant';
+// src/lib/streamMeera.ts
+
+export type LLMHistoryMessage = {
+  role: 'user' | 'assistant' | 'system';
   content: string;
 };
 
-type GeminiPart = {
-  text?: string;
-  thought?: boolean;
-};
-
-type GeminiCandidate = {
-  content?: {
-    parts?: GeminiPart[];
-  };
-};
-
-type GeminiSseChunk = {
-  candidates?: GeminiCandidate[];
+type StreamMeeraArgs = {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  messages: LLMHistoryMessage[];
+  google_search?: boolean;
+  onAnswerDelta: (t: string) => void;
+  onDone?: () => void;
+  onError?: (e: unknown) => void;
+  signal?: AbortSignal;
 };
 
 export async function streamMeera({
   supabaseUrl,
   supabaseAnonKey,
   messages,
+  google_search,
   onAnswerDelta,
   onDone,
   onError,
   signal,
-}: {
-  supabaseUrl: string;
-  supabaseAnonKey: string;
-  messages: LLMHistoryMessage[];
-  onAnswerDelta: (t: string) => void;
-  onDone?: () => void;
-  onError?: (e: unknown) => void;
-  signal?: AbortSignal;
-}) {
+}: StreamMeeraArgs): Promise<void> {
+  const chatUrl = `${supabaseUrl.replace(/\/$/, '')}/functions/v1/chat`;
+
   try {
-    const res = await fetch(`${supabaseUrl}/functions/v1/chat`, {
+    const res = await fetch(chatUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: supabaseAnonKey,
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ messages, stream: true }),
+      body: JSON.stringify({
+        messages,
+        google_search: !!google_search,
+      }),
       signal,
     });
 
-    if (!res.ok || !res.body) throw new Error(await res.text());
+    if (!res.ok) {
+      let errBody: unknown = null;
+      try {
+        errBody = await res.json();
+      } catch {
+        // ignore
+      }
+      throw new Error(
+        `streamMeera failed: ${res.status} ${res.statusText} ${errBody ? JSON.stringify(errBody) : ''}`,
+      );
+    }
+
+    if (!res.body) {
+      throw new Error('streamMeera: response has no body to stream');
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    const isSSE = contentType.includes('text/event-stream');
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = '';
 
-    let lastAnswer = '';
+    let buffer = '';
+    let doneCalled = false;
 
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
+      const chunk = decoder.decode(value, { stream: true });
 
-      const events = buffer.split(/\r?\n\r?\n/);
-buffer = events.pop() || '';
+      if (!isSSE) {
+        onAnswerDelta(chunk);
+        continue;
+      }
 
-      for (const evt of events) {
-        const dataLine = evt.split('\n').find((l) => l.startsWith('data:'));
-        if (!dataLine) continue;
+      buffer += chunk;
 
-        const dataStr = dataLine.replace('data:', '').trim();
-        if (!dataStr) continue;
+      // SSE frames are separated by blank lines
+      const frames = buffer.split('\n\n');
+      buffer = frames.pop() || '';
 
-        const json = JSON.parse(dataStr) as GeminiSseChunk;
-        const parts = json?.candidates?.[0]?.content?.parts ?? [];
+      for (const frame of frames) {
+        const lines = frame.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
 
-        for (const p of parts) {
-          const text = p?.text ?? '';
-          if (!text) continue;
+          const payload = trimmed.replace(/^data:\s?/, '');
 
-          if (p?.thought) continue;
+          if (payload === '[DONE]') {
+            if (!doneCalled) {
+              doneCalled = true;
+              onDone?.();
+            }
+            continue;
+          }
 
-          const delta = text.startsWith(lastAnswer)
-            ? text.slice(lastAnswer.length)
-            : text;
+          // Try JSON payloads first, fallback to raw text
+          let textDelta = payload;
+          try {
+            const parsed = JSON.parse(payload) as Record<string, unknown>;
+            textDelta =
+              (parsed.delta as string) ||
+              (parsed.text as string) ||
+              (parsed.reply as string) ||
+              (parsed.response as string) ||
+              payload;
+          } catch {
+            // not JSON, keep raw
+          }
 
-          lastAnswer = text;
-          onAnswerDelta(delta);
+          if (textDelta) onAnswerDelta(textDelta);
         }
       }
     }
 
-    onDone?.();
-  } catch (e: unknown) {
+    if (!doneCalled) onDone?.();
+  } catch (e) {
     onError?.(e);
+    throw e;
   }
 }
