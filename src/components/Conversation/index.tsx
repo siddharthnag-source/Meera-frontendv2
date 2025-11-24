@@ -919,10 +919,11 @@ export const Conversation: React.FC = () => {
                         // Changed logic:
                         // show typing only while assistant bubble is still empty
                         const shouldShowTypingIndicator =
-                          msg.content_type === 'assistant' &&
-                          msg.message_id === lastMessage?.message_id &&
-                          isAssistantTyping &&
-                          (!msg.content || msg.content.trim().length === 0);
+  msg.content_type === 'assistant' &&
+  msg.message_id === lastMessage?.message_id &&
+  isAssistantTyping &&
+  (msg.content ?? '').length === 0;
+
 
                         const isLatestUserMessage =
                           msg.content_type === 'user' &&
