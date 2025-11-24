@@ -1,0 +1,77 @@
+export async function streamMeera({
+  supabaseUrl,
+  supabaseAnonKey,
+  messages,
+  onAnswerDelta,
+  onDone,
+  onError,
+  signal,
+}: {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  onAnswerDelta: (t: string) => void;
+  onDone?: () => void;
+  onError?: (e: any) => void;
+  signal?: AbortSignal;
+}) {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ messages, stream: true }),
+      signal,
+    });
+
+    if (!res.ok || !res.body) throw new Error(await res.text());
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    let lastAnswer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
+
+      for (const evt of events) {
+        const dataLine = evt.split("\n").find(l => l.startsWith("data:"));
+        if (!dataLine) continue;
+
+        const dataStr = dataLine.replace("data:", "").trim();
+        if (!dataStr) continue;
+
+        const json = JSON.parse(dataStr);
+        const parts = json?.candidates?.[0]?.content?.parts ?? [];
+
+        for (const p of parts) {
+          const text = p?.text ?? "";
+          if (!text) continue;
+
+          if (p?.thought) continue;
+
+          const delta = text.startsWith(lastAnswer)
+            ? text.slice(lastAnswer.length)
+            : text;
+          lastAnswer = text;
+
+          onAnswerDelta(delta);
+        }
+      }
+    }
+
+    onDone?.();
+  } catch (e) {
+    onError?.(e);
+  }
+}
