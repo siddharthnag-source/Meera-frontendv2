@@ -110,7 +110,6 @@ export const useMessageSubmission = ({
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
       if (!optimisticIdToUpdate) {
-        // Create a base timestamp, then ensure assistant is after it
         const lastMessage = chatMessages[chatMessages.length - 1];
         let baseTimestamp = new Date();
         if (lastMessage && new Date(lastMessage.timestamp) >= baseTimestamp) {
@@ -129,7 +128,6 @@ export const useMessageSubmission = ({
           message_id: assistantMessageId,
           content: '',
           content_type: 'assistant',
-          // IMPORTANT: 1 ms after user so sorting keeps order
           timestamp: createLocalTimestamp(new Date(baseTimestamp.getTime() + 1)),
           attachments: [],
           try_number: tryNumber,
@@ -165,7 +163,7 @@ export const useMessageSubmission = ({
 
       const systemInfo = await getSystemInfo();
       if (systemInfo.device) formData.append('device', systemInfo.device);
-      if (systemInfo.location) formData.append('location', systemInfo.showToast);
+      if (systemInfo.location) formData.append('location', systemInfo.location); // ✅ fixed
       if (systemInfo.network) formData.append('network', systemInfo.network);
 
       const assistantId = messageRelationshipMapRef.current.get(optimisticId);
@@ -201,7 +199,6 @@ export const useMessageSubmission = ({
             onDone: (finalAssistantMessage) => {
               if (!assistantId) return;
 
-              // Keep optimistic id stable
               mostRecentAssistantMessageIdRef.current = assistantId;
 
               setChatMessages((prev) =>
