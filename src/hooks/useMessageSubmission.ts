@@ -78,8 +78,8 @@ export const useMessageSubmission = ({
             att.file.type === 'application/pdf'
               ? 'pdf'
               : att.type === 'image'
-                ? 'image'
-                : att.file.type.split('/')[1] || 'file',
+              ? 'image'
+              : att.file.type.split('/')[1] || 'file',
           url: att.previewUrl || '',
           size: att.file.size,
           file: att.file,
@@ -163,14 +163,14 @@ export const useMessageSubmission = ({
       try {
         const shouldStream = attachments.length === 0 && !isSearchActive;
 
-        if (shouldStream && assistantId) {
-          // Streaming path
+        if (shouldStream) {
           let fullAssistantText = '';
 
           await chatService.streamMessage({
             message: trimmedMessage,
             onDelta: (delta) => {
               fullAssistantText += delta;
+              if (!assistantId) return;
 
               setChatMessages((prev) =>
                 prev.map((msg) =>
@@ -185,12 +185,14 @@ export const useMessageSubmission = ({
                 ),
               );
 
-              // IMPORTANT: do NOT auto-scroll on every delta.
-              // This prevents the viewport from jumping to the end of the response.
+              // scrollToBottom is now smart on the caller side
+              scrollToBottom(true);
             },
             onDone: (finalAssistantMessage) => {
-              // Keep the optimistic assistant id and timestamp stable.
-              // Only finalize content and flags.
+              if (!assistantId) return;
+
+              // IMPORTANT: do NOT replace message_id.
+              // Keeping the optimistic id avoids React remount and scroll jumps.
               mostRecentAssistantMessageIdRef.current = assistantId;
 
               setChatMessages((prev) =>
@@ -199,16 +201,13 @@ export const useMessageSubmission = ({
                     ? {
                         ...msg,
                         content: finalAssistantMessage.content || fullAssistantText,
+                        timestamp: finalAssistantMessage.timestamp || createLocalTimestamp(),
                         failed: false,
                         try_number: tryNumber,
-                        finish_reason: 'stop',
                       }
                     : msg,
                 ),
               );
-
-              // Scroll once after completion, gentle.
-              setTimeout(() => scrollToBottom(true), 80);
             },
             onError: (err) => {
               throw err;
@@ -218,7 +217,7 @@ export const useMessageSubmission = ({
           return;
         }
 
-        // Non streaming fallback (attachments or search)
+        // Non-streaming fallback (attachments or search)
         const result = await chatService.sendMessage(formData);
         const rawData = result.data as ChatSendResponseData;
 
@@ -239,7 +238,6 @@ export const useMessageSubmission = ({
                     timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
-                    finish_reason: 'stop',
                   }
                 : msg,
             ),
