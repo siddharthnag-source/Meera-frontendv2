@@ -274,7 +274,7 @@ export const chatService = {
     message: string;
     onDelta: (delta: string) => void;
     onDone?: (finalAssistantMessage: ChatMessageFromServer) => void;
-    onError?: (err: any) => void;
+    onError?: (err: unknown) => void;
     signal?: AbortSignal;
   }): Promise<void> {
     try {
