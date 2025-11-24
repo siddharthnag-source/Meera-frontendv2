@@ -136,9 +136,6 @@ export const Conversation: React.FC = () => {
   const justSentMessageRef = useRef(false);
   const spacerRef = useRef<HTMLDivElement>(null);
 
-  // NEW: track if user is at bottom, used to avoid jump during streaming
-  const userAtBottomRef = useRef<boolean>(true);
-
   // New refs for height calculation
   const headerRef = useRef<HTMLElement>(null);
   const footerRef = useRef<HTMLElement>(null);
@@ -281,10 +278,9 @@ export const Conversation: React.FC = () => {
 
   const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
-  // IMPORTANT: enable send instantly using inputValue (not debounced message)
   const canSubmit = useMemo(
-    () => (inputValue.trim() || currentAttachments.length > 0) && !isSending,
-    [inputValue, currentAttachments.length, isSending],
+    () => (message.trim() || currentAttachments.length > 0) && !isSending,
+    [message, currentAttachments.length, isSending],
   );
 
   // Optimized scroll to bottom with RAF
@@ -484,12 +480,9 @@ export const Conversation: React.FC = () => {
               (error as { code?: string }).code === 'NETWORK_ERROR') ||
               !navigator.onLine)
           ) {
-            setTimeout(
-              () => {
-                loadChatHistory(page, isInitial, retryCount + 1);
-              },
-              1000 * (retryCount + 1),
-            );
+            setTimeout(() => {
+              loadChatHistory(page, isInitial, retryCount + 1);
+            }, 1000 * (retryCount + 1));
             return;
           }
 
@@ -549,8 +542,8 @@ export const Conversation: React.FC = () => {
         currentScrollTop > lastScrollTopRef.current
           ? 'down'
           : currentScrollTop < lastScrollTopRef.current
-          ? 'up'
-          : 'still';
+            ? 'up'
+            : 'still';
       lastScrollTopRef.current = currentScrollTop;
 
       if (scrollTimeoutRef2.current) {
@@ -558,10 +551,6 @@ export const Conversation: React.FC = () => {
       }
 
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-
-      // NEW: update bottom tracking for streaming
-      userAtBottomRef.current = distanceFromBottom < 80;
-
       const isScrollingUpDirection = direction === 'up';
       const isNotAtBottom = distanceFromBottom > 100;
 
@@ -696,7 +685,6 @@ export const Conversation: React.FC = () => {
       setIsAssistantTyping,
       clearAllInput,
       scrollToBottom,
-      userAtBottomRef, // NEW
       onMessageSent: () => {
         setTimeout(() => {
           calculateMinHeight();
@@ -831,9 +819,7 @@ export const Conversation: React.FC = () => {
           <button
             onClick={() => setShowUserProfile(true)}
             className={`flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
-              sessionStatus === 'authenticated' && sessionData?.user?.image
-                ? ''
-                : 'p-2'
+              sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
             }`}
           >
             <FiMenu size={20} className="text-primary" />
@@ -879,9 +865,7 @@ export const Conversation: React.FC = () => {
 
           {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
             <div className="flex justify-center items-center h-[calc(100vh-10rem)]">
-              <p className="text-primary/70">
-                No messages yet. Start the conversation!
-              </p>
+              <p className="text-primary/70">No messages yet. Start the conversation!</p>
             </div>
           )}
 
@@ -912,7 +896,10 @@ export const Conversation: React.FC = () => {
                       {messages.map((item) => {
                         if (item.type === 'call_session') {
                           return (
-                            <MemoizedCallSessionItem key={item.id} messages={item.messages} />
+                            <MemoizedCallSessionItem
+                              key={item.id}
+                              messages={item.messages}
+                            />
                           );
                         }
 
@@ -923,17 +910,19 @@ export const Conversation: React.FC = () => {
                           msg.message_id === lastMessage?.message_id &&
                           msg.finish_reason == null;
 
-                        const isLastFailedMessage =
-                          msg.message_id === lastFailedMessageId;
+                        const isLastFailedMessage = msg.message_id === lastFailedMessageId;
 
                         const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
                         const effectiveThoughtText =
                           currentThoughtText || storedThoughts || undefined;
 
+                        // Changed logic:
+                        // show typing only while assistant bubble is still empty
                         const shouldShowTypingIndicator =
                           msg.content_type === 'assistant' &&
                           msg.message_id === lastMessage?.message_id &&
-                          (isAssistantTyping || !!currentThoughtText);
+                          isAssistantTyping &&
+                          (!msg.content || msg.content.trim().length === 0);
 
                         const isLatestUserMessage =
                           msg.content_type === 'user' &&
@@ -979,10 +968,7 @@ export const Conversation: React.FC = () => {
         </div>
       </main>
 
-      <footer
-        ref={footerRef}
-        className="w-full z-40 p-2 md:pr-[13px] bg-transparent"
-      >
+      <footer ref={footerRef} className="w-full z-40 p-2 md:pr-[13px] bg-transparent">
         <div className="relative">
           <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
             {!isSubscriptionLoading &&
@@ -1015,9 +1001,7 @@ export const Conversation: React.FC = () => {
                   </span>
                   <span
                     className="text-primary font-medium cursor-pointer underline"
-                    onClick={() =>
-                      openModal('5000_tokens_left_toast_clicked', true)
-                    }
+                    onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
                   >
                     Add more
                   </span>
@@ -1038,10 +1022,7 @@ export const Conversation: React.FC = () => {
             </div>
           </div>
 
-          <form
-            onSubmit={handleSubmit}
-            className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]"
-          >
+          <form onSubmit={handleSubmit} className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]">
             <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200 transform-gpu will-change-transform">
               {currentAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 px-4 pt-2.5 pb-1">
