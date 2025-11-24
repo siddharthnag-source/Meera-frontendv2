@@ -1,11 +1,12 @@
-import axios, { AxiosError } from 'axios';
-import { jwtDecode } from 'jwt-decode';
 import NextAuth, { type AuthOptions } from 'next-auth';
 import type { JWT } from 'next-auth/jwt';
 import GoogleProvider from 'next-auth/providers/google';
-import { cookies } from 'next/headers';
-
+import axios from 'axios';
+import { jwtDecode } from 'jwt-decode';
 import { sendAuthErrorToSlack, sendSuccessToSlack } from '@/lib/slackService';
+
+// Force Node runtime (avoids edge-cookie / axios issues)
+export const runtime = 'nodejs';
 
 declare module 'next-auth/jwt' {
   interface JWT {
@@ -36,8 +37,8 @@ interface SignupResponse {
 const authOptions: AuthOptions = {
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      clientId: process.env.GOOGLE_CLIENT_ID ?? '',
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
       authorization: {
         params: {
           prompt: 'select_account',
@@ -47,23 +48,26 @@ const authOptions: AuthOptions = {
       },
     }),
   ],
+
   secret: process.env.NEXTAUTH_SECRET,
   session: {
     strategy: 'jwt',
     maxAge: 30 * 24 * 60 * 60,
   },
+
   pages: {
     signIn: '/sign-in',
     error: '/sign-in',
   },
+
   callbacks: {
     async redirect({ url, baseUrl }) {
       if (url.startsWith('/')) return `${baseUrl}${url}`;
       try {
-        const urlObj = new URL(url);
-        if (urlObj.origin === baseUrl) return url;
+        const u = new URL(url);
+        if (u.origin === baseUrl) return url;
       } catch {
-        return baseUrl;
+        // ignore
       }
       return baseUrl;
     },
@@ -73,24 +77,23 @@ const authOptions: AuthOptions = {
     },
 
     async jwt({ token, account, user }) {
-      if (user && account?.id_token) {
-        let referralId: string | null = null;
-        let guestToken: string | null = null;
-
-        try {
-          const cookieStore = await cookies();
-          referralId = cookieStore.get('referral_id')?.value ?? null;
-          guestToken = cookieStore.get('guest_token')?.value ?? null;
-        } catch (err) {
-          console.error('Error reading cookies:', err);
-        }
-
-        return exchangeGoogleToken(account.id_token, token, referralId, guestToken);
+      // First login with Google
+      if (account?.id_token && user) {
+        return await exchangeGoogleToken(account.id_token, token);
       }
 
-      if (token.access_token && token.access_token_expires_at) {
-        if (Date.now() < token.access_token_expires_at) return token;
-        return refreshAccessToken(token);
+      // Token still valid
+      if (
+        token.access_token &&
+        token.access_token_expires_at &&
+        Date.now() < token.access_token_expires_at
+      ) {
+        return token;
+      }
+
+      // Refresh if possible
+      if (token.refresh_token) {
+        return await refreshAccessToken(token);
       }
 
       return token;
@@ -103,27 +106,22 @@ const authOptions: AuthOptions = {
       return session;
     },
   },
+
+  debug: process.env.NODE_ENV === 'development',
 };
 
-async function exchangeGoogleToken(
-  googleToken: string,
-  token: JWT,
-  referralId?: string | null,
-  guestToken?: string | null,
-): Promise<JWT> {
+async function exchangeGoogleToken(googleToken: string, token: JWT): Promise<JWT> {
   try {
-    const payload: Record<string, string> = { google_token: googleToken };
-    if (referralId) payload.referral_id = referralId;
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (guestToken) headers.Authorization = `Bearer ${guestToken}`;
+    const base = process.env.NEXT_PUBLIC_BACKEND_URL;
+    if (!base) throw new Error('NEXT_PUBLIC_BACKEND_URL is missing');
 
     const response = await axios.post<SignupResponse>(
-      `${process.env.NEXT_PUBLIC_BACKEND_URL}/user/signup`,
-      payload,
-      { timeout: 10000, headers },
+      `${base}/user/signup`,
+      { google_token: googleToken },
+      {
+        timeout: 10000,
+        headers: { 'Content-Type': 'application/json' },
+      }
     );
 
     const { access_token, refresh_token } = response.data;
@@ -137,15 +135,8 @@ async function exchangeGoogleToken(
       error: undefined,
     };
   } catch (err: unknown) {
-    const axErr = err as AxiosError;
-    console.error('Error exchanging Google token:', axErr);
-
-    sendAuthErrorToSlack({
-      message: 'Error exchanging Google token',
-      errorResponse: axErr.message,
-      guestToken,
-    });
-
+    console.error('Error exchanging Google token:', err);
+    safeSlackAuthError('Error exchanging Google token', err);
     return { ...token, error: 'TokenExchangeError' };
   }
 }
@@ -154,8 +145,11 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
     if (!token.refresh_token) throw new Error('No refresh token available');
 
+    const base = process.env.NEXT_PUBLIC_BACKEND_URL;
+    if (!base) throw new Error('NEXT_PUBLIC_BACKEND_URL is missing');
+
     const response = await axios.post(
-      `${process.env.NEXT_PUBLIC_BACKEND_URL}/user/refresh-token`,
+      `${base}/user/refresh-token`,
       {},
       {
         timeout: 10000,
@@ -163,7 +157,7 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token.refresh_token}`,
         },
-      },
+      }
     );
 
     const { access_token, refresh_token } = response.data as SignupResponse;
@@ -177,15 +171,8 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
       error: undefined,
     };
   } catch (err: unknown) {
-    const axErr = err as AxiosError;
-    console.error('Error refreshing access token:', axErr);
-
-    sendSuccessToSlack({
-      message: 'Error refreshing access token (refresh token expired)',
-      endpoint: '/user/refresh-token',
-      successResponse: axErr.message,
-    });
-
+    console.error('Error refreshing access token:', err);
+    safeSlackSuccess('Error refreshing access token', err);
     return {
       ...token,
       error: 'RefreshTokenError',
@@ -204,6 +191,43 @@ function getTokenExpiry(token: string): number | undefined {
     console.error('Error decoding JWT token:', err);
     return undefined;
   }
+}
+
+function safeSlackAuthError(message: string, err: unknown) {
+  try {
+    sendAuthErrorToSlack({
+      message,
+      errorResponse: serializeError(err),
+    });
+  } catch (e) {
+    console.error('Slack error logging failed:', e);
+  }
+}
+
+function safeSlackSuccess(message: string, err: unknown) {
+  try {
+    sendSuccessToSlack({
+      message,
+      endpoint: '/user/refresh-token',
+      successResponse: serializeError(err),
+    });
+  } catch (e) {
+    console.error('Slack success logging failed:', e);
+  }
+}
+
+function serializeError(err: unknown): Record<string, unknown> {
+  if (axios.isAxiosError(err)) {
+    return {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data,
+    };
+  }
+  if (err instanceof Error) {
+    return { message: err.message, stack: err.stack };
+  }
+  return { err };
 }
 
 const handler = NextAuth(authOptions);
