@@ -20,11 +20,10 @@ interface UseMessageSubmissionProps {
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
   setIsAssistantTyping: (isTyping: boolean) => void;
   clearAllInput: () => void;
-  scrollToBottom: (smooth?: boolean) => void;
+  scrollToBottom: (smooth?: boolean) => void; // kept for compatibility, not used
   onMessageSent?: () => void;
 }
 
-// Shape of the API response we care about
 interface ChatSendResponseData {
   response: string;
   thoughts?: string;
@@ -45,7 +44,6 @@ export const useMessageSubmission = ({
   setChatMessages,
   setIsAssistantTyping,
   clearAllInput,
-  scrollToBottom,
   onMessageSent,
 }: UseMessageSubmissionProps) => {
   const { showToast } = useToast();
@@ -78,8 +76,8 @@ export const useMessageSubmission = ({
             att.file.type === 'application/pdf'
               ? 'pdf'
               : att.type === 'image'
-              ? 'image'
-              : att.file.type.split('/')[1] || 'file',
+                ? 'image'
+                : att.file.type.split('/')[1] || 'file',
           url: att.previewUrl || '',
           size: att.file.size,
           file: att.file,
@@ -110,7 +108,6 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // If not a retry, create user + empty assistant messages
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
 
@@ -123,6 +120,7 @@ export const useMessageSubmission = ({
           attachments: [],
           try_number: tryNumber,
           failed: false,
+          finish_reason: null,
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
@@ -132,9 +130,7 @@ export const useMessageSubmission = ({
 
         clearAllInput();
         onMessageSent?.();
-        setTimeout(() => scrollToBottom(true), 300);
       } else {
-        // Retry: clear failed state
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
@@ -184,15 +180,11 @@ export const useMessageSubmission = ({
                     : msg,
                 ),
               );
-
-              // scrollToBottom is now smart on the caller side
-              scrollToBottom(true);
             },
             onDone: (finalAssistantMessage) => {
               if (!assistantId) return;
 
-              // IMPORTANT: do NOT replace message_id.
-              // Keeping the optimistic id avoids React remount and scroll jumps.
+              // DO NOT change key or timestamp. Only finalize content.
               mostRecentAssistantMessageIdRef.current = assistantId;
 
               setChatMessages((prev) =>
@@ -201,9 +193,9 @@ export const useMessageSubmission = ({
                     ? {
                         ...msg,
                         content: finalAssistantMessage.content || fullAssistantText,
-                        timestamp: finalAssistantMessage.timestamp || createLocalTimestamp(),
                         failed: false,
                         try_number: tryNumber,
+                        server_message_id: finalAssistantMessage.message_id,
                       }
                     : msg,
                 ),
@@ -217,25 +209,23 @@ export const useMessageSubmission = ({
           return;
         }
 
-        // Non-streaming fallback (attachments or search)
+        // Non-streaming fallback
         const result = await chatService.sendMessage(formData);
         const rawData = result.data as ChatSendResponseData;
 
         const assistantText = rawData.response;
         const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
 
-        if (thoughts) {
-          setCurrentThoughtText(thoughts);
-        }
+        if (thoughts) setCurrentThoughtText(thoughts);
 
         if (assistantId) {
+          // DO NOT touch timestamp, to avoid resort jumps.
           setChatMessages((prev) =>
             prev.map((msg) =>
               msg.message_id === assistantId
                 ? {
                     ...msg,
                     content: assistantText,
-                    timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
                   }
@@ -264,15 +254,9 @@ export const useMessageSubmission = ({
 
           setChatMessages((prev) =>
             prev.map((msg) => {
-              if (msg.message_id === optimisticId) {
-                return { ...msg, failed: true };
-              }
+              if (msg.message_id === optimisticId) return { ...msg, failed: true };
               if (assistantId && msg.message_id === assistantId) {
-                return {
-                  ...msg,
-                  failed: true,
-                  failedMessage: 'Failed to respond, try again',
-                };
+                return { ...msg, failed: true, failedMessage: 'Failed to respond, try again' };
               }
               return msg;
             }),
@@ -284,7 +268,7 @@ export const useMessageSubmission = ({
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
-          setTimeout(() => scrollToBottom(true), 150);
+          // no auto-scroll
         }
       }
     },
@@ -294,7 +278,6 @@ export const useMessageSubmission = ({
       createOptimisticMessage,
       setChatMessages,
       clearAllInput,
-      scrollToBottom,
       setIsSending,
       setJustSentMessage,
       setCurrentThoughtText,
