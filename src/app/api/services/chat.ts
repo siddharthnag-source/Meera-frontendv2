@@ -53,10 +53,6 @@ type LLMHistoryMessage = {
 const CONTEXT_WINDOW = 20;
 
 export const chatService = {
-  /**
-   * Load chat history directly from Supabase for the logged-in user.
-   * Fetches newest messages first, then reverses each page so UI sees oldest → newest.
-   */
   async getChatHistory(
     page: number = 1,
   ): Promise<{ message: string; data: ChatMessageFromServer[] }> {
@@ -112,11 +108,6 @@ export const chatService = {
     }
   },
 
-  /**
-   * Non-streaming sendMessage.
-   * Calls Supabase Edge Function and persists both user and assistant messages.
-   * Includes conversation history for continuity.
-   */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
 
@@ -191,7 +182,7 @@ export const chatService = {
         );
       }
 
-      const body = (await response.json()) as { reply: string; model?: string };
+      const body = (await response.json()) as { reply: string; thoughts?: string; model?: string };
 
       const nowIso = new Date().toISOString();
 
@@ -247,23 +238,25 @@ export const chatService = {
             finish_reason: null,
           };
 
-      return {
+      // Return only the fields your ChatMessageResponse type allows
+      const chatResponse: ChatMessageResponse = {
         message: 'ok',
         data: {
           response: body.reply,
-          message: assistantMessage,
+          thoughts: body.thoughts ?? '',
         },
       };
+
+      // assistantMessage is still saved to DB and used by UI optimistically
+      void assistantMessage;
+
+      return chatResponse;
     } catch (err) {
       console.error('Error in sendMessage:', err);
       throw err;
     }
   },
 
-  /**
-   * Streaming version.
-   * Call this from a client-side hook or component only.
-   */
   async streamMessage({
     message,
     onDelta,
@@ -322,7 +315,6 @@ export const chatService = {
 
       historyForModel.push({ role: 'user', content: message });
 
-      // Save user message immediately
       const { error: userInsertError } = await supabase.from('messages').insert([
         {
           user_id: userId,
