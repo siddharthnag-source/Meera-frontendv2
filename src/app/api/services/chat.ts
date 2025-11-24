@@ -1,4 +1,3 @@
-// src/app/api/services/chat.ts
 import {
   ChatMessageFromServer,
   ChatMessageResponse,
@@ -53,30 +52,10 @@ type LLMHistoryMessage = {
 
 const CONTEXT_WINDOW = 20;
 
-/**
- * Local typing for streamMeera so we can extend with google_search
- * without using any.
- */
-type StreamMeeraArgs = {
-  supabaseUrl: string;
-  supabaseAnonKey: string;
-  messages: LLMHistoryMessage[];
-  google_search?: boolean;
-  onAnswerDelta: (delta: string) => void;
-  onDone: () => void | Promise<void>;
-  onError?: (err: unknown) => void;
-  signal?: AbortSignal;
-};
-
-// Re-type streamMeera safely without any
-const streamMeeraWithSearch = streamMeera as unknown as (
-  args: StreamMeeraArgs
-) => Promise<void>;
-
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
-   * Fetches newest messages first, then reverses each page so UI sees oldest to newest.
+   * Fetches newest messages first, then reverses each page so UI sees oldest → newest.
    */
   async getChatHistory(
     page: number = 1,
@@ -136,10 +115,10 @@ export const chatService = {
   /**
    * Non-streaming sendMessage.
    * Calls Supabase Edge Function and persists both user and assistant messages.
+   * Includes conversation history for continuity.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
-    const google_search = formData.get('google_search') === 'true';
 
     try {
       const {
@@ -196,8 +175,7 @@ export const chatService = {
           message,
           messages: historyForModel,
           userId,
-          google_search,
-          stream: false,
+          google_search: formData.get('google_search') === 'true',
         }),
       });
 
@@ -276,7 +254,9 @@ export const chatService = {
 
       const chatResponse: ChatMessageResponse = {
         message: 'ok',
-        data: { response: body.reply },
+        data: {
+          response: body.reply,
+        },
       };
 
       void assistantMessage;
@@ -288,11 +268,13 @@ export const chatService = {
   },
 
   /**
-   * Streaming send. Works for normal chat and search.
+   * Streaming version.
+   * Call this from a client-side hook or component only.
+   * Supports google_search flag for streaming too.
    */
   async streamMessage({
     message,
-    google_search = false,
+    google_search,
     onDelta,
     onDone,
     onError,
@@ -367,12 +349,12 @@ export const chatService = {
 
       let assistantText = '';
 
-      await streamMeeraWithSearch({
+      await streamMeera({
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
         messages: historyForModel,
-        google_search,
-        onAnswerDelta: (delta) => {
+        google_search: !!google_search,
+        onAnswerDelta: (delta: string) => {
           assistantText += delta;
           onDelta(delta);
         },
@@ -423,7 +405,7 @@ export const chatService = {
 
           onDone?.(assistantMessage);
         },
-        onError: (err) => {
+        onError: (err: unknown) => {
           onError?.(err);
         },
         signal,
