@@ -360,4 +360,65 @@ export const chatService = {
           onDelta(delta);
         },
         onDone: async () => {
-          const assistantNowIso = new D
+          const assistantNowIso = new Date().toISOString();
+
+          const { data: insertedRows, error: assistantInsertError } = await supabase
+            .from('messages')
+            .insert([
+              {
+                user_id: userId,
+                content_type: 'assistant',
+                content: assistantText,
+                timestamp: assistantNowIso,
+                is_call: false,
+                model: null,
+              },
+            ])
+            .select('message_id, content_type, content, timestamp, model');
+
+          if (assistantInsertError) {
+            console.error('streamMessage: failed to save assistant message', assistantInsertError);
+          }
+
+          const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
+
+          const assistantMessage: ChatMessageFromServer = dbAssistantRow
+            ? {
+                message_id: dbAssistantRow.message_id,
+                content_type: 'assistant',
+                content: dbAssistantRow.content,
+                timestamp: dbAssistantRow.timestamp,
+                attachments: [],
+                is_call: false,
+                failed: false,
+                finish_reason: null,
+              }
+            : {
+                message_id: crypto.randomUUID(),
+                content_type: 'assistant',
+                content: assistantText,
+                timestamp: assistantNowIso,
+                attachments: [],
+                is_call: false,
+                failed: false,
+                finish_reason: null,
+              };
+
+          onDone?.(assistantMessage);
+        },
+        onError: (err: unknown) => {
+          onError?.(err);
+        },
+        signal,
+      });
+    } catch (err) {
+      console.error('Error in streamMessage:', err);
+      onError?.(err);
+      throw err;
+    }
+  },
+};
+
+export const saveInteraction = (payload: SaveInteractionPayload) => {
+  return api.post(API_ENDPOINTS.CALL.SAVE_INTERACTION, payload);
+};
