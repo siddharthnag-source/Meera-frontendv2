@@ -272,6 +272,10 @@ export const chatService = {
    * Call this from a client-side hook or component only.
    * Supports google_search flag for streaming too.
    */
+  /**
+   * Streaming version.
+   * Call this from a client-side hook or component only.
+   */
   async streamMessage({
     message,
     google_search,
