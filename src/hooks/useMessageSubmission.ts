@@ -137,9 +137,7 @@ export const useMessageSubmission = ({
         // Retry: clear failed state
         setChatMessages((prev) =>
           prev.map((msg) =>
-            msg.message_id === optimisticId
-              ? { ...msg, failed: false, try_number: tryNumber }
-              : msg,
+            msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
           ),
         );
       }
@@ -194,17 +192,19 @@ export const useMessageSubmission = ({
             onDone: (finalAssistantMessage) => {
               if (!assistantId) return;
 
-              // Keep optimistic assistant id so React key stays stable
-              mostRecentAssistantMessageIdRef.current = assistantId;
+              mostRecentAssistantMessageIdRef.current = finalAssistantMessage.message_id;
 
+              // IMPORTANT FIX:
+              // Do NOT overwrite timestamp here. Keep optimistic timestamp to avoid re-sorting jump.
+              // Only swap ID and content.
               setChatMessages((prev) =>
                 prev.map((msg) =>
                   msg.message_id === assistantId
                     ? {
                         ...msg,
+                        message_id: finalAssistantMessage.message_id,
                         content: finalAssistantMessage.content || fullAssistantText,
-                        timestamp:
-                          finalAssistantMessage.timestamp || createLocalTimestamp(),
+                        // keep msg.timestamp as-is
                         failed: false,
                         try_number: tryNumber,
                       }
@@ -263,10 +263,7 @@ export const useMessageSubmission = ({
             ),
           );
         } else {
-          showToast('Failed to respond, try again', {
-            type: 'error',
-            position: 'conversation',
-          });
+          showToast('Failed to respond, try again', { type: 'error', position: 'conversation' });
 
           setChatMessages((prev) =>
             prev.map((msg) => {
@@ -308,7 +305,6 @@ export const useMessageSubmission = ({
       setIsAssistantTyping,
       showToast,
       onMessageSent,
-      chatMessages,
     ],
   );
 
@@ -334,13 +330,7 @@ export const useMessageSubmission = ({
         });
 
       if (messageContent || retryAttachments.length > 0) {
-        executeSubmission(
-          messageContent,
-          retryAttachments,
-          nextTryNumber,
-          failedMessageId,
-          true,
-        );
+        executeSubmission(messageContent, retryAttachments, nextTryNumber, failedMessageId, true);
       }
     },
     [executeSubmission],
