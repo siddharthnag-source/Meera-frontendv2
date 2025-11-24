@@ -158,21 +158,72 @@ export const useMessageSubmission = ({
       if (systemInfo.location) formData.append('location', systemInfo.location);
       if (systemInfo.network) formData.append('network', systemInfo.network);
 
-      try {
-        const result = await chatService.sendMessage(formData);
+      const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
-        // Cast once with a typed interface instead of `any`
+      try {
+        const shouldStream = attachments.length === 0 && !isSearchActive;
+
+        if (shouldStream) {
+          // Streaming path
+          let fullAssistantText = '';
+
+          await chatService.streamMessage({
+            message: trimmedMessage,
+            onDelta: (delta) => {
+              fullAssistantText += delta;
+
+              if (!assistantId) return;
+
+              setChatMessages((prev) =>
+                prev.map((msg) =>
+                  msg.message_id === assistantId
+                    ? {
+                        ...msg,
+                        content: (msg.content || '') + delta,
+                        failed: false,
+                        try_number: tryNumber,
+                      }
+                    : msg,
+                ),
+              );
+
+              scrollToBottom(true);
+            },
+            onDone: (finalAssistantMessage) => {
+              if (!assistantId) return;
+
+              mostRecentAssistantMessageIdRef.current = finalAssistantMessage.message_id;
+
+              setChatMessages((prev) =>
+                prev.map((msg) =>
+                  msg.message_id === assistantId
+                    ? {
+                        ...msg,
+                        message_id: finalAssistantMessage.message_id,
+                        content: finalAssistantMessage.content || fullAssistantText,
+                        timestamp: finalAssistantMessage.timestamp || createLocalTimestamp(),
+                        failed: false,
+                        try_number: tryNumber,
+                      }
+                    : msg,
+                ),
+              );
+            },
+            onError: (err) => {
+              throw err;
+            },
+          });
+
+          return;
+        }
+
+        // Non streaming fallback (attachments or search)
+        const result = await chatService.sendMessage(formData);
         const rawData = result.data as ChatSendResponseData;
 
-        // Final answer from backend - already working
         const assistantText = rawData.response;
-
-        // Thinking text from backend (Gemini thoughts)
         const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
 
-        const assistantId = messageRelationshipMapRef.current.get(optimisticId);
-
-        // Store thinking text so the UI can show it after "Orchestrating"
         if (thoughts) {
           setCurrentThoughtText(thoughts);
         }
@@ -211,8 +262,6 @@ export const useMessageSubmission = ({
         } else {
           showToast('Failed to respond, try again', { type: 'error', position: 'conversation' });
 
-          const assistantId = messageRelationshipMapRef.current.get(optimisticId);
-
           setChatMessages((prev) =>
             prev.map((msg) => {
               if (msg.message_id === optimisticId) {
@@ -232,7 +281,6 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-        // keep thoughts visible; they will be cleared at the start of next submission
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
