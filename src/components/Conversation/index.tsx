@@ -284,18 +284,25 @@ export const Conversation: React.FC = () => {
   );
 
   // Optimized scroll to bottom with RAF
-  const scrollToBottom = useCallback((smooth: boolean = true) => {
-    if (mainScrollRef.current) {
-      requestAnimationFrame(() => {
-        if (mainScrollRef.current) {
-          mainScrollRef.current.scrollTo({
-            top: mainScrollRef.current.scrollHeight,
-            behavior: smooth ? 'smooth' : 'instant',
-          });
-        }
-      });
-    }
-  }, []);
+ const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
+  const el = mainScrollRef.current;
+  if (!el) return;
+
+  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+  const isNearBottom = distanceFromBottom <= 120;
+
+  if (!force && !isNearBottom) {
+    return; // user is reading above, do not yank them down
+  }
+
+  requestAnimationFrame(() => {
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto',
+    });
+  });
+}, []);
+
 
   /**
    * LEGACY MEERA REVIVE
