@@ -1,3 +1,23 @@
+type LLMHistoryMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+type GeminiPart = {
+  text?: string;
+  thought?: boolean;
+};
+
+type GeminiCandidate = {
+  content?: {
+    parts?: GeminiPart[];
+  };
+};
+
+type GeminiSseChunk = {
+  candidates?: GeminiCandidate[];
+};
+
 export async function streamMeera({
   supabaseUrl,
   supabaseAnonKey,
@@ -9,17 +29,17 @@ export async function streamMeera({
 }: {
   supabaseUrl: string;
   supabaseAnonKey: string;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: LLMHistoryMessage[];
   onAnswerDelta: (t: string) => void;
   onDone?: () => void;
-  onError?: (e: any) => void;
+  onError?: (e: unknown) => void;
   signal?: AbortSignal;
 }) {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/chat`, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
         apikey: supabaseAnonKey,
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
@@ -31,9 +51,9 @@ export async function streamMeera({
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = "";
+    let buffer = '';
 
-    let lastAnswer = "";
+    let lastAnswer = '';
 
     while (true) {
       const { value, done } = await reader.read();
@@ -41,21 +61,21 @@ export async function streamMeera({
 
       buffer += decoder.decode(value, { stream: true });
 
-      const events = buffer.split("\n\n");
-      buffer = events.pop() || "";
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || '';
 
       for (const evt of events) {
-        const dataLine = evt.split("\n").find(l => l.startsWith("data:"));
+        const dataLine = evt.split('\n').find((l) => l.startsWith('data:'));
         if (!dataLine) continue;
 
-        const dataStr = dataLine.replace("data:", "").trim();
+        const dataStr = dataLine.replace('data:', '').trim();
         if (!dataStr) continue;
 
-        const json = JSON.parse(dataStr);
+        const json = JSON.parse(dataStr) as GeminiSseChunk;
         const parts = json?.candidates?.[0]?.content?.parts ?? [];
 
         for (const p of parts) {
-          const text = p?.text ?? "";
+          const text = p?.text ?? '';
           if (!text) continue;
 
           if (p?.thought) continue;
@@ -63,15 +83,15 @@ export async function streamMeera({
           const delta = text.startsWith(lastAnswer)
             ? text.slice(lastAnswer.length)
             : text;
-          lastAnswer = text;
 
+          lastAnswer = text;
           onAnswerDelta(delta);
         }
       }
     }
 
     onDone?.();
-  } catch (e) {
+  } catch (e: unknown) {
     onError?.(e);
   }
 }
