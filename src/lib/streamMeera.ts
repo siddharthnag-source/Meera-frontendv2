@@ -61,8 +61,8 @@ export async function streamMeera({
 
       buffer += decoder.decode(value, { stream: true });
 
-      const events = buffer.split('\n\n');
-      buffer = events.pop() || '';
+      const events = buffer.split(/\r?\n\r?\n/);
+buffer = events.pop() || '';
 
       for (const evt of events) {
         const dataLine = evt.split('\n').find((l) => l.startsWith('data:'));
