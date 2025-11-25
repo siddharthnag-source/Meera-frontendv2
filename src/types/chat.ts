@@ -70,7 +70,14 @@ export type ChatAttachmentInputState = {
   file: File;
   previewUrl?: string;
   type: 'image' | 'document';
-  storagePath?: string; // bucket + object path for Supabase Storage
+  /**
+   * Path of the file inside Supabase Storage bucket (e.g. "17113723-abc.pdf")
+   */
+  storagePath?: string;
+  /**
+   * Public URL returned by Supabase, used to show / send to Gemini
+   */
+  publicUrl?: string;
 };
 
 export interface SaveInteractionPayload {
