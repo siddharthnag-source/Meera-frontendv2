@@ -279,18 +279,53 @@ export const AttachmentInputArea = forwardRef<
     }, []);
 
     // Expose helpers to parent via ref
-    useImperativeHandle(ref, () => ({
-      clear: internalClearAttachments,
-      removeAttachment,
-      processPastedFiles: (files: File[]) => {
-        const fileList = {
-          length: files.length,
-          item: (i: number) => files[i] ?? null,
-          ...files,
-        } as unknown as FileList;
-        void processFiles(fileList);
-      },
-    }));
+useImperativeHandle(ref, () => ({
+  clear: internalClearAttachments,
+  removeAttachment,
+  processPastedFiles: (files: File[]) => {
+    if (!files || files.length === 0) return;
+
+    const allowedSlots = maxAttachments - attachments.length;
+    if (allowedSlots <= 0) {
+      showToast(`You can select a maximum of ${maxAttachments} files.`, {
+        type: 'error',
+        position: 'conversation',
+      });
+      return;
+    }
+
+    const limitedFiles = files.slice(0, allowedSlots);
+    const newAttachments: ChatAttachmentInputState[] = [];
+    let invalidCount = 0;
+
+    for (const file of limitedFiles) {
+      if (!isValidFileType(file)) {
+        invalidCount++;
+        continue;
+      }
+
+      newAttachments.push({
+        file,
+        previewUrl: URL.createObjectURL(file),
+        type: file.type === 'application/pdf' ? 'document' : 'image',
+      });
+    }
+
+    if (newAttachments.length > 0) {
+      const updated = [...attachments, ...newAttachments];
+      setAttachments(updated);
+      onAttachmentsChange(updated);
+    }
+
+    if (invalidCount > 0) {
+      showToast('Error uploading file. Only PDF and images are supported.', {
+        type: 'error',
+        position: 'conversation',
+      });
+    }
+  },
+}));
+
 
     return (
       <div className="relative w-full">
