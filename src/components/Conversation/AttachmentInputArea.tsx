@@ -15,25 +15,63 @@ import { CgAttachment } from 'react-icons/cg';
 import { AttachmentMenuComponent } from './AttachmentMenu';
 
 const MAX_ATTACHMENTS_DEFAULT = 10;
-
-// Public bucket name for Supabase Storage
 const STORAGE_BUCKET =
   process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET || 'attachments';
 
 interface AttachmentInputAreaProps {
   maxAttachments?: number;
   onAttachmentsChange: (attachments: ChatAttachmentInputState[]) => void;
-  onClearRequest?: () => void;
-  messageValue: string;
+  messageValue: string; // for resetInputHeightState logic
   resetInputHeightState: () => void;
   children: React.ReactNode;
   existingAttachments?: ChatAttachmentInputState[];
 }
 
+// Imperative API used by Conversation
 export interface AttachmentInputAreaRef {
   clear: () => void;
   removeAttachment: (index: number) => void;
   processPastedFiles: (files: File[]) => void;
+}
+
+// Helper: make a unique path for Supabase Storage
+const buildStoragePath = (file: File) => {
+  const ext = file.name.split('.').pop() || 'bin';
+  const rand = Math.random().toString(36).slice(2);
+  return `${Date.now()}-${rand}.${ext}`;
+};
+
+// Helper: upload a single file to Supabase Storage
+async function uploadFileToStorage(file: File): Promise<{
+  storagePath: string;
+  publicUrl: string;
+} | null> {
+  try {
+    const path = buildStoragePath(file);
+
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(path, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type || undefined,
+      });
+
+    if (error) {
+      console.error('Supabase upload error', error);
+      return null;
+    }
+
+    const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+
+    return {
+      storagePath: path,
+      publicUrl: data.publicUrl,
+    };
+  } catch (err) {
+    console.error('Unexpected Supabase upload error', err);
+    return null;
+  }
 }
 
 export const AttachmentInputArea = forwardRef<
@@ -44,7 +82,6 @@ export const AttachmentInputArea = forwardRef<
     {
       maxAttachments = MAX_ATTACHMENTS_DEFAULT,
       onAttachmentsChange,
-      onClearRequest,
       messageValue,
       resetInputHeightState,
       children,
@@ -68,7 +105,7 @@ export const AttachmentInputArea = forwardRef<
       setIsIosDevice(isIOS());
     }, []);
 
-    // Sync attachments when parent changes them externally
+    // Keep local state in sync if parent provides attachments
     useEffect(() => {
       if (existingAttachments) {
         setAttachments(existingAttachments);
@@ -79,13 +116,11 @@ export const AttachmentInputArea = forwardRef<
       attachmentsForCleanupRef.current = attachments;
     }, [attachments]);
 
-    // Clean up object URLs on unmount
+    // Cleanup object URLs on unmount
     useEffect(() => {
       return () => {
         attachmentsForCleanupRef.current.forEach((att) => {
-          if (att.previewUrl) {
-            URL.revokeObjectURL(att.previewUrl);
-          }
+          if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
         });
       };
     }, []);
@@ -99,63 +134,25 @@ export const AttachmentInputArea = forwardRef<
     };
 
     const isValidFileType = (file: File): boolean => {
-      return (
-        file.type.startsWith('image/') || file.type === 'application/pdf'
-      );
+      return file.type.startsWith('image/') || file.type === 'application/pdf';
     };
 
-    const uploadFileToStorage = async (
-      file: File,
-    ): Promise<string | null> => {
-      try {
-        const objectKey = `chat-uploads/${Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2)}-${file.name}`;
+    // Core handler: validate + upload to Supabase + update state
+    const processFiles = async (files: FileList | null) => {
+      if (!files?.length) return;
 
-        const { error } = await supabase.storage
-          .from(STORAGE_BUCKET)
-          .upload(objectKey, file, {
-            cacheControl: '3600',
-            upsert: false,
-          });
+      const newAttachments: ChatAttachmentInputState[] = [];
+      let invalidCount = 0;
+      let uploadFailedCount = 0;
 
-        if (error) {
-          console.error('Supabase upload error', error);
-          showToast('Failed to upload file. Please try again.', {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+
+        if (attachments.length + newAttachments.length >= maxAttachments) {
+          showToast(`You can select a maximum of ${maxAttachments} files.`, {
             type: 'error',
             position: 'conversation',
           });
-          return null;
-        }
-
-        // storagePath = bucket + "/" + objectKey, used by edge function
-        return `${STORAGE_BUCKET}/${objectKey}`;
-      } catch (err) {
-        console.error('Unexpected upload error', err);
-        showToast('Failed to upload file. Please try again.', {
-          type: 'error',
-          position: 'conversation',
-        });
-        return null;
-      }
-    };
-
-    const processFiles = async (files: FileList | File[] | null) => {
-      if (!files || !('length' in files) || files.length === 0) return;
-
-      const fileArray = Array.from(files);
-      const newAttachments: ChatAttachmentInputState[] = [];
-      let invalidCount = 0;
-
-      for (const file of fileArray) {
-        if (attachments.length + newAttachments.length >= maxAttachments) {
-          showToast(
-            `You can select a maximum of ${maxAttachments} files.`,
-            {
-              type: 'error',
-              position: 'conversation',
-            },
-          );
           break;
         }
 
@@ -164,25 +161,25 @@ export const AttachmentInputArea = forwardRef<
           continue;
         }
 
-        const storagePath = await uploadFileToStorage(file);
-        if (!storagePath) {
-          // upload failed, skip this file
+        const uploadResult = await uploadFileToStorage(file);
+        if (!uploadResult) {
+          uploadFailedCount++;
           continue;
         }
 
         newAttachments.push({
           file,
           previewUrl: URL.createObjectURL(file),
-          type:
-            file.type === 'application/pdf' ? 'document' : 'image',
-          storagePath,
+          type: file.type === 'application/pdf' ? 'document' : 'image',
+          storagePath: uploadResult.storagePath,
+          publicUrl: uploadResult.publicUrl,
         });
       }
 
       if (newAttachments.length > 0) {
-        const updatedAttachments = [...attachments, ...newAttachments];
-        setAttachments(updatedAttachments);
-        onAttachmentsChange(updatedAttachments);
+        const updated = [...attachments, ...newAttachments];
+        setAttachments(updated);
+        onAttachmentsChange(updated);
       }
 
       if (invalidCount > 0) {
@@ -191,17 +188,21 @@ export const AttachmentInputArea = forwardRef<
           position: 'conversation',
         });
       }
+
+      if (uploadFailedCount > 0) {
+        showToast('Failed to upload some files. Please try again.', {
+          type: 'error',
+          position: 'conversation',
+        });
+      }
     };
 
-    const handleFileSelection = async (
+    const handleFileSelection = (
       event: React.ChangeEvent<HTMLInputElement>,
     ) => {
-      const { files } = event.target;
-      await processFiles(files);
+      void processFiles(event.target.files);
       setShowAttachMenu(false);
-      if (event.target) {
-        event.target.value = '';
-      }
+      if (event.target) event.target.value = '';
     };
 
     const handleDocumentAttachment = () => {
@@ -219,8 +220,8 @@ export const AttachmentInputArea = forwardRef<
     const handleImageAttachment = () => {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = 'image/*';
       input.multiple = true;
+      input.accept = 'image/*';
       input.onchange = (e) =>
         handleFileSelection(
           e as unknown as React.ChangeEvent<HTMLInputElement>,
@@ -234,13 +235,11 @@ export const AttachmentInputArea = forwardRef<
         URL.revokeObjectURL(attachmentToRemove.previewUrl);
       }
 
-      const newAttachments = attachments.filter(
-        (_, index) => index !== indexToRemove,
-      );
-      setAttachments(newAttachments);
-      onAttachmentsChange(newAttachments);
+      const updated = attachments.filter((_, idx) => idx !== indexToRemove);
+      setAttachments(updated);
+      onAttachmentsChange(updated);
 
-      if (newAttachments.length === 0 && messageValue === '') {
+      if (updated.length === 0 && messageValue === '') {
         resetInputHeightState();
       }
     };
@@ -272,24 +271,30 @@ export const AttachmentInputArea = forwardRef<
           setShowAttachMenu(false);
         }
       };
+
       document.addEventListener('mousedown', handleClickOutside);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
       };
     }, []);
 
+    // Expose helpers to parent via ref
     useImperativeHandle(ref, () => ({
       clear: internalClearAttachments,
       removeAttachment,
       processPastedFiles: (files: File[]) => {
-        // Fire and forget; upload + state update handled inside
-        void processFiles(files);
+        const fileList = {
+          length: files.length,
+          item: (i: number) => files[i] ?? null,
+          ...files,
+        } as unknown as FileList;
+        void processFiles(fileList);
       },
     }));
 
     return (
       <div className="relative w-full">
-        <div className="flex items-end w-full ">
+        <div className="flex items-end w-full">
           <div className="flex items-center">
             <div className="relative">
               <button
