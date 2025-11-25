@@ -175,7 +175,6 @@ export const chatService = {
           message,
           messages: historyForModel,
           userId,
-          google_search: formData.get('google_search') === 'true',
         }),
       });
 
@@ -252,6 +251,7 @@ export const chatService = {
             finish_reason: null,
           };
 
+      // Return only what ChatMessageResponseData allows
       const chatResponse: ChatMessageResponse = {
         message: 'ok',
         data: {
@@ -259,7 +259,9 @@ export const chatService = {
         },
       };
 
+      // keep assistantMessage for DB correctness
       void assistantMessage;
+
       return chatResponse;
     } catch (err) {
       console.error('Error in sendMessage:', err);
@@ -270,22 +272,15 @@ export const chatService = {
   /**
    * Streaming version.
    * Call this from a client-side hook or component only.
-   * Supports google_search flag for streaming too.
-   */
-  /**
-   * Streaming version.
-   * Call this from a client-side hook or component only.
    */
   async streamMessage({
     message,
-    google_search,
     onDelta,
     onDone,
     onError,
     signal,
   }: {
     message: string;
-    google_search?: boolean;
     onDelta: (delta: string) => void;
     onDone?: (finalAssistantMessage: ChatMessageFromServer) => void;
     onError?: (err: unknown) => void;
@@ -357,8 +352,7 @@ export const chatService = {
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
         messages: historyForModel,
-        google_search: !!google_search,
-        onAnswerDelta: (delta: string) => {
+        onAnswerDelta: (delta) => {
           assistantText += delta;
           onDelta(delta);
         },
@@ -409,7 +403,7 @@ export const chatService = {
 
           onDone?.(assistantMessage);
         },
-        onError: (err: unknown) => {
+        onError: (err) => {
           onError?.(err);
         },
         signal,
