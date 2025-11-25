@@ -19,9 +19,46 @@ interface UseDragAndDropProps {
   inputRef: MutableRefObject<HTMLTextAreaElement | null>;
 }
 
-// Same bucket name as in AttachmentInputArea
 const STORAGE_BUCKET =
   process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET || 'attachments';
+
+const buildStoragePath = (file: File) => {
+  const ext = file.name.split('.').pop() || 'bin';
+  const rand = Math.random().toString(36).slice(2);
+  return `${Date.now()}-${rand}.${ext}`;
+};
+
+async function uploadFileToStorage(file: File): Promise<{
+  storagePath: string;
+  publicUrl: string;
+} | null> {
+  try {
+    const path = buildStoragePath(file);
+
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(path, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type || undefined,
+      });
+
+    if (error) {
+      console.error('Supabase upload error (drag-drop)', error);
+      return null;
+    }
+
+    const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+
+    return {
+      storagePath: path,
+      publicUrl: data.publicUrl,
+    };
+  } catch (err) {
+    console.error('Unexpected Supabase upload error (drag-drop)', err);
+    return null;
+  }
+}
 
 export const useDragAndDrop = ({
   maxAttachments,
@@ -33,47 +70,6 @@ export const useDragAndDrop = ({
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragCounterRef = useRef<number>(0);
 
-  const isValidFileType = (file: File): boolean => {
-    return (
-      file.type.startsWith('image/') || file.type === 'application/pdf'
-    );
-  };
-
-  const uploadFileToStorage = async (
-    file: File,
-  ): Promise<string | null> => {
-    try {
-      const objectKey = `chat-uploads/${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2)}-${file.name}`;
-
-      const { error } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .upload(objectKey, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (error) {
-        console.error('Supabase upload error (drag & drop)', error);
-        showToast('Failed to upload file. Please try again.', {
-          type: 'error',
-          position: 'conversation',
-        });
-        return null;
-      }
-
-      return `${STORAGE_BUCKET}/${objectKey}`;
-    } catch (err) {
-      console.error('Unexpected upload error (drag & drop)', err);
-      showToast('Failed to upload file. Please try again.', {
-        type: 'error',
-        position: 'conversation',
-      });
-      return null;
-    }
-  };
-
   const handleDrop = useCallback(
     async (e: DragEvent) => {
       e.preventDefault();
@@ -84,50 +80,50 @@ export const useDragAndDrop = ({
       const files = e.dataTransfer?.files;
       if (!files || files.length === 0) return;
 
-      const validFiles: ChatAttachmentInputState[] = [];
+      const newAttachments: ChatAttachmentInputState[] = [];
       let invalidCount = 0;
+      let uploadFailedCount = 0;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
 
-        if (
-          currentAttachments.length + validFiles.length >=
-          maxAttachments
-        ) {
-          showToast(
-            `You can select a maximum of ${maxAttachments} files.`,
-            {
-              type: 'error',
-              position: 'conversation',
-            },
-          );
+        if (currentAttachments.length + newAttachments.length >= maxAttachments) {
+          showToast(`You can select a maximum of ${maxAttachments} files.`, {
+            type: 'error',
+            position: 'conversation',
+          });
           break;
         }
 
-        if (!isValidFileType(file)) {
+        const isValid =
+          file.type.startsWith('image/') || file.type === 'application/pdf';
+
+        if (!isValid) {
           invalidCount++;
           continue;
         }
 
-        const storagePath = await uploadFileToStorage(file);
-        if (!storagePath) {
+        const uploadResult = await uploadFileToStorage(file);
+        if (!uploadResult) {
+          uploadFailedCount++;
           continue;
         }
 
         const type =
           file.type === 'application/pdf' ? 'document' : 'image';
 
-        validFiles.push({
+        newAttachments.push({
           file,
           previewUrl: URL.createObjectURL(file),
           type,
-          storagePath,
+          storagePath: uploadResult.storagePath,
+          publicUrl: uploadResult.publicUrl,
         });
       }
 
-      if (validFiles.length > 0) {
-        const newAttachments = [...currentAttachments, ...validFiles];
-        setCurrentAttachments(newAttachments);
+      if (newAttachments.length > 0) {
+        const updated = [...currentAttachments, ...newAttachments];
+        setCurrentAttachments(updated);
 
         if (inputRef.current) {
           setTimeout(() => {
@@ -138,6 +134,13 @@ export const useDragAndDrop = ({
 
       if (invalidCount > 0) {
         showToast('Error uploading file. Only PDF and images are supported.', {
+          type: 'error',
+          position: 'conversation',
+        });
+      }
+
+      if (uploadFailedCount > 0) {
+        showToast('Failed to upload some files. Please try again.', {
           type: 'error',
           position: 'conversation',
         });
