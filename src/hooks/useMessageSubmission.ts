@@ -147,30 +147,42 @@ export const useMessageSubmission = ({
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
 
-      const formData = new FormData();
-      if (trimmedMessage) formData.append('message', trimmedMessage);
-      attachments.forEach((att) => formData.append('files', att.file, att.file.name));
-      if (isSearchActive) formData.append('google_search', 'true');
+      // Build files payload for backend (Supabase Edge Function / Gemini Files)
+      // NOTE: replace `path` later with your actual storage path / URL when you add storage.
+      const filesPayload = attachments.map((att) => ({
+        name: att.file.name,
+        mimeType: att.file.type,
+        size: att.file.size,
+        // Placeholder: if you later store in Supabase Storage, put that path here.
+        path: (att as any).storagePath || att.file.name,
+      }));
 
       const systemInfo = await getSystemInfo();
-      if (systemInfo.device) formData.append('device', systemInfo.device);
-      if (systemInfo.location) formData.append('location', systemInfo.location);
-      if (systemInfo.network) formData.append('network', systemInfo.network);
 
       const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
       try {
-        // IMPORTANT CHANGE:
-        // Streaming is now used for all text-only messages,
-        // independent of the Search toggle. Non-stream only when there are attachments.
-        const shouldStream = attachments.length === 0;
+        // Single unified streaming path (even when there are attachments).
+        // chatService.streamMessage MUST forward these fields into the JSON body:
+        // { message, messages, files, google_search, device, location, network }
+        const shouldStream = true;
 
         if (shouldStream) {
           let fullAssistantText = '';
 
           await chatService.streamMessage({
             message: trimmedMessage,
-            onDelta: (delta) => {
+            // history for the Edge Function / model context (optional but recommended)
+            messages: chatMessages,
+            // attachments for PDFs/images -> Gemini Files
+            files: filesPayload,
+            // web search toggle for backend if you want to respect it
+            google_search: isSearchActive,
+            // device info for analytics / prompt shaping if you want
+            device: systemInfo.device,
+            location: systemInfo.location,
+            network: systemInfo.network,
+            onDelta: (delta: string) => {
               fullAssistantText += delta;
               if (!assistantId) return;
 
@@ -203,7 +215,7 @@ export const useMessageSubmission = ({
                 ),
               );
             },
-            onError: (err) => {
+            onError: (err: unknown) => {
               throw err;
             },
           });
@@ -211,29 +223,8 @@ export const useMessageSubmission = ({
           return;
         }
 
-        // Non-streaming fallback: used only when there are attachments
-        const result = await chatService.sendMessage(formData);
-        const rawData = result.data as ChatSendResponseData;
-
-        const assistantText = rawData.response;
-        const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
-
-        if (thoughts) setCurrentThoughtText(thoughts);
-
-        if (assistantId) {
-          setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === assistantId
-                ? {
-                    ...msg,
-                    content: assistantText,
-                    failed: false,
-                    try_number: tryNumber,
-                  }
-                : msg,
-            ),
-          );
-        }
+        // We no longer use non-streaming `sendMessage` here.
+        // All flows go through streaming + Edge Function.
       } catch (error) {
         console.error('Error sending message:', error);
 
@@ -279,6 +270,7 @@ export const useMessageSubmission = ({
     [
       isSending,
       isSearchActive,
+      chatMessages,
       createOptimisticMessage,
       setChatMessages,
       clearAllInput,
