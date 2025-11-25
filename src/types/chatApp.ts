@@ -5,6 +5,11 @@ export interface ChatAttachmentInputState {
   type: 'image' | 'document';
   file: File;
   previewUrl: string;
+  /**
+   * Path of the object in Supabase Storage,
+   * e.g. "meera-attachments/user-123/1711660000000-Deck.pdf"
+   */
+  storagePath?: string;
 }
 
 // Attachment type as it's stored/displayed within a message
