@@ -158,50 +158,52 @@ export const useMessageSubmission = ({
 
       try {
         // Unified streaming path (even with attachments)
+        const payload = {
+          message: trimmedMessage,
+          messages: chatMessages,
+          files: filesPayload,
+          google_search: isSearchActive,
+          device: systemInfo.device,
+          location: systemInfo.location,
+          network: systemInfo.network,
+          onDelta: (delta: string) => {
+            if (!assistantId) return;
+
+            setChatMessages((prev) =>
+              prev.map((msg) =>
+                msg.message_id === assistantId
+                  ? {
+                      ...msg,
+                      content: (msg.content || '') + delta,
+                      failed: false,
+                      try_number: tryNumber,
+                    }
+                  : msg,
+              ),
+            );
+          },
+          onDone: () => {
+            if (!assistantId) return;
+
+            setChatMessages((prev) =>
+              prev.map((msg) =>
+                msg.message_id === assistantId
+                  ? {
+                      ...msg,
+                      failed: false,
+                      try_number: tryNumber,
+                    }
+                  : msg,
+              ),
+            );
+          },
+          onError: (err: unknown) => {
+            throw err;
+          },
+        };
+
         await chatService.streamMessage(
-          {
-            message: trimmedMessage,
-            messages: chatMessages,
-            files: filesPayload,
-            google_search: isSearchActive,
-            device: systemInfo.device,
-            location: systemInfo.location,
-            network: systemInfo.network,
-            onDelta: (delta: string) => {
-              if (!assistantId) return;
-
-              setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.message_id === assistantId
-                    ? {
-                        ...msg,
-                        content: (msg.content || '') + delta,
-                        failed: false,
-                        try_number: tryNumber,
-                      }
-                    : msg,
-                ),
-              );
-            },
-            onDone: () => {
-              if (!assistantId) return;
-
-              setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.message_id === assistantId
-                    ? {
-                        ...msg,
-                        failed: false,
-                        try_number: tryNumber,
-                      }
-                    : msg,
-                ),
-              );
-            },
-            onError: (err: unknown) => {
-              throw err;
-            },
-          } as any, // TS: allow extra fields (messages, files, google_search, device, etc.)
+          payload as unknown as Parameters<(typeof chatService)['streamMessage']>[0],
         );
 
         return;
