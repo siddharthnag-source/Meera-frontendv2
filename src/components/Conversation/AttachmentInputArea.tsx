@@ -3,30 +3,42 @@
 import { useToast } from '@/components/ui/ToastProvider';
 import { isIOS } from '@/lib/deviceInfo';
 import { ChatAttachmentInputState } from '@/types/chat';
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { CgAttachment } from 'react-icons/cg';
 import { AttachmentMenuComponent } from './AttachmentMenu';
+import { uploadAttachmentToStorage } from '@/lib/uploadAttachment';
 
 const MAX_ATTACHMENTS_DEFAULT = 10;
 
 interface AttachmentInputAreaProps {
   maxAttachments?: number;
   onAttachmentsChange: (attachments: ChatAttachmentInputState[]) => void;
-  onClearRequest?: () => void; // Optional: To be called when parent wants to clear attachments
-  messageValue: string; // Needed for resetInputHeightState logic
+  onClearRequest?: () => void;
+  messageValue: string;
   resetInputHeightState: () => void;
-  children: React.ReactNode; // Added to accept textarea and send button
-  existingAttachments?: ChatAttachmentInputState[]; // Added to allow parent to control attachments
+  children: React.ReactNode;
+  existingAttachments?: ChatAttachmentInputState[];
+  // NEW (optional): if not provided we use "anonymous"
+  userId?: string;
 }
 
-// Define the type for the imperative methods exposed by the ref
+// Imperative ref methods
 export interface AttachmentInputAreaRef {
   clear: () => void;
   removeAttachment: (index: number) => void;
   processPastedFiles: (files: File[]) => void;
 }
 
-export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, AttachmentInputAreaProps>(
+export const AttachmentInputArea = forwardRef<
+  AttachmentInputAreaRef,
+  AttachmentInputAreaProps
+>(
   (
     {
       maxAttachments = MAX_ATTACHMENTS_DEFAULT,
@@ -34,25 +46,31 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Attachment
       onClearRequest,
       messageValue,
       resetInputHeightState,
-      children, // Destructure children
-      existingAttachments, // Destructure existingAttachments
+      children,
+      existingAttachments,
+      userId,
     },
-    ref, // Added ref here
+    ref,
   ) => {
-    const [attachments, setAttachments] = useState<ChatAttachmentInputState[]>(existingAttachments || []);
+    const [attachments, setAttachments] = useState<ChatAttachmentInputState[]>(
+      existingAttachments || [],
+    );
     const [showAttachMenu, setShowAttachMenu] = useState(false);
     const [isIosDevice, setIsIosDevice] = useState(false);
+
+    const effectiveUserId = userId ?? 'anonymous';
 
     const { showToast } = useToast();
     const menuRef = useRef<HTMLDivElement>(null);
     const attachButtonRef = useRef<HTMLButtonElement>(null);
-    const attachmentsForCleanupRef = useRef<ChatAttachmentInputState[]>(attachments);
+    const attachmentsForCleanupRef =
+      useRef<ChatAttachmentInputState[]>(attachments);
 
     useEffect(() => {
       setIsIosDevice(isIOS());
     }, []);
 
-    // Sync attachments with parent when they change externally
+    // Sync attachments when parent changes them
     useEffect(() => {
       if (existingAttachments) {
         setAttachments(existingAttachments);
@@ -65,21 +83,23 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Attachment
 
     useEffect(() => {
       if (onClearRequest) {
+        // currently no external trigger used, kept for compatibility
       }
     }, [onClearRequest]);
 
-    // Effect for cleaning up object URLs on unmount
+    // Cleanup preview URLs on unmount
     useEffect(() => {
       return () => {
         attachmentsForCleanupRef.current.forEach((att) => {
-          if (att.previewUrl) {
-            URL.revokeObjectURL(att.previewUrl);
-          }
+          if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
         });
       };
     }, []);
 
     const internalClearAttachments = () => {
+      attachments.forEach((att) => {
+        if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+      });
       setAttachments([]);
       onAttachmentsChange([]);
       if (messageValue === '') {
@@ -87,24 +107,21 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Attachment
       }
     };
 
-    // Expose clear attachments to parent if needed, or handle via prop change
-    useEffect(() => {
-      if (onClearRequest) {
-      }
-    }, [onClearRequest]);
-
     const isValidFileType = (file: File): boolean => {
       return file.type.startsWith('image/') || file.type === 'application/pdf';
     };
 
-    const processFiles = (files: FileList | null) => {
-      if (!files?.length) return;
+    // Core: upload to Supabase + build ChatAttachmentInputState
+    const processFiles = async (files: FileList | File[] | null) => {
+      if (!files || !('length' in files) || files.length === 0) return;
 
       const newAttachments: ChatAttachmentInputState[] = [];
       let invalidCount = 0;
 
       for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+        const file = (files as FileList)[i] ?? (files as File[])[i];
+        if (!file) continue;
+
         if (attachments.length + newAttachments.length >= maxAttachments) {
           showToast(`You can select a maximum of ${maxAttachments} files.`, {
             type: 'error',
@@ -118,17 +135,31 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Attachment
           continue;
         }
 
-        newAttachments.push({
-          file,
-          previewUrl: URL.createObjectURL(file),
-          type: file.type === 'application/pdf' ? 'document' : 'image',
-        });
+        try {
+          const storagePath = await uploadAttachmentToStorage(
+            effectiveUserId,
+            file,
+          );
+          const previewUrl = URL.createObjectURL(file);
+          newAttachments.push({
+            file,
+            previewUrl,
+            type: file.type === 'application/pdf' ? 'document' : 'image',
+            storagePath,
+          });
+        } catch (err) {
+          console.error('Error uploading file to Supabase', err);
+          showToast('Failed to upload file. Please try again.', {
+            type: 'error',
+            position: 'conversation',
+          });
+        }
       }
 
       if (newAttachments.length > 0) {
-        const updatedAttachments = [...attachments, ...newAttachments];
-        setAttachments(updatedAttachments);
-        onAttachmentsChange(updatedAttachments);
+        const updated = [...attachments, ...newAttachments];
+        setAttachments(updated);
+        onAttachmentsChange(updated);
       }
 
       if (invalidCount > 0) {
@@ -139,12 +170,13 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Attachment
       }
     };
 
-    const handleFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
-      processFiles(event.target.files);
+    const handleFileSelection = async (
+      event: React.ChangeEvent<HTMLInputElement>,
+    ) => {
+      const files = event.target.files;
+      await processFiles(files);
       setShowAttachMenu(false);
-      if (event.target) {
-        event.target.value = ''; // Reset the input value
-      }
+      if (event.target) event.target.value = '';
     };
 
     const handleDocumentAttachment = () => {
@@ -152,16 +184,22 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Attachment
       input.type = 'file';
       input.multiple = true;
       input.accept = 'application/pdf';
-      input.onchange = (e) => handleFileSelection(e as unknown as React.ChangeEvent<HTMLInputElement>);
+      input.onchange = (e) =>
+        handleFileSelection(
+          e as unknown as React.ChangeEvent<HTMLInputElement>,
+        );
       input.click();
     };
 
     const handleImageAttachment = () => {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = 'image/*';
       input.multiple = true;
-      input.onchange = (e) => handleFileSelection(e as unknown as React.ChangeEvent<HTMLInputElement>);
+      input.accept = 'image/*';
+      input.onchange = (e) =>
+        handleFileSelection(
+          e as unknown as React.ChangeEvent<HTMLInputElement>,
+        );
       input.click();
     };
 
@@ -171,7 +209,9 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Attachment
         URL.revokeObjectURL(attachmentToRemove.previewUrl);
       }
 
-      const newAttachments = attachments.filter((_, index) => index !== indexToRemove);
+      const newAttachments = attachments.filter(
+        (_, index) => index !== indexToRemove,
+      );
       setAttachments(newAttachments);
       onAttachmentsChange(newAttachments);
 
@@ -182,12 +222,14 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Attachment
 
     const toggleAttachMenu = () => {
       if (isIosDevice) {
-        // On iOS, directly open the file input
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = true;
-        input.accept = 'application/pdf,image/*'; // Allow both PDF and images
-        input.onchange = (e) => handleFileSelection(e as unknown as React.ChangeEvent<HTMLInputElement>);
+        input.accept = 'application/pdf,image/*';
+        input.onchange = (e) =>
+          handleFileSelection(
+            e as unknown as React.ChangeEvent<HTMLInputElement>,
+          );
         input.click();
       } else {
         setShowAttachMenu((prev) => !prev);
@@ -215,20 +257,7 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Attachment
       clear: internalClearAttachments,
       removeAttachment,
       processPastedFiles: (files: File[]) => {
-        const newAttachments: ChatAttachmentInputState[] = files
-          .slice(0, maxAttachments - attachments.length)
-          .filter(isValidFileType)
-          .map((file) => ({
-            file,
-            previewUrl: URL.createObjectURL(file),
-            type: file.type === 'application/pdf' ? 'document' : 'image',
-          }));
-
-        if (newAttachments.length > 0) {
-          const updatedAttachments = [...attachments, ...newAttachments];
-          setAttachments(updatedAttachments);
-          onAttachmentsChange(updatedAttachments);
-        }
+        void processFiles(files);
       },
     }));
 
