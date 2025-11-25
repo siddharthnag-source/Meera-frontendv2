@@ -1,128 +1,97 @@
-// src/lib/streamMeera.ts
-
-export type LLMHistoryMessage = {
-  role: 'user' | 'assistant' | 'system';
+type LLMHistoryMessage = {
+  role: 'user' | 'assistant';
   content: string;
 };
 
-type StreamMeeraArgs = {
-  supabaseUrl: string;
-  supabaseAnonKey: string;
-  messages: LLMHistoryMessage[];
-  google_search?: boolean;
-  onAnswerDelta: (t: string) => void;
-  onDone?: () => void;
-  onError?: (e: unknown) => void;
-  signal?: AbortSignal;
+type GeminiPart = {
+  text?: string;
+  thought?: boolean;
+};
+
+type GeminiCandidate = {
+  content?: {
+    parts?: GeminiPart[];
+  };
+};
+
+type GeminiSseChunk = {
+  candidates?: GeminiCandidate[];
 };
 
 export async function streamMeera({
   supabaseUrl,
   supabaseAnonKey,
   messages,
-  google_search,
   onAnswerDelta,
   onDone,
   onError,
   signal,
-}: StreamMeeraArgs): Promise<void> {
-  const chatUrl = `${supabaseUrl.replace(/\/$/, '')}/functions/v1/chat`;
-
+}: {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  messages: LLMHistoryMessage[];
+  onAnswerDelta: (t: string) => void;
+  onDone?: () => void;
+  onError?: (e: unknown) => void;
+  signal?: AbortSignal;
+}) {
   try {
-    const res = await fetch(chatUrl, {
+    const res = await fetch(`${supabaseUrl}/functions/v1/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: supabaseAnonKey,
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({
-        messages,
-        google_search: !!google_search,
-      }),
+      body: JSON.stringify({ messages, stream: true }),
       signal,
     });
 
-    if (!res.ok) {
-      let errBody: unknown = null;
-      try {
-        errBody = await res.json();
-      } catch {
-        // ignore
-      }
-      throw new Error(
-        `streamMeera failed: ${res.status} ${res.statusText} ${errBody ? JSON.stringify(errBody) : ''}`,
-      );
-    }
-
-    if (!res.body) {
-      throw new Error('streamMeera: response has no body to stream');
-    }
-
-    const contentType = res.headers.get('content-type') || '';
-    const isSSE = contentType.includes('text/event-stream');
+    if (!res.ok || !res.body) throw new Error(await res.text());
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-
     let buffer = '';
-    let doneCalled = false;
+
+    let lastAnswer = '';
 
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true });
 
-      if (!isSSE) {
-        onAnswerDelta(chunk);
-        continue;
-      }
+      const events = buffer.split(/\r?\n\r?\n/);
+buffer = events.pop() || '';
 
-      buffer += chunk;
+      for (const evt of events) {
+        const dataLine = evt.split('\n').find((l) => l.startsWith('data:'));
+        if (!dataLine) continue;
 
-      // SSE frames are separated by blank lines
-      const frames = buffer.split('\n\n');
-      buffer = frames.pop() || '';
+        const dataStr = dataLine.replace('data:', '').trim();
+        if (!dataStr) continue;
 
-      for (const frame of frames) {
-        const lines = frame.split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) continue;
+        const json = JSON.parse(dataStr) as GeminiSseChunk;
+        const parts = json?.candidates?.[0]?.content?.parts ?? [];
 
-          const payload = trimmed.replace(/^data:\s?/, '');
+        for (const p of parts) {
+          const text = p?.text ?? '';
+          if (!text) continue;
 
-          if (payload === '[DONE]') {
-            if (!doneCalled) {
-              doneCalled = true;
-              onDone?.();
-            }
-            continue;
-          }
+          if (p?.thought) continue;
 
-          // Try JSON payloads first, fallback to raw text
-          let textDelta = payload;
-          try {
-            const parsed = JSON.parse(payload) as Record<string, unknown>;
-            textDelta =
-              (parsed.delta as string) ||
-              (parsed.text as string) ||
-              (parsed.reply as string) ||
-              (parsed.response as string) ||
-              payload;
-          } catch {
-            // not JSON, keep raw
-          }
+          const delta = text.startsWith(lastAnswer)
+            ? text.slice(lastAnswer.length)
+            : text;
 
-          if (textDelta) onAnswerDelta(textDelta);
+          lastAnswer = text;
+          onAnswerDelta(delta);
         }
       }
     }
 
-    if (!doneCalled) onDone?.();
-  } catch (e) {
+    onDone?.();
+  } catch (e: unknown) {
     onError?.(e);
-    throw e;
   }
 }
