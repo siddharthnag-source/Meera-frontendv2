@@ -1,17 +1,19 @@
 'use client';
 
-import { ApiError, chatService, SessionExpiredError } from '@/app/api/services/chat';
+import { chatService } from '@/app/api/services/chat';
 import { useToast } from '@/components/ui/ToastProvider';
 import { createLocalTimestamp } from '@/lib/dateUtils';
-import { getSystemInfo } from '@/lib/deviceInfo';
-import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
+import {
+  ChatAttachmentInputState,
+  ChatMessageFromServer,
+} from '@/types/chat';
 import React, { MutableRefObject, useCallback, useRef } from 'react';
 
 interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean;
+  isSearchActive: boolean; // kept for future use if you want to include search flag in payload
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setJustSentMessage: (justSent: boolean) => void;
@@ -28,7 +30,7 @@ export const useMessageSubmission = ({
   message,
   currentAttachments,
   chatMessages,
-  isSearchActive,
+  isSearchActive, // currently unused here but kept for compatibility
   isSending,
   setIsSending,
   setJustSentMessage,
@@ -55,7 +57,9 @@ export const useMessageSubmission = ({
       let newTimestamp = new Date();
 
       if (lastMessage && new Date(lastMessage.timestamp) >= newTimestamp) {
-        newTimestamp = new Date(new Date(lastMessage.timestamp).getTime() + 6);
+        newTimestamp = new Date(
+          new Date(lastMessage.timestamp).getTime() + 6,
+        );
       }
 
       return {
@@ -70,7 +74,7 @@ export const useMessageSubmission = ({
               ? 'pdf'
               : att.type === 'image'
               ? 'image'
-              : att.file.type.split('/')[1] || 'file',
+              : att.file.type || 'file',
           url: att.previewUrl || '',
           size: att.file.size,
           file: att.file,
@@ -97,13 +101,20 @@ export const useMessageSubmission = ({
       if (isSending) return;
 
       const trimmedMessage = messageText.trim();
-      if (!trimmedMessage && attachments.length === 0) return;
+      const hasText = trimmedMessage.length > 0;
+      const hasAttachments = attachments.length > 0;
+
+      if (!hasText && !hasAttachments) return;
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // New send (not retry): create user + empty assistant placeholders
+      // New send: create user + assistant placeholders
       if (!optimisticIdToUpdate) {
-        const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
+        const userMessage = createOptimisticMessage(
+          optimisticId,
+          trimmedMessage,
+          attachments,
+        );
 
         const assistantMessageId = `assistant-${Date.now()}`;
         const emptyAssistantMessage: ChatMessageFromServer = {
@@ -129,7 +140,9 @@ export const useMessageSubmission = ({
         // Retry: clear failed state on the user message
         setChatMessages((prev) =>
           prev.map((msg) =>
-            msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
+            msg.message_id === optimisticId
+              ? { ...msg, failed: false, try_number: tryNumber }
+              : msg,
           ),
         );
       }
@@ -140,33 +153,38 @@ export const useMessageSubmission = ({
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
 
-      // Build files payload for backend (Supabase Edge Function / Gemini Files)
-      const filesPayload = attachments.map((att) => {
-        const withStorage = att as ChatAttachmentInputState & { storagePath?: string };
-        return {
+      // Build attachment metadata for Gemini
+      const attachmentMeta = attachments
+        .filter((att) => att.storagePath) // only ones that have been uploaded
+        .map((att) => ({
           name: att.file.name,
+          type: att.type, // 'image' | 'document'
           mimeType: att.file.type,
           size: att.file.size,
-          // This will be transformed to a real URL on the backend.
-          path: withStorage.storagePath || att.file.name,
-        };
-      });
+          storagePath: att.storagePath,
+        }));
 
-      const systemInfo = await getSystemInfo();
+      // Wrap message + attachments into a Meera payload if there are files
+      const payloadMessage =
+        attachmentMeta.length > 0
+          ? JSON.stringify({
+              __meera_payload: 'v1',
+              text: trimmedMessage,
+              attachments: attachmentMeta,
+              // you can also tuck search flag here later if you want
+            })
+          : trimmedMessage;
 
-      const assistantId = messageRelationshipMapRef.current.get(optimisticId);
+      const assistantId =
+        messageRelationshipMapRef.current.get(optimisticId);
 
       try {
-        // Unified streaming path (even with attachments)
-        const payload = {
-          message: trimmedMessage,
-          messages: chatMessages,
-          files: filesPayload,
-          google_search: isSearchActive,
-          device: systemInfo.device,
-          location: systemInfo.location,
-          network: systemInfo.network,
-          onDelta: (delta: string) => {
+        let fullAssistantText = '';
+
+        await chatService.streamMessage({
+          message: payloadMessage,
+          onDelta: (delta) => {
+            fullAssistantText += delta;
             if (!assistantId) return;
 
             setChatMessages((prev) =>
@@ -190,6 +208,7 @@ export const useMessageSubmission = ({
                 msg.message_id === assistantId
                   ? {
                       ...msg,
+                      content: msg.content || fullAssistantText,
                       failed: false,
                       try_number: tryNumber,
                     }
@@ -197,48 +216,35 @@ export const useMessageSubmission = ({
               ),
             );
           },
-          onError: (err: unknown) => {
+          onError: (err) => {
+            // We rethrow so the outer catch handles the UI state
             throw err;
           },
-        };
-
-        await chatService.streamMessage(
-          payload as unknown as Parameters<(typeof chatService)['streamMessage']>[0],
-        );
+        });
 
         return;
       } catch (error) {
         console.error('Error sending message:', error);
 
-        if (error instanceof SessionExpiredError) {
-          setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === optimisticId ? { ...msg, failed: true } : msg,
-            ),
-          );
-        } else if (error instanceof ApiError && error.status === 400) {
-          showToast('Unsupported file', { type: 'error', position: 'conversation' });
-          setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.message_id === optimisticId ? { ...msg, failed: true } : msg,
-            ),
-          );
-        } else {
-          showToast('Failed to respond, try again', {
-            type: 'error',
-            position: 'conversation',
-          });
+        showToast('Failed to respond, try again', {
+          type: 'error',
+          position: 'conversation',
+        });
 
-          setChatMessages((prev) =>
-            prev.map((msg) => {
-              if (msg.message_id === optimisticId) return { ...msg, failed: true };
-              if (assistantId && msg.message_id === assistantId) {
-                return { ...msg, failed: true, failedMessage: 'Failed to respond, try again' };
-              }
-              return msg;
-            }),
-          );
-        }
+        setChatMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.message_id === optimisticId)
+              return { ...msg, failed: true };
+            if (assistantId && msg.message_id === assistantId) {
+              return {
+                ...msg,
+                failed: true,
+                failedMessage: 'Failed to respond, try again',
+              };
+            }
+            return msg;
+          }),
+        );
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
@@ -251,8 +257,6 @@ export const useMessageSubmission = ({
     },
     [
       isSending,
-      isSearchActive,
-      chatMessages,
       createOptimisticMessage,
       setChatMessages,
       clearAllInput,
@@ -275,21 +279,35 @@ export const useMessageSubmission = ({
       const nextTryNumber = currentTryNumber + 1;
       const failedMessageId = failedMessage.message_id;
 
-      const retryAttachments: ChatAttachmentInputState[] = messageAttachments
-        .filter((att) => att.file)
-        .map((att) => {
-          const file = att.file as File;
-          const blob = file.slice(0, file.size, file.type);
-          const newFile = new File([blob], file.name, { type: file.type });
-          return {
-            file: newFile,
-            previewUrl: att.url,
-            type: att.type === 'image' ? 'image' : 'document',
-          };
-        });
+      // Recreate attachment input state from stored attachments
+      const retryAttachments: ChatAttachmentInputState[] =
+        messageAttachments
+          .filter((att) => att.file)
+          .map((att) => {
+            const file = att.file as File;
+            const blob = file.slice(0, file.size, file.type);
+            const newFile = new File([blob], file.name, { type: file.type });
+            return {
+              file: newFile,
+              previewUrl: att.url,
+              type:
+                att.type === 'image' || att.type === 'document'
+                  ? (att.type as 'image' | 'document')
+                  : file.type === 'application/pdf'
+                  ? 'document'
+                  : 'image',
+              // storagePath will be added again by the upload flow
+            };
+          });
 
       if (messageContent || retryAttachments.length > 0) {
-        executeSubmission(messageContent, retryAttachments, nextTryNumber, failedMessageId, true);
+        executeSubmission(
+          messageContent,
+          retryAttachments,
+          nextTryNumber,
+          failedMessageId,
+          true,
+        );
       }
     },
     [executeSubmission],
