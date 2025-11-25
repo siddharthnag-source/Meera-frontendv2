@@ -53,7 +53,11 @@ export const useMessageSubmission = ({
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
 
   const createOptimisticMessage = useCallback(
-    (optimisticId: string, messageText: string, attachments: ChatAttachmentInputState[]): ChatMessageFromServer => {
+    (
+      optimisticId: string,
+      messageText: string,
+      attachments: ChatAttachmentInputState[],
+    ): ChatMessageFromServer => {
       const lastMessage = chatMessages[chatMessages.length - 1];
       let newTimestamp = new Date();
 
@@ -72,8 +76,8 @@ export const useMessageSubmission = ({
             att.file.type === 'application/pdf'
               ? 'pdf'
               : att.type === 'image'
-                ? 'image'
-                : att.file.type.split('/')[1] || 'file',
+              ? 'image'
+              : att.file.type.split('/')[1] || 'file',
           url: att.previewUrl || '',
           size: att.file.size,
           file: att.file,
@@ -104,7 +108,7 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // Not a retry: create user + empty assistant placeholders
+      // New send (not retry): create user + empty assistant placeholders
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
 
@@ -113,7 +117,6 @@ export const useMessageSubmission = ({
           message_id: assistantMessageId,
           content: '',
           content_type: 'assistant',
-          // Keep this timestamp stable so ordering never changes later
           timestamp: createLocalTimestamp(),
           attachments: [],
           try_number: tryNumber,
@@ -128,10 +131,9 @@ export const useMessageSubmission = ({
         clearAllInput();
         onMessageSent?.();
 
-        // ONLY auto-scroll here, when user sends
         setTimeout(() => scrollToBottom(true, true), 150);
       } else {
-        // Retry: clear failed state
+        // Retry: clear failed state on the user message
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
@@ -158,7 +160,10 @@ export const useMessageSubmission = ({
       const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
       try {
-        const shouldStream = attachments.length === 0 && !isSearchActive;
+        // IMPORTANT CHANGE:
+        // Streaming is now used for all text-only messages,
+        // independent of the Search toggle. Non-stream only when there are attachments.
+        const shouldStream = attachments.length === 0;
 
         if (shouldStream) {
           let fullAssistantText = '';
@@ -181,8 +186,6 @@ export const useMessageSubmission = ({
                     : msg,
                 ),
               );
-
-              // IMPORTANT: no scrolling here
             },
             onDone: () => {
               if (!assistantId) return;
@@ -199,8 +202,6 @@ export const useMessageSubmission = ({
                     : msg,
                 ),
               );
-
-              // IMPORTANT: do not change message_id or timestamp, and no scrolling
             },
             onError: (err) => {
               throw err;
@@ -210,7 +211,7 @@ export const useMessageSubmission = ({
           return;
         }
 
-        // Non-streaming fallback
+        // Non-streaming fallback: used only when there are attachments
         const result = await chatService.sendMessage(formData);
         const rawData = result.data as ChatSendResponseData;
 
@@ -250,7 +251,10 @@ export const useMessageSubmission = ({
             ),
           );
         } else {
-          showToast('Failed to respond, try again', { type: 'error', position: 'conversation' });
+          showToast('Failed to respond, try again', {
+            type: 'error',
+            position: 'conversation',
+          });
 
           setChatMessages((prev) =>
             prev.map((msg) => {
