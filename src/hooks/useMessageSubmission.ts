@@ -25,8 +25,7 @@ interface UseMessageSubmissionProps {
 }
 
 interface ChatSendResponseData {
-  response?: string;
-  reply?: string;
+  response: string;
   thoughts?: string;
   thoughtText?: string;
   [key: string]: unknown;
@@ -54,11 +53,7 @@ export const useMessageSubmission = ({
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
 
   const createOptimisticMessage = useCallback(
-    (
-      optimisticId: string,
-      messageText: string,
-      attachments: ChatAttachmentInputState[],
-    ): ChatMessageFromServer => {
+    (optimisticId: string, messageText: string, attachments: ChatAttachmentInputState[]): ChatMessageFromServer => {
       const lastMessage = chatMessages[chatMessages.length - 1];
       let newTimestamp = new Date();
 
@@ -77,8 +72,8 @@ export const useMessageSubmission = ({
             att.file.type === 'application/pdf'
               ? 'pdf'
               : att.type === 'image'
-              ? 'image'
-              : att.file.type.split('/')[1] || 'file',
+                ? 'image'
+                : att.file.type.split('/')[1] || 'file',
           url: att.previewUrl || '',
           size: att.file.size,
           file: att.file,
@@ -109,6 +104,7 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
+      // Not a retry: create user + empty assistant placeholders
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(optimisticId, trimmedMessage, attachments);
 
@@ -117,6 +113,7 @@ export const useMessageSubmission = ({
           message_id: assistantMessageId,
           content: '',
           content_type: 'assistant',
+          // Keep this timestamp stable so ordering never changes later
           timestamp: createLocalTimestamp(),
           attachments: [],
           try_number: tryNumber,
@@ -131,9 +128,10 @@ export const useMessageSubmission = ({
         clearAllInput();
         onMessageSent?.();
 
-        // Force scroll only on send
-        setTimeout(() => scrollToBottom(true, true), 80);
+        // ONLY auto-scroll here, when user sends
+        setTimeout(() => scrollToBottom(true, true), 150);
       } else {
+        // Retry: clear failed state
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId ? { ...msg, failed: false, try_number: tryNumber } : msg,
@@ -160,70 +158,63 @@ export const useMessageSubmission = ({
       const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
       try {
-        const canStream = attachments.length === 0; // stream even if search is active
+        const shouldStream = attachments.length === 0 && !isSearchActive;
 
-        if (canStream) {
+        if (shouldStream) {
           let fullAssistantText = '';
 
-          try {
-            await chatService.streamMessage({
-              message: trimmedMessage,
-              google_search: isSearchActive,
-              onDelta: (delta: string) => {
-                fullAssistantText += delta;
-                if (!assistantId) return;
+          await chatService.streamMessage({
+            message: trimmedMessage,
+            onDelta: (delta) => {
+              fullAssistantText += delta;
+              if (!assistantId) return;
 
-                setChatMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.message_id === assistantId
-                      ? {
-                          ...msg,
-                          content: (msg.content || '') + delta,
-                          failed: false,
-                          try_number: tryNumber,
-                        }
-                      : msg,
-                  ),
-                );
+              setChatMessages((prev) =>
+                prev.map((msg) =>
+                  msg.message_id === assistantId
+                    ? {
+                        ...msg,
+                        content: (msg.content || '') + delta,
+                        failed: false,
+                        try_number: tryNumber,
+                      }
+                    : msg,
+                ),
+              );
 
-                // Auto scroll only if user is near bottom
-                scrollToBottom(true, false);
-              },
-              onDone: (finalAssistantMessage: ChatMessageFromServer) => {
-                if (!assistantId) return;
+              // IMPORTANT: no scrolling here
+            },
+            onDone: () => {
+              if (!assistantId) return;
 
-                mostRecentAssistantMessageIdRef.current = finalAssistantMessage.message_id;
+              setChatMessages((prev) =>
+                prev.map((msg) =>
+                  msg.message_id === assistantId
+                    ? {
+                        ...msg,
+                        content: msg.content || fullAssistantText,
+                        failed: false,
+                        try_number: tryNumber,
+                      }
+                    : msg,
+                ),
+              );
 
-                setChatMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.message_id === assistantId
-                      ? {
-                          ...msg,
-                          message_id: finalAssistantMessage.message_id,
-                          content: finalAssistantMessage.content || fullAssistantText,
-                          timestamp: finalAssistantMessage.timestamp || createLocalTimestamp(),
-                          failed: false,
-                          try_number: tryNumber,
-                        }
-                      : msg,
-                  ),
-                );
-              },
-              onError: (err: unknown) => {
-                throw err;
-              },
-            });
+              // IMPORTANT: do not change message_id or timestamp, and no scrolling
+            },
+            onError: (err) => {
+              throw err;
+            },
+          });
 
-            return; // streaming succeeded
-          } catch (streamErr) {
-            console.warn('Streaming failed, falling back to non-stream mode', streamErr);
-          }
+          return;
         }
 
+        // Non-streaming fallback
         const result = await chatService.sendMessage(formData);
         const rawData = result.data as ChatSendResponseData;
 
-        const assistantText = rawData.response ?? rawData.reply ?? '';
+        const assistantText = rawData.response;
         const thoughts = rawData.thoughts ?? rawData.thoughtText ?? '';
 
         if (thoughts) setCurrentThoughtText(thoughts);
@@ -235,7 +226,6 @@ export const useMessageSubmission = ({
                 ? {
                     ...msg,
                     content: assistantText,
-                    timestamp: createLocalTimestamp(),
                     failed: false,
                     try_number: tryNumber,
                   }
@@ -264,15 +254,9 @@ export const useMessageSubmission = ({
 
           setChatMessages((prev) =>
             prev.map((msg) => {
-              if (msg.message_id === optimisticId) {
-                return { ...msg, failed: true };
-              }
+              if (msg.message_id === optimisticId) return { ...msg, failed: true };
               if (assistantId && msg.message_id === assistantId) {
-                return {
-                  ...msg,
-                  failed: true,
-                  failedMessage: 'Failed to respond, try again',
-                };
+                return { ...msg, failed: true, failedMessage: 'Failed to respond, try again' };
               }
               return msg;
             }),
@@ -284,7 +268,7 @@ export const useMessageSubmission = ({
         lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
-          setTimeout(() => scrollToBottom(true, false), 150);
+          setTimeout(() => scrollToBottom(true, true), 150);
         }
       }
     },
