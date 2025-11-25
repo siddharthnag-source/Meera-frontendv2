@@ -15,14 +15,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
-import React, {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiGlobe, FiMenu } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
@@ -67,74 +60,56 @@ type LegacyMessageRow = {
   is_call: boolean | null;
 };
 
-// Memoized components for better performance
-const MemoizedRenderedMessageItem = React.memo(
-  RenderedMessageItem,
-  (prevProps, nextProps) => {
-    return (
-      prevProps.message.message_id === nextProps.message.message_id &&
-      prevProps.message.content === nextProps.message.content &&
-      prevProps.isStreaming === nextProps.isStreaming &&
-      prevProps.isLastFailedMessage === nextProps.isLastFailedMessage &&
-      prevProps.message.failed === nextProps.message.failed &&
-      prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
-      prevProps.thoughtText === nextProps.thoughtText &&
-      prevProps.hasMinHeight === nextProps.hasMinHeight &&
-      prevProps.dynamicMinHeight === nextProps.dynamicMinHeight
-    );
-  },
-);
+const MemoizedRenderedMessageItem = React.memo(RenderedMessageItem, (prevProps, nextProps) => {
+  return (
+    prevProps.message.message_id === nextProps.message.message_id &&
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.isStreaming === nextProps.isStreaming &&
+    prevProps.isLastFailedMessage === nextProps.isLastFailedMessage &&
+    prevProps.message.failed === nextProps.message.failed &&
+    prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
+    prevProps.thoughtText === nextProps.thoughtText &&
+    prevProps.hasMinHeight === nextProps.hasMinHeight &&
+    prevProps.dynamicMinHeight === nextProps.dynamicMinHeight
+  );
+});
 
-const MemoizedCallSessionItem = React.memo(
-  CallSessionItem,
-  (prevProps, nextProps) => {
-    return (
-      prevProps.messages.length === nextProps.messages.length &&
-      prevProps.messages.every(
-        (msg, index) => msg.message_id === nextProps.messages[index]?.message_id,
-      )
-    );
-  },
-);
+const MemoizedCallSessionItem = React.memo(CallSessionItem, (prevProps, nextProps) => {
+  return (
+    prevProps.messages.length === nextProps.messages.length &&
+    prevProps.messages.every((msg, index) => msg.message_id === nextProps.messages[index]?.message_id)
+  );
+});
 
-const MemoizedAttachmentPreview = React.memo(
-  AttachmentPreview,
-  (prevProps, nextProps) => {
-    return (
-      prevProps.attachment.file?.name === nextProps.attachment.file?.name &&
-      prevProps.attachment.previewUrl === nextProps.attachment.previewUrl &&
-      prevProps.index === nextProps.index
-    );
-  },
-);
+const MemoizedAttachmentPreview = React.memo(AttachmentPreview, (prevProps, nextProps) => {
+  return (
+    prevProps.attachment.file?.name === nextProps.attachment.file?.name &&
+    prevProps.attachment.previewUrl === nextProps.attachment.previewUrl &&
+    prevProps.index === nextProps.index
+  );
+});
 
 export const Conversation: React.FC = () => {
-  // Core state
   const [message, setMessage] = useState('');
-  const [inputValue, setInputValue] = useState(''); // Separate input state for debouncing
+  const [inputValue, setInputValue] = useState('');
   const [currentAttachments, setCurrentAttachments] = useState<ChatAttachmentInputState[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessageFromServer[]>([]);
-  // Search pill is visually off by default
-  const [isSearchActive, setIsSearchActive] = useState(false);
+  const [isSearchActive, setIsSearchActive] = useState(true);
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
-  // UI state
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
 
-  // Legacy Meera mapping state
   const [legacyUserId, setLegacyUserId] = useState<string | null>(null);
   const [hasLoadedLegacyHistory, setHasLoadedLegacyHistory] = useState(false);
 
-  // Loading states
   const [isSending, setIsSending] = useState(false);
   const [isAssistantTyping, setIsAssistantTyping] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isUserNearTop, setIsUserNearTop] = useState(false);
 
-  // Fetch state management
   const [fetchState, setFetchState] = useState<FetchState>({
     isLoading: false,
     currentPage: 0,
@@ -143,10 +118,8 @@ export const Conversation: React.FC = () => {
     abortController: null,
   });
 
-  // Dynamic height
   const [dynamicMaxHeight, setDynamicMaxHeight] = useState(200);
 
-  // Refs
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputAreaRef = useRef<AttachmentInputAreaRef>(null);
   const lastOptimisticMessageIdRef = useRef<string | null>(null);
@@ -155,7 +128,6 @@ export const Conversation: React.FC = () => {
   const justSentMessageRef = useRef(false);
   const spacerRef = useRef<HTMLDivElement>(null);
 
-  // New refs for height calculation
   const headerRef = useRef<HTMLElement>(null);
   const footerRef = useRef<HTMLElement>(null);
   const latestUserMessageRef = useRef<HTMLDivElement | null>(null);
@@ -165,17 +137,14 @@ export const Conversation: React.FC = () => {
   const cleanupFunctions = useRef<Array<() => void>>([]);
   const chatMessagesRef = useRef<ChatMessageFromServer[]>(chatMessages);
 
-  // Scroll handling refs
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastScrollTop = useRef(0);
   const isScrollingUp = useRef(false);
   const previousScrollHeight = useRef(0);
 
-  // Scroll direction detection
   const lastScrollTopRef = useRef(0);
   const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
 
-  // Hooks
   const { data: sessionData, status: sessionStatus } = useSession();
   const {
     data: subscriptionData,
@@ -185,12 +154,10 @@ export const Conversation: React.FC = () => {
   const { showToast } = useToast();
   const { openModal } = usePricingModal();
 
-  // Update chatMessagesRef when chatMessages changes
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
-  // Debounced input handling
   const debouncedSetMessage = useMemo(
     () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
     [],
@@ -203,17 +170,13 @@ export const Conversation: React.FC = () => {
   const lastFailedMessageId = useMemo(() => {
     for (let i = chatMessages.length - 1; i >= 0; i--) {
       const msg = chatMessages[i];
-      if (msg.content_type === 'user' && msg.failed) {
-        return msg.message_id;
-      }
+      if (msg.content_type === 'user' && msg.failed) return msg.message_id;
     }
     return null;
   }, [chatMessages]);
 
-  // Simple height calculation function
   const calculateMinHeight = useCallback(() => {
     const viewportHeight = window.innerHeight;
-
     const headerHeight = headerRef.current?.offsetHeight || 80;
     const footerHeight = (footerRef.current?.offsetHeight || 0) - 45;
     const userMessageHeight = latestUserMessageRef.current?.offsetHeight || 0;
@@ -226,7 +189,6 @@ export const Conversation: React.FC = () => {
     setDynamicMinHeight(calculatedMinHeight);
   }, []);
 
-  // Optimized message processing
   const processMessagesForDisplay = useCallback(
     (messages: ChatMessageFromServer[]): [string, ChatDisplayItem[]][] => {
       const grouped: Record<string, ChatDisplayItem[]> = {};
@@ -237,9 +199,7 @@ export const Conversation: React.FC = () => {
 
         msgs.forEach((msg) => {
           if (msg.is_call && msg.session_id) {
-            if (!callSessions[msg.session_id]) {
-              callSessions[msg.session_id] = [];
-            }
+            if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
             callSessions[msg.session_id].push(msg);
           } else {
             displayItems.push({ type: 'message', message: msg, id: msg.message_id });
@@ -275,16 +235,14 @@ export const Conversation: React.FC = () => {
         const tsMatch = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})/);
         const dateKey = tsMatch ? tsMatch[0] : 'unknown';
 
-        if (!grouped[dateKey]) {
-          grouped[dateKey] = [];
-        }
+        if (!grouped[dateKey]) grouped[dateKey] = [];
         grouped[dateKey].push(item);
       });
 
-      return Object.entries(grouped).sort(([dateKeyA], [dateKeyB]) => {
-        if (dateKeyA === 'unknown') return 1;
-        if (dateKeyB === 'unknown') return -1;
-        return dateKeyA.localeCompare(dateKeyB);
+      return Object.entries(grouped).sort(([a], [b]) => {
+        if (a === 'unknown') return 1;
+        if (b === 'unknown') return -1;
+        return a.localeCompare(b);
       });
     },
     [],
@@ -302,15 +260,11 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  // Scroll to bottom only when near bottom, unless forced
+  // Auto-scroll only when forced (send and initial loads)
   const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
     const el = mainScrollRef.current;
     if (!el) return;
-
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const isNearBottom = distanceFromBottom <= 120;
-
-    if (!force && !isNearBottom) return;
+    if (!force) return;
 
     requestAnimationFrame(() => {
       el.scrollTo({
@@ -320,11 +274,7 @@ export const Conversation: React.FC = () => {
     });
   }, []);
 
-  /**
-   * LEGACY MEERA REVIVE
-   */
-
-  // Step 1: find legacy user id by email
+  // Legacy user id by email
   useEffect(() => {
     const email = sessionData?.user?.email;
     if (!email) return;
@@ -338,14 +288,7 @@ export const Conversation: React.FC = () => {
           .limit(1)
           .maybeSingle();
 
-        if (error) {
-          console.error('Error fetching legacy user', error);
-          return;
-        }
-
-        if (data?.id) {
-          setLegacyUserId(data.id as string);
-        }
+        if (!error && data?.id) setLegacyUserId(data.id as string);
       } catch (err) {
         console.error('Error fetching legacy user', err);
       }
@@ -354,7 +297,7 @@ export const Conversation: React.FC = () => {
     findLegacyUser();
   }, [sessionData?.user?.email]);
 
-  // Step 2: load legacy messages for that user_id
+  // Load legacy messages
   useEffect(() => {
     if (!legacyUserId || hasLoadedLegacyHistory) return;
 
@@ -368,13 +311,7 @@ export const Conversation: React.FC = () => {
           .eq('user_id', legacyUserId)
           .order('timestamp', { ascending: true });
 
-        if (error) {
-          console.error('Error loading legacy messages', error);
-          setIsInitialLoading(false);
-          return;
-        }
-
-        if (!data || data.length === 0) {
+        if (error || !data || data.length === 0) {
           setHasLoadedLegacyHistory(true);
           setIsInitialLoading(false);
           return;
@@ -409,21 +346,14 @@ export const Conversation: React.FC = () => {
     loadLegacyHistory();
   }, [legacyUserId, hasLoadedLegacyHistory, scrollToBottom]);
 
-  // Optimized chat history loading (new backend)
   const loadChatHistory = useCallback(
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey)) {
-        return requestCache.current.get(cacheKey);
-      }
-
+      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
-      if (fetchState.abortController && !isInitial) {
-        fetchState.abortController.abort();
-      }
-
+      if (fetchState.abortController && !isInitial) fetchState.abortController.abort();
       const abortController = new AbortController();
 
       const loadPromise = (async () => {
@@ -439,15 +369,11 @@ export const Conversation: React.FC = () => {
 
         try {
           const response = await chatService.getChatHistory(page);
-
           if (abortController.signal.aborted) return;
 
           if (response.data && response.data.length > 0) {
             const messages = response.data
-              .map((msg: ChatMessageFromServer) => ({
-                ...msg,
-                attachments: msg.attachments || [],
-              }))
+              .map((msg: ChatMessageFromServer) => ({ ...msg, attachments: msg.attachments || [] }))
               .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
             if (isInitial && !hasLoadedLegacyHistory) {
@@ -457,25 +383,19 @@ export const Conversation: React.FC = () => {
               });
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
-              if (scrollContainer) {
-                previousScrollHeight.current = scrollContainer.scrollHeight;
-              }
+              if (scrollContainer) previousScrollHeight.current = scrollContainer.scrollHeight;
 
               setChatMessages((prev) => {
-                const existingIds = new Set(prev.map((msg) => msg.message_id));
-                const newMessages = messages.filter(
-                  (msg) => !existingIds.has(msg.message_id),
-                );
+                const existingIds = new Set(prev.map((m) => m.message_id));
+                const newMessages = messages.filter((m) => !existingIds.has(m.message_id));
                 return [...newMessages, ...prev];
               });
             }
 
-            const hasMoreMessages = response.data.length >= 20;
-
             setFetchState((prev) => ({
               ...prev,
               isLoading: false,
-              hasMore: hasMoreMessages,
+              hasMore: response.data.length >= 20,
               error: null,
               abortController: null,
             }));
@@ -502,9 +422,7 @@ export const Conversation: React.FC = () => {
               (error as { code?: string }).code === 'NETWORK_ERROR') ||
               !navigator.onLine)
           ) {
-            setTimeout(() => {
-              loadChatHistory(page, isInitial, retryCount + 1);
-            }, 1000 * (retryCount + 1));
+            setTimeout(() => loadChatHistory(page, isInitial, retryCount + 1), 1000 * (retryCount + 1));
             return;
           }
 
@@ -534,7 +452,6 @@ export const Conversation: React.FC = () => {
 
       requestCache.current.set(cacheKey, loadPromise);
       loadPromise.finally(() => requestCache.current.delete(cacheKey));
-
       return loadPromise;
     },
     [
@@ -546,7 +463,6 @@ export const Conversation: React.FC = () => {
     ],
   );
 
-  // Throttled scroll handler
   const handleScrollInternal = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
@@ -559,20 +475,17 @@ export const Conversation: React.FC = () => {
         currentScrollTop > lastScrollTopRef.current
           ? 'down'
           : currentScrollTop < lastScrollTopRef.current
-          ? 'up'
-          : 'still';
+            ? 'up'
+            : 'still';
       lastScrollTopRef.current = currentScrollTop;
 
       if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
 
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      const isScrollingUpDirection = direction === 'up';
       const isNotAtBottom = distanceFromBottom > 100;
-
-      setShowScrollToBottom(isScrollingUpDirection && isNotAtBottom);
+      setShowScrollToBottom(direction === 'up' && isNotAtBottom);
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-
       setIsUserNearTop(scrollTop < SCROLL_THRESHOLD);
 
       if (
@@ -615,7 +528,7 @@ export const Conversation: React.FC = () => {
     setMessage('');
     setInputValue('');
     setCurrentAttachments([]);
-    if (attachmentInputAreaRef.current) attachmentInputAreaRef.current.clear();
+    attachmentInputAreaRef.current?.clear();
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
       inputRef.current.scrollTop = 0;
@@ -671,10 +584,7 @@ export const Conversation: React.FC = () => {
         e.preventDefault();
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
-        setTimeout(
-          () => inputRef.current && handleTextareaResize(inputRef.current, false),
-          10,
-        );
+        setTimeout(() => inputRef.current && handleTextareaResize(inputRef.current, false), 10);
       }
     },
     [handleTextareaResize],
@@ -685,8 +595,7 @@ export const Conversation: React.FC = () => {
       message,
       currentAttachments,
       chatMessages,
-      // Important: force logic path that treats search as OFF, so streaming works always
-      isSearchActive: false,
+      isSearchActive,
       isSending,
       setIsSending,
       setJustSentMessage: () => {
@@ -699,9 +608,7 @@ export const Conversation: React.FC = () => {
       clearAllInput,
       scrollToBottom,
       onMessageSent: () => {
-        setTimeout(() => {
-          calculateMinHeight();
-        }, 200);
+        setTimeout(() => calculateMinHeight(), 200);
       },
     });
 
@@ -742,22 +649,17 @@ export const Conversation: React.FC = () => {
     if (!initialLoadDone.current) {
       loadChatHistory(1, true);
       getSystemInfo();
-      if (inputRef.current) inputRef.current.focus();
+      inputRef.current?.focus();
       initialLoadDone.current = true;
     }
   }, [loadChatHistory]);
 
-  // Scroll once on send, never on completion or deltas unless user is near bottom
+  // ONLY scroll on send. No scrollIntoView shifting.
   useEffect(() => {
-    if (!justSentMessageRef.current) return;
-
-    const last = chatMessages[chatMessages.length - 1];
-    if (!last || last.content_type !== 'assistant') return;
-
-    requestAnimationFrame(() => {
+    if (justSentMessageRef.current) {
       scrollToBottom(true, true);
       justSentMessageRef.current = false;
-    });
+    }
   }, [chatMessages, scrollToBottom]);
 
   useEffect(() => {
@@ -765,33 +667,27 @@ export const Conversation: React.FC = () => {
     window.addEventListener('resize', debouncedHandleResize);
     const cleanup = () => window.removeEventListener('resize', debouncedHandleResize);
     cleanupFunctions.current.push(cleanup);
-
     return cleanup;
   }, [handleResize, debouncedHandleResize]);
 
   useEffect(() => {
     return () => {
-      currentAttachments.forEach((att) => {
-        if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
-      });
+      currentAttachments.forEach((att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl));
     };
   }, []);
 
   useEffect(() => {
     return () => {
-      if (fetchState.abortController) fetchState.abortController.abort();
-      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      fetchState.abortController?.abort();
 
-      const timeoutRef2 = scrollTimeoutRef2.current;
-      if (timeoutRef2) clearTimeout(timeoutRef2);
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
 
       cleanupFunctions.current.forEach((cleanup) => cleanup());
       cleanupFunctions.current = [];
       requestCache.current.clear();
 
-      currentAttachments.forEach((att) => {
-        if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
-      });
+      currentAttachments.forEach((att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl));
     };
   }, [fetchState.abortController, currentAttachments]);
 
@@ -822,11 +718,13 @@ export const Conversation: React.FC = () => {
           >
             <FiMenu size={20} className="text-primary" />
           </button>
+
           <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
             <h1 className="text-lg text-primary md:text-xl font-sans">
               {process.env.NEXT_PUBLIC_APP_NAME}
             </h1>
           </div>
+
           <button
             onClick={() => setShowMeeraVoice(true)}
             className="flex items-center justify-center w-9 p-2 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
@@ -837,11 +735,7 @@ export const Conversation: React.FC = () => {
         </div>
       </header>
 
-      <main
-        ref={mainScrollRef}
-        className="overflow-y-auto w-full scroll-pt-2.5"
-        onScroll={handleScroll}
-      >
+      <main ref={mainScrollRef} className="overflow-y-auto w-full scroll-pt-2.5" onScroll={handleScroll}>
         <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
           {isInitialLoading && (
             <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
@@ -868,7 +762,7 @@ export const Conversation: React.FC = () => {
           )}
 
           {!isInitialLoading && chatMessages.length > 0 && (
-            <div className="flex flex-col space-y-0 w-full ">
+            <div className="flex flex-col space-y-0 w-full">
               {fetchState.isLoading && isUserNearTop && (
                 <div className="flex justify-center py-4 sticky top-0 z-10">
                   <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
@@ -893,12 +787,7 @@ export const Conversation: React.FC = () => {
                     <div className="messages-container">
                       {messages.map((item) => {
                         if (item.type === 'call_session') {
-                          return (
-                            <MemoizedCallSessionItem
-                              key={item.id}
-                              messages={item.messages}
-                            />
-                          );
+                          return <MemoizedCallSessionItem key={item.id} messages={item.messages} />;
                         }
 
                         const msg = item.message;
@@ -911,8 +800,7 @@ export const Conversation: React.FC = () => {
                         const isLastFailedMessage = msg.message_id === lastFailedMessageId;
 
                         const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
-                        const effectiveThoughtText =
-                          currentThoughtText || storedThoughts || undefined;
+                        const effectiveThoughtText = currentThoughtText || storedThoughts || undefined;
 
                         const shouldShowTypingIndicator =
                           msg.content_type === 'assistant' &&
@@ -935,10 +823,10 @@ export const Conversation: React.FC = () => {
                               isLatestUserMessage
                                 ? latestUserMessageRef
                                 : isLatestAssistantMessage
-                                ? latestAssistantMessageRef
-                                : null
+                                  ? latestAssistantMessageRef
+                                  : null
                             }
-                            className="message-item-wrapper w-full transform-gpu will-change-transform "
+                            className="message-item-wrapper w-full transform-gpu will-change-transform"
                           >
                             <MemoizedRenderedMessageItem
                               message={msg}
@@ -973,12 +861,10 @@ export const Conversation: React.FC = () => {
               !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
                 <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
                   <span className="text-sm">
-                    Your subscription has expired.{` `}
+                    Your subscription has expired.{' '}
                     <span
                       className="text-primary font-medium cursor-pointer underline"
-                      onClick={() =>
-                        openModal('subscription_has_ended_renew_here_toast_clicked', true)
-                      }
+                      onClick={() => openModal('subscription_has_ended_renew_here_toast_clicked', true)}
                     >
                       Renew here
                     </span>
@@ -991,10 +877,8 @@ export const Conversation: React.FC = () => {
               subscriptionData?.plan_type !== 'paid' &&
               subscriptionData?.tokens_left != null &&
               subscriptionData.tokens_left <= 5000 && (
-                <div className="w-fit mx_auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
-                  <span className="text-sm">
-                    You have {subscriptionData?.tokens_left} tokens left.{` `}
-                  </span>
+                <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
+                  <span className="text-sm">You have {subscriptionData?.tokens_left} tokens left. </span>
                   <span
                     className="text-primary font-medium cursor-pointer underline"
                     onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
@@ -1007,12 +891,13 @@ export const Conversation: React.FC = () => {
             {showScrollToBottom && (
               <button
                 onClick={handleScrollToBottomClick}
-                className=" p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
+                className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
                 title="Scroll to bottom"
               >
                 <MdKeyboardArrowDown size={20} />
               </button>
             )}
+
             <div className="w-full pt-1 flex justify-center">
               <Toast position="conversation" />
             </div>
@@ -1062,10 +947,8 @@ export const Conversation: React.FC = () => {
                   <button
                     type="button"
                     onClick={stableCallbacks.toggleSearchActive}
-                    className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform  ${
-                      isSearchActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-gray-500 hover:bg-gray-50'
+                    className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform ${
+                      isSearchActive ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-50'
                     }`}
                     title="Search"
                   >
@@ -1110,9 +993,7 @@ export const Conversation: React.FC = () => {
         isOpen={showMeeraVoice}
         onClose={(wasConnected) => {
           setShowMeeraVoice(false);
-          if (wasConnected) {
-            loadChatHistory(1, true);
-          }
+          if (wasConnected) loadChatHistory(1, true);
         }}
       />
     </div>
