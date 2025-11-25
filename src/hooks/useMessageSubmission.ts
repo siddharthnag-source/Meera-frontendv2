@@ -24,13 +24,6 @@ interface UseMessageSubmissionProps {
   onMessageSent?: () => void;
 }
 
-interface ChatSendResponseData {
-  response: string;
-  thoughts?: string;
-  thoughtText?: string;
-  [key: string]: unknown;
-}
-
 export const useMessageSubmission = ({
   message,
   currentAttachments,
@@ -148,14 +141,17 @@ export const useMessageSubmission = ({
       setIsAssistantTyping(true);
 
       // Build files payload for backend (Supabase Edge Function / Gemini Files)
-      // NOTE: replace `path` later with your actual storage path / URL when you add storage.
-      const filesPayload = attachments.map((att) => ({
-        name: att.file.name,
-        mimeType: att.file.type,
-        size: att.file.size,
-        // Placeholder: if you later store in Supabase Storage, put that path here.
-        path: (att as any).storagePath || att.file.name,
-      }));
+      // Use an intersection type instead of `any` to satisfy ESLint.
+      const filesPayload = attachments.map((att) => {
+        const withStorage = att as ChatAttachmentInputState & { storagePath?: string };
+        return {
+          name: att.file.name,
+          mimeType: att.file.type,
+          size: att.file.size,
+          // This will be transformed to a real URL on the backend.
+          path: withStorage.storagePath || att.file.name,
+        };
+      });
 
       const systemInfo = await getSystemInfo();
 
@@ -163,68 +159,52 @@ export const useMessageSubmission = ({
 
       try {
         // Single unified streaming path (even when there are attachments).
-        // chatService.streamMessage MUST forward these fields into the JSON body:
-        // { message, messages, files, google_search, device, location, network }
-        const shouldStream = true;
+        await chatService.streamMessage({
+          message: trimmedMessage,
+          messages: chatMessages,
+          files: filesPayload,
+          google_search: isSearchActive,
+          device: systemInfo.device,
+          location: systemInfo.location,
+          network: systemInfo.network,
+          onDelta: (delta: string) => {
+            if (!assistantId) return;
 
-        if (shouldStream) {
-          let fullAssistantText = '';
+            setChatMessages((prev) =>
+              prev.map((msg) =>
+                msg.message_id === assistantId
+                  ? {
+                      ...msg,
+                      content: (msg.content || '') + delta,
+                      failed: false,
+                      try_number: tryNumber,
+                    }
+                  : msg,
+              ),
+            );
+          },
+          onDone: () => {
+            if (!assistantId) return;
 
-          await chatService.streamMessage({
-            message: trimmedMessage,
-            // history for the Edge Function / model context (optional but recommended)
-            messages: chatMessages,
-            // attachments for PDFs/images -> Gemini Files
-            files: filesPayload,
-            // web search toggle for backend if you want to respect it
-            google_search: isSearchActive,
-            // device info for analytics / prompt shaping if you want
-            device: systemInfo.device,
-            location: systemInfo.location,
-            network: systemInfo.network,
-            onDelta: (delta: string) => {
-              fullAssistantText += delta;
-              if (!assistantId) return;
+            setChatMessages((prev) =>
+              prev.map((msg) =>
+                msg.message_id === assistantId
+                  ? {
+                      ...msg,
+                      // content is already built incrementally in onDelta
+                      failed: false,
+                      try_number: tryNumber,
+                    }
+                  : msg,
+              ),
+            );
+          },
+          onError: (err: unknown) => {
+            throw err;
+          },
+        });
 
-              setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.message_id === assistantId
-                    ? {
-                        ...msg,
-                        content: (msg.content || '') + delta,
-                        failed: false,
-                        try_number: tryNumber,
-                      }
-                    : msg,
-                ),
-              );
-            },
-            onDone: () => {
-              if (!assistantId) return;
-
-              setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.message_id === assistantId
-                    ? {
-                        ...msg,
-                        content: msg.content || fullAssistantText,
-                        failed: false,
-                        try_number: tryNumber,
-                      }
-                    : msg,
-                ),
-              );
-            },
-            onError: (err: unknown) => {
-              throw err;
-            },
-          });
-
-          return;
-        }
-
-        // We no longer use non-streaming `sendMessage` here.
-        // All flows go through streaming + Edge Function.
+        return;
       } catch (error) {
         console.error('Error sending message:', error);
 
