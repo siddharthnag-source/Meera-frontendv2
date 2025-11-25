@@ -2,7 +2,14 @@
 
 import { ShowToastOptions } from '@/components/ui/ToastProvider';
 import { ChatAttachmentInputState } from '@/types/chat';
-import { MutableRefObject, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  MutableRefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import { uploadAttachmentToStorage } from '@/lib/uploadAttachment';
 
 interface UseDragAndDropProps {
   maxAttachments: number;
@@ -10,6 +17,8 @@ interface UseDragAndDropProps {
   setCurrentAttachments: (attachments: ChatAttachmentInputState[]) => void;
   showToast: (message: string, options: ShowToastOptions) => void;
   inputRef: MutableRefObject<HTMLTextAreaElement | null>;
+  // NEW (optional); default "anonymous" if not set
+  userId?: string;
 }
 
 export const useDragAndDrop = ({
@@ -18,18 +27,14 @@ export const useDragAndDrop = ({
   setCurrentAttachments,
   showToast,
   inputRef,
+  userId,
 }: UseDragAndDropProps) => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragCounterRef = useRef<number>(0);
+  const effectiveUserId = userId ?? 'anonymous';
 
-  const handleDrop = useCallback(
-    (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dragCounterRef.current = 0;
-      setIsDraggingOver(false);
-
-      const files = e.dataTransfer?.files;
+  const processFiles = useCallback(
+    async (files: FileList | null) => {
       if (!files || files.length === 0) return;
 
       const validFiles: ChatAttachmentInputState[] = [];
@@ -37,7 +42,9 @@ export const useDragAndDrop = ({
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (currentAttachments.length + validFiles.length >= maxAttachments) {
+        if (
+          currentAttachments.length + validFiles.length >= maxAttachments
+        ) {
           showToast(`You can select a maximum of ${maxAttachments} files.`, {
             type: 'error',
             position: 'conversation',
@@ -45,13 +52,30 @@ export const useDragAndDrop = ({
           break;
         }
 
-        if (file.type.startsWith('image/') || file.type === 'application/pdf') {
-          const type = file.type === 'application/pdf' ? 'document' : 'image';
-          validFiles.push({
-            file,
-            previewUrl: URL.createObjectURL(file),
-            type,
-          });
+        if (
+          file.type.startsWith('image/') ||
+          file.type === 'application/pdf'
+        ) {
+          try {
+            const storagePath = await uploadAttachmentToStorage(
+              effectiveUserId,
+              file,
+            );
+            const type =
+              file.type === 'application/pdf' ? 'document' : 'image';
+            validFiles.push({
+              file,
+              previewUrl: URL.createObjectURL(file),
+              type,
+              storagePath,
+            });
+          } catch (err) {
+            console.error('Drag-and-drop upload error', err);
+            showToast('Failed to upload file. Please try again.', {
+              type: 'error',
+              position: 'conversation',
+            });
+          }
         } else {
           invalidCount++;
         }
@@ -61,7 +85,6 @@ export const useDragAndDrop = ({
         const newAttachments = [...currentAttachments, ...validFiles];
         setCurrentAttachments(newAttachments);
 
-        // Focus the input field after dropping files
         if (inputRef.current) {
           setTimeout(() => {
             inputRef.current?.focus();
@@ -78,11 +101,25 @@ export const useDragAndDrop = ({
     },
     [
       currentAttachments,
+      effectiveUserId,
       inputRef,
       maxAttachments,
       setCurrentAttachments,
       showToast,
     ],
+  );
+
+  const handleDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounterRef.current = 0;
+      setIsDraggingOver(false);
+
+      const files = e.dataTransfer?.files ?? null;
+      void processFiles(files);
+    },
+    [processFiles],
   );
 
   useEffect(() => {
