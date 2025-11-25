@@ -1,15 +1,12 @@
 import { RefObject } from 'react';
 
 // Attachment type for the input state (e.g., when a user selects a file before sending)
+// Attachment type for the input state (e.g., when a user selects a file before sending)
 export interface ChatAttachmentInputState {
   type: 'image' | 'document';
   file: File;
   previewUrl: string;
-  /**
-   * Path of the object in Supabase Storage,
-   * e.g. "meera-attachments/user-123/1711660000000-Deck.pdf"
-   */
-  storagePath?: string;
+  storagePath?: string; // bucket + object path for Supabase Storage
 }
 
 // Attachment type as it's stored/displayed within a message
