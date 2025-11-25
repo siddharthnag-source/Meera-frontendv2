@@ -3,36 +3,87 @@
 import { chatService } from '@/app/api/services/chat';
 import { useToast } from '@/components/ui/ToastProvider';
 import { createLocalTimestamp } from '@/lib/dateUtils';
+import { supabase } from '@/lib/supabaseClient';
 import {
   ChatAttachmentInputState,
   ChatMessageFromServer,
 } from '@/types/chat';
-import React, { MutableRefObject, useCallback, useRef } from 'react';
+import React, {
+  MutableRefObject,
+  useCallback,
+  useRef,
+} from 'react';
 
 interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean;
+  isSearchActive: boolean; // still passed from Conversation, but we don't need it here
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setJustSentMessage: (justSent: boolean) => void;
   setCurrentThoughtText: (text: string) => void;
   lastOptimisticMessageIdRef: MutableRefObject<string | null>;
-  setChatMessages: React.Dispatch<
-    React.SetStateAction<ChatMessageFromServer[]>
-  >;
+  setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
   setIsAssistantTyping: (isTyping: boolean) => void;
   clearAllInput: () => void;
   scrollToBottom: (smooth?: boolean, force?: boolean) => void;
   onMessageSent?: () => void;
 }
 
+const ATTACHMENTS_BUCKET = 'attachments';
+
+type UploadedMeta = {
+  storagePath: string;
+  publicUrl: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  type: 'image' | 'document';
+};
+
+async function uploadAttachmentToStorage(file: File, type: 'image' | 'document'): Promise<UploadedMeta> {
+  const ext = file.name.includes('.') ? file.name.split('.').pop() || '' : '';
+  const randomSuffix = Math.random().toString(36).slice(2);
+  const path = `${Date.now()}-${randomSuffix}${ext ? '.' + ext : ''}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(ATTACHMENTS_BUCKET)
+    .upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+    });
+
+  if (uploadError) {
+    console.error('Supabase upload error', uploadError);
+    throw uploadError;
+  }
+
+  const { data } = supabase.storage
+    .from(ATTACHMENTS_BUCKET)
+    .getPublicUrl(path);
+
+  const publicUrl = data?.publicUrl || '';
+
+  if (!publicUrl) {
+    throw new Error('Failed to obtain public URL from Supabase');
+  }
+
+  return {
+    storagePath: path,
+    publicUrl,
+    name: file.name,
+    mimeType: file.type,
+    size: file.size,
+    type,
+  };
+}
+
 export const useMessageSubmission = ({
   message,
   currentAttachments,
   chatMessages,
-  isSearchActive,
+  // isSearchActive, // not needed inside this hook right now
   isSending,
   setIsSending,
   setJustSentMessage,
@@ -73,11 +124,11 @@ export const useMessageSubmission = ({
           name: att.file.name,
           type:
             att.file.type === 'application/pdf'
-              ? 'pdf'
+              ? 'document'
               : att.type === 'image'
               ? 'image'
-              : att.file.type || 'file',
-          url: att.previewUrl || '',
+              : 'file',
+          url: att.publicUrl || att.previewUrl || '',
           size: att.file.size,
           file: att.file,
         })),
@@ -108,14 +159,46 @@ export const useMessageSubmission = ({
 
       if (!hasText && !hasAttachments) return;
 
+      // STEP 1: upload all attachments to Supabase Storage
+      let uploaded: UploadedMeta[] = [];
+      if (hasAttachments) {
+        try {
+          uploaded = await Promise.all(
+            attachments.map((att) =>
+              uploadAttachmentToStorage(att.file, att.type),
+            ),
+          );
+        } catch (uploadErr) {
+          console.error('Upload failed', uploadErr);
+          showToast('Failed to upload file(s). Please try again.', {
+            type: 'error',
+            position: 'conversation',
+          });
+          return;
+        }
+      }
+
+      // Attach storagePath/publicUrl back onto attachments for optimistic UI
+      const attachmentsWithStorage: ChatAttachmentInputState[] = attachments.map(
+        (att, index) => {
+          const meta = uploaded[index];
+          if (!meta) return att;
+          return {
+            ...att,
+            storagePath: meta.storagePath,
+            publicUrl: meta.publicUrl,
+          };
+        },
+      );
+
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // New send: create user + assistant placeholders
+      // STEP 2: create optimistic user + assistant placeholders
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(
           optimisticId,
           trimmedMessage,
-          attachments,
+          attachmentsWithStorage,
         );
 
         const assistantMessageId = `assistant-${Date.now()}`;
@@ -155,27 +238,24 @@ export const useMessageSubmission = ({
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
 
-      // Build attachment metadata for Gemini
-      const attachmentMeta = attachments
-        .filter((att) => att.storagePath)
-        .map((att) => ({
-          name: att.file.name,
-          type: att.type,
-          mimeType: att.file.type,
-          size: att.file.size,
-          storagePath: att.storagePath,
-        }));
+      // STEP 3: build a payload message that includes public URLs
+      let payloadMessage = trimmedMessage;
 
-      // Wrap message + attachments into a Meera payload if there are files
-      const payloadMessage =
-        attachmentMeta.length > 0
-          ? JSON.stringify({
-              __meera_payload: 'v1',
-              text: trimmedMessage,
-              attachments: attachmentMeta,
-              google_search: isSearchActive,
-            })
-          : trimmedMessage;
+      if (uploaded.length > 0) {
+        const attachmentsTextLines = uploaded.map(
+          (meta) =>
+            `- ${meta.name} (${meta.mimeType}, ${meta.size} bytes): ${meta.publicUrl}`,
+        );
+
+        payloadMessage = [
+          trimmedMessage,
+          '',
+          'Attached files (public URLs, please open and read them):',
+          ...attachmentsTextLines,
+        ]
+          .filter(Boolean)
+          .join('\n');
+      }
 
       const assistantId =
         messageRelationshipMapRef.current.get(optimisticId);
@@ -269,7 +349,6 @@ export const useMessageSubmission = ({
       setIsAssistantTyping,
       showToast,
       onMessageSent,
-      isSearchActive,
     ],
   );
 
@@ -288,15 +367,12 @@ export const useMessageSubmission = ({
             const file = att.file as File;
             const blob = file.slice(0, file.size, file.type);
             const newFile = new File([blob], file.name, { type: file.type });
+            const isPdf = file.type === 'application/pdf';
+
             return {
               file: newFile,
               previewUrl: att.url,
-              type:
-                att.type === 'image' || att.type === 'document'
-                  ? (att.type as 'image' | 'document')
-                  : file.type === 'application/pdf'
-                  ? 'document'
-                  : 'image',
+              type: isPdf ? 'document' : 'image',
             };
           });
 
