@@ -13,13 +13,15 @@ interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean; // kept for future use if you want to include search flag in payload
+  isSearchActive: boolean;
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setJustSentMessage: (justSent: boolean) => void;
   setCurrentThoughtText: (text: string) => void;
   lastOptimisticMessageIdRef: MutableRefObject<string | null>;
-  setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
+  setChatMessages: React.Dispatch<
+    React.SetStateAction<ChatMessageFromServer[]>
+  >;
   setIsAssistantTyping: (isTyping: boolean) => void;
   clearAllInput: () => void;
   scrollToBottom: (smooth?: boolean, force?: boolean) => void;
@@ -30,7 +32,7 @@ export const useMessageSubmission = ({
   message,
   currentAttachments,
   chatMessages,
-  isSearchActive, // currently unused here but kept for compatibility
+  isSearchActive,
   isSending,
   setIsSending,
   setJustSentMessage,
@@ -155,10 +157,10 @@ export const useMessageSubmission = ({
 
       // Build attachment metadata for Gemini
       const attachmentMeta = attachments
-        .filter((att) => att.storagePath) // only ones that have been uploaded
+        .filter((att) => att.storagePath)
         .map((att) => ({
           name: att.file.name,
-          type: att.type, // 'image' | 'document'
+          type: att.type,
           mimeType: att.file.type,
           size: att.file.size,
           storagePath: att.storagePath,
@@ -171,7 +173,7 @@ export const useMessageSubmission = ({
               __meera_payload: 'v1',
               text: trimmedMessage,
               attachments: attachmentMeta,
-              // you can also tuck search flag here later if you want
+              google_search: isSearchActive,
             })
           : trimmedMessage;
 
@@ -217,7 +219,6 @@ export const useMessageSubmission = ({
             );
           },
           onError: (err) => {
-            // We rethrow so the outer catch handles the UI state
             throw err;
           },
         });
@@ -268,6 +269,7 @@ export const useMessageSubmission = ({
       setIsAssistantTyping,
       showToast,
       onMessageSent,
+      isSearchActive,
     ],
   );
 
@@ -279,7 +281,6 @@ export const useMessageSubmission = ({
       const nextTryNumber = currentTryNumber + 1;
       const failedMessageId = failedMessage.message_id;
 
-      // Recreate attachment input state from stored attachments
       const retryAttachments: ChatAttachmentInputState[] =
         messageAttachments
           .filter((att) => att.file)
@@ -296,7 +297,6 @@ export const useMessageSubmission = ({
                   : file.type === 'application/pdf'
                   ? 'document'
                   : 'image',
-              // storagePath will be added again by the upload flow
             };
           });
 
