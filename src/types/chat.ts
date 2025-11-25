@@ -70,11 +70,7 @@ export type ChatAttachmentInputState = {
   file: File;
   previewUrl?: string;
   type: 'image' | 'document';
-  /**
-   * Path of the object in Supabase Storage,
-   * e.g. "meera-attachments/user-123/1711660000000-Deck.pdf"
-   */
-  storagePath?: string;
+  storagePath?: string; // bucket + object path for Supabase Storage
 };
 
 export interface SaveInteractionPayload {
