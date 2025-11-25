@@ -15,7 +15,14 @@ import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { FiArrowUp, FiGlobe, FiMenu } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
@@ -61,34 +68,45 @@ type LegacyMessageRow = {
 };
 
 // Memoized components for better performance
-const MemoizedRenderedMessageItem = React.memo(RenderedMessageItem, (prevProps, nextProps) => {
-  return (
-    prevProps.message.message_id === nextProps.message.message_id &&
-    prevProps.message.content === nextProps.message.content &&
-    prevProps.isStreaming === nextProps.isStreaming &&
-    prevProps.isLastFailedMessage === nextProps.isLastFailedMessage &&
-    prevProps.message.failed === nextProps.message.failed &&
-    prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
-    prevProps.thoughtText === nextProps.thoughtText &&
-    prevProps.hasMinHeight === nextProps.hasMinHeight &&
-    prevProps.dynamicMinHeight === nextProps.dynamicMinHeight
-  );
-});
+const MemoizedRenderedMessageItem = React.memo(
+  RenderedMessageItem,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.message.message_id === nextProps.message.message_id &&
+      prevProps.message.content === nextProps.message.content &&
+      prevProps.isStreaming === nextProps.isStreaming &&
+      prevProps.isLastFailedMessage === nextProps.isLastFailedMessage &&
+      prevProps.message.failed === nextProps.message.failed &&
+      prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
+      prevProps.thoughtText === nextProps.thoughtText &&
+      prevProps.hasMinHeight === nextProps.hasMinHeight &&
+      prevProps.dynamicMinHeight === nextProps.dynamicMinHeight
+    );
+  },
+);
 
-const MemoizedCallSessionItem = React.memo(CallSessionItem, (prevProps, nextProps) => {
-  return (
-    prevProps.messages.length === nextProps.messages.length &&
-    prevProps.messages.every((msg, index) => msg.message_id === nextProps.messages[index]?.message_id)
-  );
-});
+const MemoizedCallSessionItem = React.memo(
+  CallSessionItem,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.messages.length === nextProps.messages.length &&
+      prevProps.messages.every(
+        (msg, index) => msg.message_id === nextProps.messages[index]?.message_id,
+      )
+    );
+  },
+);
 
-const MemoizedAttachmentPreview = React.memo(AttachmentPreview, (prevProps, nextProps) => {
-  return (
-    prevProps.attachment.file?.name === nextProps.attachment.file?.name &&
-    prevProps.attachment.previewUrl === nextProps.attachment.previewUrl &&
-    prevProps.index === nextProps.index
-  );
-});
+const MemoizedAttachmentPreview = React.memo(
+  AttachmentPreview,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.attachment.file?.name === nextProps.attachment.file?.name &&
+      prevProps.attachment.previewUrl === nextProps.attachment.previewUrl &&
+      prevProps.index === nextProps.index
+    );
+  },
+);
 
 export const Conversation: React.FC = () => {
   // Core state
@@ -96,7 +114,8 @@ export const Conversation: React.FC = () => {
   const [inputValue, setInputValue] = useState(''); // Separate input state for debouncing
   const [currentAttachments, setCurrentAttachments] = useState<ChatAttachmentInputState[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessageFromServer[]>([]);
-  const [isSearchActive, setIsSearchActive] = useState(true);
+  // Search pill is visually off by default
+  const [isSearchActive, setIsSearchActive] = useState(false);
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -425,7 +444,10 @@ export const Conversation: React.FC = () => {
 
           if (response.data && response.data.length > 0) {
             const messages = response.data
-              .map((msg: ChatMessageFromServer) => ({ ...msg, attachments: msg.attachments || [] }))
+              .map((msg: ChatMessageFromServer) => ({
+                ...msg,
+                attachments: msg.attachments || [],
+              }))
               .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
             if (isInitial && !hasLoadedLegacyHistory) {
@@ -441,7 +463,9 @@ export const Conversation: React.FC = () => {
 
               setChatMessages((prev) => {
                 const existingIds = new Set(prev.map((msg) => msg.message_id));
-                const newMessages = messages.filter((msg) => !existingIds.has(msg.message_id));
+                const newMessages = messages.filter(
+                  (msg) => !existingIds.has(msg.message_id),
+                );
                 return [...newMessages, ...prev];
               });
             }
@@ -647,7 +671,10 @@ export const Conversation: React.FC = () => {
         e.preventDefault();
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
-        setTimeout(() => inputRef.current && handleTextareaResize(inputRef.current, false), 10);
+        setTimeout(
+          () => inputRef.current && handleTextareaResize(inputRef.current, false),
+          10,
+        );
       }
     },
     [handleTextareaResize],
@@ -658,7 +685,8 @@ export const Conversation: React.FC = () => {
       message,
       currentAttachments,
       chatMessages,
-      isSearchActive,
+      // Important: force logic path that treats search as OFF, so streaming works always
+      isSearchActive: false,
       isSending,
       setIsSending,
       setJustSentMessage: () => {
@@ -865,7 +893,12 @@ export const Conversation: React.FC = () => {
                     <div className="messages-container">
                       {messages.map((item) => {
                         if (item.type === 'call_session') {
-                          return <MemoizedCallSessionItem key={item.id} messages={item.messages} />;
+                          return (
+                            <MemoizedCallSessionItem
+                              key={item.id}
+                              messages={item.messages}
+                            />
+                          );
                         }
 
                         const msg = item.message;
@@ -878,7 +911,8 @@ export const Conversation: React.FC = () => {
                         const isLastFailedMessage = msg.message_id === lastFailedMessageId;
 
                         const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
-                        const effectiveThoughtText = currentThoughtText || storedThoughts || undefined;
+                        const effectiveThoughtText =
+                          currentThoughtText || storedThoughts || undefined;
 
                         const shouldShowTypingIndicator =
                           msg.content_type === 'assistant' &&
@@ -939,7 +973,7 @@ export const Conversation: React.FC = () => {
               !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
                 <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
                   <span className="text-sm">
-                    Your subscription has expired.{' '}
+                    Your subscription has expired.{` `}
                     <span
                       className="text-primary font-medium cursor-pointer underline"
                       onClick={() =>
@@ -959,7 +993,7 @@ export const Conversation: React.FC = () => {
               subscriptionData.tokens_left <= 5000 && (
                 <div className="w-fit mx_auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
                   <span className="text-sm">
-                    You have {subscriptionData?.tokens_left} tokens left.{' '}
+                    You have {subscriptionData?.tokens_left} tokens left.{` `}
                   </span>
                   <span
                     className="text-primary font-medium cursor-pointer underline"
