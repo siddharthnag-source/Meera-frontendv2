@@ -108,8 +108,10 @@ const MemoizedAttachmentPreview = React.memo(
 );
 
 export const Conversation: React.FC = () => {
+  // text state: inputValue (what user types) + message (debounced version used for sending)
   const [message, setMessage] = useState('');
   const [inputValue, setInputValue] = useState('');
+
   const [currentAttachments, setCurrentAttachments] =
     useState<ChatAttachmentInputState[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessageFromServer[]>([]);
@@ -177,6 +179,7 @@ export const Conversation: React.FC = () => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
+  // keep message in sync with inputValue with a tiny debounce
   const debouncedSetMessage = useMemo(
     () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
     [],
@@ -212,7 +215,9 @@ export const Conversation: React.FC = () => {
     (messages: ChatMessageFromServer[]): [string, ChatDisplayItem[]][] => {
       const grouped: Record<string, ChatDisplayItem[]> = {};
 
-      const groupCallSessions = (msgs: ChatMessageFromServer[]): ChatDisplayItem[] => {
+      const groupCallSessions = (
+        msgs: ChatMessageFromServer[],
+      ): ChatDisplayItem[] => {
         const displayItems: ChatDisplayItem[] = [];
         const callSessions: Record<string, ChatMessageFromServer[]> = {};
 
@@ -282,6 +287,7 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
+  // Auto-scroll only when forced (send and initial loads)
   const scrollToBottom = useCallback(
     (smooth: boolean = true, force: boolean = false) => {
       const el = mainScrollRef.current;
@@ -331,9 +337,7 @@ export const Conversation: React.FC = () => {
 
         const { data, error } = await supabase
           .from('messages')
-          .select(
-            'message_id,user_id,content_type,content,timestamp,session_id,is_call',
-          )
+          .select('message_id,user_id,content_type,content,timestamp,session_id,is_call')
           .eq('user_id', legacyUserId)
           .order('timestamp', { ascending: true });
 
@@ -378,12 +382,10 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey))
-        return requestCache.current.get(cacheKey);
+      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
-      if (fetchState.abortController && !isInitial)
-        fetchState.abortController.abort();
+      if (fetchState.abortController && !isInitial) fetchState.abortController.abort();
       const abortController = new AbortController();
 
       const loadPromise = (async () => {
@@ -416,14 +418,12 @@ export const Conversation: React.FC = () => {
               });
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
-              if (scrollContainer)
-                previousScrollHeight.current = scrollContainer.scrollHeight;
+              if (scrollContainer) previousScrollHeight.current =
+                scrollContainer.scrollHeight;
 
               setChatMessages((prev) => {
                 const existingIds = new Set(prev.map((m) => m.message_id));
-                const newMessages = messages.filter(
-                  (m) => !existingIds.has(m.message_id),
-                );
+                const newMessages = messages.filter((m) => !existingIds.has(m.message_id));
                 return [...newMessages, ...prev];
               });
             }
@@ -534,9 +534,12 @@ export const Conversation: React.FC = () => {
         !fetchState.isLoading &&
         !isInitialLoading
       ) {
-        scrollTimeoutRef.current = setTimeout(() => {
-          loadChatHistory(fetchState.currentPage + 1, false);
-        }, FETCH_DEBOUNCE_MS);
+        scrollTimeoutRef.current = setTimeout(
+          () => {
+            loadChatHistory(fetchState.currentPage + 1, false);
+          },
+          FETCH_DEBOUNCE_MS,
+        );
       }
     },
     [
@@ -638,27 +641,30 @@ export const Conversation: React.FC = () => {
     [handleTextareaResize],
   );
 
-  const { handleSubmit, handleRetryMessage, getMostRecentAssistantMessageId } =
-    useMessageSubmission({
-      message,
-      currentAttachments,
-      chatMessages,
-      isSearchActive,
-      isSending,
-      setIsSending,
-      setJustSentMessage: () => {
-        justSentMessageRef.current = true;
-      },
-      setCurrentThoughtText,
-      lastOptimisticMessageIdRef,
-      setChatMessages,
-      setIsAssistantTyping,
-      clearAllInput,
-      scrollToBottom,
-      onMessageSent: () => {
-        setTimeout(() => calculateMinHeight(), 200);
-      },
-    });
+  const {
+    executeSubmission,
+    handleRetryMessage,
+    getMostRecentAssistantMessageId,
+  } = useMessageSubmission({
+    message,
+    currentAttachments,
+    chatMessages,
+    isSearchActive,
+    isSending,
+    setIsSending,
+    setJustSentMessage: () => {
+      justSentMessageRef.current = true;
+    },
+    setCurrentThoughtText,
+    lastOptimisticMessageIdRef,
+    setChatMessages,
+    setIsAssistantTyping,
+    clearAllInput,
+    scrollToBottom,
+    onMessageSent: () => {
+      setTimeout(() => calculateMinHeight(), 200);
+    },
+  });
 
   const { isDraggingOver } = useDragAndDrop({
     maxAttachments: MAX_ATTACHMENTS_CONFIG,
@@ -670,8 +676,7 @@ export const Conversation: React.FC = () => {
 
   const stableCallbacks = useMemo(
     () => ({
-      toggleSearchActive: () =>
-        setIsSearchActive((prev) => !prev),
+      toggleSearchActive: () => setIsSearchActive((prev) => !prev),
       handleRemoveAttachment: (indexToRemove: number) => {
         attachmentInputAreaRef.current?.removeAttachment(indexToRemove);
       },
@@ -681,11 +686,7 @@ export const Conversation: React.FC = () => {
   );
 
   useLayoutEffect(() => {
-    if (
-      !fetchState.isLoading &&
-      previousScrollHeight.current > 0 &&
-      mainScrollRef.current
-    ) {
+    if (!fetchState.isLoading && previousScrollHeight.current > 0 && mainScrollRef.current) {
       const scrollContainer = mainScrollRef.current;
       const heightDifference =
         scrollContainer.scrollHeight - previousScrollHeight.current;
@@ -708,6 +709,7 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
+  // ONLY scroll on send. No scrollIntoView shifting.
   useEffect(() => {
     if (justSentMessageRef.current) {
       scrollToBottom(true, true);
@@ -753,6 +755,16 @@ export const Conversation: React.FC = () => {
     scrollToBottom(true, true);
   }, [scrollToBottom]);
 
+  // single place that actually triggers sending
+  const handleFormSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!canSubmit) return;
+      executeSubmission(message, currentAttachments);
+    },
+    [executeSubmission, message, currentAttachments, canSubmit],
+  );
+
   return (
     <div className="grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative">
       {isDraggingOver && (
@@ -771,9 +783,7 @@ export const Conversation: React.FC = () => {
           <button
             onClick={() => setShowUserProfile(true)}
             className={`flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
-              sessionStatus === 'authenticated' && sessionData?.user?.image
-                ? ''
-                : 'p-2'
+              sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
             }`}
           >
             <FiMenu size={20} className="text-primary" />
@@ -803,40 +813,34 @@ export const Conversation: React.FC = () => {
         <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
           {isInitialLoading && (
             <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
             </div>
           )}
 
-          {fetchState.error &&
-            !isInitialLoading &&
-            chatMessages.length === 0 && (
-              <div className="flex flex-col justify-center items-center h-[calc(100vh-10rem)] text-center">
-                <p className="text-red-500 mb-2">{fetchState.error}</p>
-                <button
-                  onClick={stableCallbacks.handleRetryLoadHistory}
-                  className="px-4 py-2 bg-primary text-background rounded-md hover:bg-primary/90 transition-colors"
-                >
-                  Try Again
-                </button>
-              </div>
-            )}
+          {fetchState.error && !isInitialLoading && chatMessages.length === 0 && (
+            <div className="flex flex-col justify-center items-center h-[calc(100vh-10rem)] text-center">
+              <p className="text-red-500 mb-2">{fetchState.error}</p>
+              <button
+                onClick={stableCallbacks.handleRetryLoadHistory}
+                className="px-4 py-2 bg-primary text-background rounded-md hover:bg-primary/90 transition-colors"
+              >
+                Try Again
+              </button>
+            </div>
+          )}
 
-          {!isInitialLoading &&
-            !fetchState.error &&
-            chatMessages.length === 0 && (
-              <div className="flex justify-center items-center h-[calc(100vh-10rem)]">
-                <p className="text-primary/70">
-                  No messages yet. Start the conversation!
-                </p>
-              </div>
-            )}
+          {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
+            <div className="flex justify-center items-center h-[calc(100vh-10rem)]">
+              <p className="text-primary/70">No messages yet. Start the conversation!</p>
+            </div>
+          )}
 
           {!isInitialLoading && chatMessages.length > 0 && (
             <div className="flex flex-col space-y-0 w-full">
               {fetchState.isLoading && isUserNearTop && (
                 <div className="flex justify-center py-4 sticky top-0 z-10">
                   <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
                   </div>
                 </div>
               )}
@@ -875,9 +879,8 @@ export const Conversation: React.FC = () => {
                         const isLastFailedMessage =
                           msg.message_id === lastFailedMessageId;
 
-                        const storedThoughts = (msg as unknown as {
-                          thoughts?: string;
-                        }).thoughts;
+                        const storedThoughts = (msg as unknown as { thoughts?: string })
+                          .thoughts;
                         const effectiveThoughtText =
                           currentThoughtText || storedThoughts || undefined;
 
@@ -998,7 +1001,7 @@ export const Conversation: React.FC = () => {
           </div>
 
           <form
-            onSubmit={handleSubmit}
+            onSubmit={handleFormSubmit}
             className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]"
           >
             <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200 transform-gpu will-change-transform">
@@ -1033,9 +1036,15 @@ export const Conversation: React.FC = () => {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
+                    if (!canSubmit) return;
                     const form = e.currentTarget.form;
-                    if (form) {
+                    if (form && typeof form.requestSubmit === 'function') {
                       form.requestSubmit();
+                    } else {
+                      // fallback
+                      handleFormSubmit(
+                        e as unknown as React.FormEvent<HTMLFormElement>,
+                      );
                     }
                   }
                 }}
@@ -1068,7 +1077,7 @@ export const Conversation: React.FC = () => {
                     maxAttachments={MAX_ATTACHMENTS_CONFIG}
                     existingAttachments={currentAttachments}
                   >
-                    <span></span>
+                    <span />
                   </AttachmentInputArea>
 
                   <button
