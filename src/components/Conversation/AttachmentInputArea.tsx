@@ -2,7 +2,6 @@
 
 import { useToast } from '@/components/ui/ToastProvider';
 import { isIOS } from '@/lib/deviceInfo';
-import { supabase } from '@/lib/supabaseClient';
 import { ChatAttachmentInputState } from '@/types/chat';
 import React, {
   forwardRef,
@@ -15,63 +14,21 @@ import { CgAttachment } from 'react-icons/cg';
 import { AttachmentMenuComponent } from './AttachmentMenu';
 
 const MAX_ATTACHMENTS_DEFAULT = 10;
-const STORAGE_BUCKET =
-  process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET || 'attachments';
+const MAX_FILE_SIZE_MB = 25;
 
 interface AttachmentInputAreaProps {
   maxAttachments?: number;
   onAttachmentsChange: (attachments: ChatAttachmentInputState[]) => void;
-  messageValue: string; // for resetInputHeightState logic
+  messageValue: string;
   resetInputHeightState: () => void;
   children: React.ReactNode;
   existingAttachments?: ChatAttachmentInputState[];
 }
 
-// Imperative API used by Conversation
 export interface AttachmentInputAreaRef {
   clear: () => void;
   removeAttachment: (index: number) => void;
   processPastedFiles: (files: File[]) => void;
-}
-
-// Helper: make a unique path for Supabase Storage
-const buildStoragePath = (file: File) => {
-  const ext = file.name.split('.').pop() || 'bin';
-  const rand = Math.random().toString(36).slice(2);
-  return `${Date.now()}-${rand}.${ext}`;
-};
-
-// Helper: upload a single file to Supabase Storage
-async function uploadFileToStorage(file: File): Promise<{
-  storagePath: string;
-  publicUrl: string;
-} | null> {
-  try {
-    const path = buildStoragePath(file);
-
-    const { error } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .upload(path, file, {
-        cacheControl: '3600',
-        upsert: false,
-        contentType: file.type || undefined,
-      });
-
-    if (error) {
-      console.error('Supabase upload error', error);
-      return null;
-    }
-
-    const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-
-    return {
-      storagePath: path,
-      publicUrl: data.publicUrl,
-    };
-  } catch (err) {
-    console.error('Unexpected Supabase upload error', err);
-    return null;
-  }
 }
 
 export const AttachmentInputArea = forwardRef<
@@ -98,14 +55,13 @@ export const AttachmentInputArea = forwardRef<
     const { showToast } = useToast();
     const menuRef = useRef<HTMLDivElement>(null);
     const attachButtonRef = useRef<HTMLButtonElement>(null);
-    const attachmentsForCleanupRef =
-      useRef<ChatAttachmentInputState[]>(attachments);
+    const attachmentsForCleanupRef = useRef<ChatAttachmentInputState[]>(attachments);
 
     useEffect(() => {
       setIsIosDevice(isIOS());
     }, []);
 
-    // Keep local state in sync if parent provides attachments
+    // Keep internal state in sync if parent passes in attachments
     useEffect(() => {
       if (existingAttachments) {
         setAttachments(existingAttachments);
@@ -116,34 +72,39 @@ export const AttachmentInputArea = forwardRef<
       attachmentsForCleanupRef.current = attachments;
     }, [attachments]);
 
-    // Cleanup object URLs on unmount
+    // Cleanup any object URLs on unmount
     useEffect(() => {
       return () => {
         attachmentsForCleanupRef.current.forEach((att) => {
-          if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+          if (att.previewUrl) {
+            URL.revokeObjectURL(att.previewUrl);
+          }
         });
       };
     }, []);
 
     const internalClearAttachments = () => {
+      attachments.forEach((att) => {
+        if (att.previewUrl) {
+          URL.revokeObjectURL(att.previewUrl);
+        }
+      });
+
       setAttachments([]);
       onAttachmentsChange([]);
+
       if (messageValue === '') {
         resetInputHeightState();
       }
     };
 
-    const isValidFileType = (file: File): boolean => {
-      return file.type.startsWith('image/') || file.type === 'application/pdf';
-    };
+    const processFiles = (filesInput: FileList | File[] | null | undefined) => {
+      if (!filesInput) return;
 
-    // Core handler: validate + upload to Supabase + update state
-    const processFiles = async (files: FileList | null) => {
-      if (!files?.length) return;
+      const files = filesInput instanceof FileList ? Array.from(filesInput) : filesInput;
 
       const newAttachments: ChatAttachmentInputState[] = [];
-      let invalidCount = 0;
-      let uploadFailedCount = 0;
+      let rejectedCount = 0;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -156,60 +117,51 @@ export const AttachmentInputArea = forwardRef<
           break;
         }
 
-        if (!isValidFileType(file)) {
-          invalidCount++;
+        const sizeMb = file.size / (1024 * 1024);
+        if (sizeMb > MAX_FILE_SIZE_MB) {
+          rejectedCount++;
           continue;
         }
 
-        const uploadResult = await uploadFileToStorage(file);
-        if (!uploadResult) {
-          uploadFailedCount++;
-          continue;
-        }
+        const isImage = file.type.startsWith('image/');
+        const type: 'image' | 'document' = isImage ? 'image' : 'document';
 
         newAttachments.push({
           file,
           previewUrl: URL.createObjectURL(file),
-          type: file.type === 'application/pdf' ? 'document' : 'image',
-          storagePath: uploadResult.storagePath,
-          publicUrl: uploadResult.publicUrl,
+          type,
         });
       }
 
       if (newAttachments.length > 0) {
-        const updated = [...attachments, ...newAttachments];
-        setAttachments(updated);
-        onAttachmentsChange(updated);
+        const updatedAttachments = [...attachments, ...newAttachments];
+        setAttachments(updatedAttachments);
+        onAttachmentsChange(updatedAttachments);
       }
 
-      if (invalidCount > 0) {
-        showToast('Error uploading file. Only PDF and images are supported.', {
-          type: 'error',
-          position: 'conversation',
-        });
-      }
-
-      if (uploadFailedCount > 0) {
-        showToast('Failed to upload some files. Please try again.', {
-          type: 'error',
-          position: 'conversation',
-        });
+      if (rejectedCount > 0) {
+        showToast(
+          `Some files were skipped (unsupported type or larger than ${MAX_FILE_SIZE_MB} MB).`,
+          {
+            type: 'error',
+            position: 'conversation',
+          },
+        );
       }
     };
 
-    const handleFileSelection = (
-      event: React.ChangeEvent<HTMLInputElement>,
-    ) => {
-      void processFiles(event.target.files);
+    const handleFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
+      processFiles(event.target.files);
       setShowAttachMenu(false);
-      if (event.target) event.target.value = '';
+      if (event.target) {
+        event.target.value = '';
+      }
     };
 
     const handleDocumentAttachment = () => {
       const input = document.createElement('input');
       input.type = 'file';
       input.multiple = true;
-      input.accept = 'application/pdf';
       input.onchange = (e) =>
         handleFileSelection(
           e as unknown as React.ChangeEvent<HTMLInputElement>,
@@ -220,8 +172,8 @@ export const AttachmentInputArea = forwardRef<
     const handleImageAttachment = () => {
       const input = document.createElement('input');
       input.type = 'file';
-      input.multiple = true;
       input.accept = 'image/*';
+      input.multiple = true;
       input.onchange = (e) =>
         handleFileSelection(
           e as unknown as React.ChangeEvent<HTMLInputElement>,
@@ -235,11 +187,13 @@ export const AttachmentInputArea = forwardRef<
         URL.revokeObjectURL(attachmentToRemove.previewUrl);
       }
 
-      const updated = attachments.filter((_, idx) => idx !== indexToRemove);
-      setAttachments(updated);
-      onAttachmentsChange(updated);
+      const newAttachments = attachments.filter(
+        (_, index) => index !== indexToRemove,
+      );
+      setAttachments(newAttachments);
+      onAttachmentsChange(newAttachments);
 
-      if (updated.length === 0 && messageValue === '') {
+      if (newAttachments.length === 0 && messageValue === '') {
         resetInputHeightState();
       }
     };
@@ -249,7 +203,6 @@ export const AttachmentInputArea = forwardRef<
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = true;
-        input.accept = 'application/pdf,image/*';
         input.onchange = (e) =>
           handleFileSelection(
             e as unknown as React.ChangeEvent<HTMLInputElement>,
@@ -271,61 +224,19 @@ export const AttachmentInputArea = forwardRef<
           setShowAttachMenu(false);
         }
       };
-
       document.addEventListener('mousedown', handleClickOutside);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
       };
     }, []);
 
-    // Expose helpers to parent via ref
-useImperativeHandle(ref, () => ({
-  clear: internalClearAttachments,
-  removeAttachment,
-  processPastedFiles: (files: File[]) => {
-    if (!files || files.length === 0) return;
-
-    const allowedSlots = maxAttachments - attachments.length;
-    if (allowedSlots <= 0) {
-      showToast(`You can select a maximum of ${maxAttachments} files.`, {
-        type: 'error',
-        position: 'conversation',
-      });
-      return;
-    }
-
-    const limitedFiles = files.slice(0, allowedSlots);
-    const newAttachments: ChatAttachmentInputState[] = [];
-    let invalidCount = 0;
-
-    for (const file of limitedFiles) {
-      if (!isValidFileType(file)) {
-        invalidCount++;
-        continue;
-      }
-
-      newAttachments.push({
-        file,
-        previewUrl: URL.createObjectURL(file),
-        type: file.type === 'application/pdf' ? 'document' : 'image',
-      });
-    }
-
-    if (newAttachments.length > 0) {
-      const updated = [...attachments, ...newAttachments];
-      setAttachments(updated);
-      onAttachmentsChange(updated);
-    }
-
-    if (invalidCount > 0) {
-      showToast('Error uploading file. Only PDF and images are supported.', {
-        type: 'error',
-        position: 'conversation',
-      });
-    }
-  },
-}));
-
+    useImperativeHandle(ref, () => ({
+      clear: internalClearAttachments,
+      removeAttachment,
+      processPastedFiles: (files: File[]) => {
+        processFiles(files);
+      },
+    }));
 
     return (
       <div className="relative w-full">
