@@ -8,9 +8,9 @@ import { API_ENDPOINTS } from '../config';
 import { supabase } from '@/lib/supabaseClient';
 import { streamMeera } from '@/lib/streamMeera';
 
-const SUPABASE_CHAT_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_CHAT_URL ??
-  'https://xilapyewazpzlvqbbtgl.supabase.co/functions/v1/chat';
+const HIVE_API_URL =
+  process.env.NEXT_PUBLIC_HIVE_API_URL ??
+  'https://meera-hive-mind-agents-api-1.onrender.com';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -114,8 +114,7 @@ export const chatService = {
 
   /**
    * Non-streaming sendMessage.
-   * Calls Supabase Edge Function and persists both user and assistant messages.
-   * Includes conversation history for continuity.
+   * Calls Meera Hive Mind backend (Render) and persists both user and assistant messages.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
@@ -133,6 +132,8 @@ export const chatService = {
 
       const userId = session.user.id;
 
+      // We still fetch history for potential future use or analytics,
+      // but we do not need to send it to the Hive Mind API right now.
       const { data: historyRows, error: historyError } = await supabase
         .from('messages')
         .select('content_type, content, timestamp')
@@ -158,47 +159,44 @@ export const chatService = {
           content: row.content,
         }));
 
+      // Current message for local history (not sent to backend yet)
       historyForModel.push({ role: 'user', content: message });
 
-      const response = await fetch(SUPABASE_CHAT_URL, {
+      // Call Hive Mind backend on Render
+      const apiRes = await fetch(`${HIVE_API_URL}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(SUPABASE_ANON_KEY
-            ? {
-                apikey: SUPABASE_ANON_KEY,
-                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-              }
-            : {}),
         },
         body: JSON.stringify({
-          message,
-          messages: historyForModel,
-          userId,
+          user_id: userId,
+          user_message: message,
         }),
       });
 
-      if (!response.ok) {
-        const errorBody = (await response.json().catch(() => ({}))) as {
+      if (!apiRes.ok) {
+        const errorBody = (await apiRes.json().catch(() => ({}))) as {
           error?: string;
           detail?: string;
         };
 
         throw new ApiError(
           errorBody.error || errorBody.detail || 'Failed to get reply from Meera',
-          response.status,
+          apiRes.status,
           errorBody,
         );
       }
 
-      const body = (await response.json()) as {
-        reply: string;
-        thoughts?: string;
-        model?: string;
+      const body = (await apiRes.json()) as {
+        response: string;
+        intent?: string | null;
+        memory_ids?: string[] | null;
       };
 
+      const assistantText = body.response;
       const nowIso = new Date().toISOString();
 
+      // Persist both user and assistant messages in your `messages` table
       const { data: insertedRows, error: insertError } = await supabase
         .from('messages')
         .insert([
@@ -208,15 +206,15 @@ export const chatService = {
             content: message,
             timestamp: nowIso,
             is_call: false,
-            model: body.model ?? null,
+            model: null,
           },
           {
             user_id: userId,
             content_type: 'assistant',
-            content: body.reply,
+            content: assistantText,
             timestamp: nowIso,
             is_call: false,
-            model: body.model ?? null,
+            model: null,
           },
         ])
         .select('message_id, content_type, content, timestamp, model');
@@ -243,7 +241,7 @@ export const chatService = {
         : {
             message_id: crypto.randomUUID(),
             content_type: 'assistant',
-            content: body.reply,
+            content: assistantText,
             timestamp: nowIso,
             attachments: [],
             is_call: false,
@@ -255,11 +253,11 @@ export const chatService = {
       const chatResponse: ChatMessageResponse = {
         message: 'ok',
         data: {
-          response: body.reply,
+          response: assistantMessage.content,
         },
       };
 
-      // keep assistantMessage for DB correctness
+      // keep assistantMessage for DB correctness / potential future use
       void assistantMessage;
 
       return chatResponse;
@@ -271,7 +269,8 @@ export const chatService = {
 
   /**
    * Streaming version.
-   * Call this from a client-side hook or component only.
+   * Currently still uses Supabase Edge Function via streamMeera.
+   * We can later migrate this to stream directly from the Hive Mind backend.
    */
   async streamMessage({
     message,
