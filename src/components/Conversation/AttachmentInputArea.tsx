@@ -1,29 +1,12 @@
 'use client';
 
-import { useToast } from '@/components/ui/ToastProvider';
-import { isIOS } from '@/lib/deviceInfo';
-import { ChatAttachmentInputState } from '@/types/chat';
 import React, {
   forwardRef,
-  useEffect,
   useImperativeHandle,
   useRef,
-  useState,
 } from 'react';
-import { CgAttachment } from 'react-icons/cg';
-import { AttachmentMenuComponent } from './AttachmentMenu';
-
-const MAX_ATTACHMENTS_DEFAULT = 10;
-const MAX_FILE_SIZE_MB = 25;
-
-interface AttachmentInputAreaProps {
-  maxAttachments?: number;
-  onAttachmentsChange: (attachments: ChatAttachmentInputState[]) => void;
-  messageValue: string;
-  resetInputHeightState: () => void;
-  children: React.ReactNode;
-  existingAttachments?: ChatAttachmentInputState[];
-}
+import { supabase } from '@/lib/supabaseClient';
+import { ChatAttachmentInputState } from '@/types/chat';
 
 export interface AttachmentInputAreaRef {
   clear: () => void;
@@ -31,241 +14,142 @@ export interface AttachmentInputAreaRef {
   processPastedFiles: (files: File[]) => void;
 }
 
+interface Props {
+  onAttachmentsChange: (attachments: ChatAttachmentInputState[]) => void;
+  existingAttachments: ChatAttachmentInputState[];
+  maxAttachments: number;
+  messageValue: string;
+  resetInputHeightState: () => void;
+  children?: React.ReactNode;
+}
+
+const MAX_FILE_SIZE_MB = 25;
+
 export const AttachmentInputArea = forwardRef<
   AttachmentInputAreaRef,
-  AttachmentInputAreaProps
->(
-  (
-    {
-      maxAttachments = MAX_ATTACHMENTS_DEFAULT,
-      onAttachmentsChange,
-      messageValue,
-      resetInputHeightState,
-      children,
-      existingAttachments,
-    },
-    ref,
-  ) => {
-    const [attachments, setAttachments] = useState<ChatAttachmentInputState[]>(
-      existingAttachments || [],
-    );
-    const [showAttachMenu, setShowAttachMenu] = useState(false);
-    const [isIosDevice, setIsIosDevice] = useState(false);
+  Props
+>((props, ref) => {
+  const {
+    onAttachmentsChange,
+    existingAttachments,
+    maxAttachments,
+    children,
+  } = props;
 
-    const { showToast } = useToast();
-    const menuRef = useRef<HTMLDivElement>(null);
-    const attachButtonRef = useRef<HTMLButtonElement>(null);
-    const attachmentsForCleanupRef = useRef<ChatAttachmentInputState[]>(attachments);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-    useEffect(() => {
-      setIsIosDevice(isIOS());
-    }, []);
+  const uploadToSupabase = async (file: File) => {
+    try {
+      const ext = file.name.split('.').pop();
+      const path = `attachments/${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2)}.${ext}`;
 
-    // Keep internal state in sync if parent passes in attachments
-    useEffect(() => {
-      if (existingAttachments) {
-        setAttachments(existingAttachments);
+      const { error: uploadError } = await supabase.storage
+        .from('attachments')
+        .upload(path, file, { upsert: false });
+
+      if (uploadError) {
+        console.error(uploadError);
+        return null;
       }
-    }, [existingAttachments]);
 
-    useEffect(() => {
-      attachmentsForCleanupRef.current = attachments;
-    }, [attachments]);
-
-    // Cleanup any object URLs on unmount
-    useEffect(() => {
-      return () => {
-        attachmentsForCleanupRef.current.forEach((att) => {
-          if (att.previewUrl) {
-            URL.revokeObjectURL(att.previewUrl);
-          }
-        });
+      const { data } = supabase.storage.from('attachments').getPublicUrl(path);
+      return {
+        storagePath: path,
+        publicUrl: data.publicUrl,
       };
-    }, []);
+    } catch (err) {
+      console.error('Upload failed:', err);
+      return null;
+    }
+  };
 
-    const internalClearAttachments = () => {
-      attachments.forEach((att) => {
-        if (att.previewUrl) {
-          URL.revokeObjectURL(att.previewUrl);
-        }
+  const processFiles = async (files: FileList | File[]) => {
+    const processed: ChatAttachmentInputState[] = [];
+
+    for (const file of files) {
+      if (processed.length + existingAttachments.length >= maxAttachments) {
+        continue;
+      }
+
+      const sizeMb = file.size / (1024 * 1024);
+      if (sizeMb > MAX_FILE_SIZE_MB) {
+        continue;
+      }
+
+      const isImage = file.type.startsWith('image/');
+      const type: 'image' | 'document' = isImage ? 'image' : 'document';
+
+      const uploaded = await uploadToSupabase(file);
+      if (!uploaded) continue;
+
+      processed.push({
+        file,
+        previewUrl: URL.createObjectURL(file),
+        type,
+        storagePath: uploaded.storagePath,
+        publicUrl: uploaded.publicUrl,
       });
+    }
 
-      setAttachments([]);
+    if (processed.length > 0) {
+      onAttachmentsChange([...existingAttachments, ...processed]);
+    }
+  };
+
+  // Open OS file picker
+  const openFilePicker = () => {
+    fileInputRef.current?.click();
+  };
+
+  // Exposed functions for parent component
+  useImperativeHandle(ref, () => ({
+    clear: () => {
       onAttachmentsChange([]);
+    },
 
-      if (messageValue === '') {
-        resetInputHeightState();
-      }
-    };
+    removeAttachment: (index: number) => {
+      const updated = [...existingAttachments];
+      const removed = updated.splice(index, 1);
 
-    const processFiles = (filesInput: FileList | File[] | null | undefined) => {
-      if (!filesInput) return;
-
-      const files = filesInput instanceof FileList ? Array.from(filesInput) : filesInput;
-
-      const newAttachments: ChatAttachmentInputState[] = [];
-      let rejectedCount = 0;
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-
-        if (attachments.length + newAttachments.length >= maxAttachments) {
-          showToast(`You can select a maximum of ${maxAttachments} files.`, {
-            type: 'error',
-            position: 'conversation',
-          });
-          break;
-        }
-
-        const sizeMb = file.size / (1024 * 1024);
-        if (sizeMb > MAX_FILE_SIZE_MB) {
-          rejectedCount++;
-          continue;
-        }
-
-        const isImage = file.type.startsWith('image/');
-        const type: 'image' | 'document' = isImage ? 'image' : 'document';
-
-        newAttachments.push({
-          file,
-          previewUrl: URL.createObjectURL(file),
-          type,
-        });
+      if (removed[0]?.previewUrl) {
+        URL.revokeObjectURL(removed[0].previewUrl);
       }
 
-      if (newAttachments.length > 0) {
-        const updatedAttachments = [...attachments, ...newAttachments];
-        setAttachments(updatedAttachments);
-        onAttachmentsChange(updatedAttachments);
-      }
+      onAttachmentsChange(updated);
+    },
 
-      if (rejectedCount > 0) {
-        showToast(
-          `Some files were skipped (unsupported type or larger than ${MAX_FILE_SIZE_MB} MB).`,
-          {
-            type: 'error',
-            position: 'conversation',
-          },
-        );
-      }
-    };
+    processPastedFiles: async (files: File[]) => {
+      await processFiles(files);
+    },
+  }));
 
-    const handleFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
-      processFiles(event.target.files);
-      setShowAttachMenu(false);
-      if (event.target) {
-        event.target.value = '';
-      }
-    };
+  return (
+    <div className="relative">
+      {/* Hidden input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        multiple
+        accept="image/*,.pdf"
+        onChange={(e) => {
+          const files = e.target.files;
+          if (files && files.length > 0) processFiles(files);
+        }}
+      />
 
-    const handleDocumentAttachment = () => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.multiple = true;
-      input.onchange = (e) =>
-        handleFileSelection(
-          e as unknown as React.ChangeEvent<HTMLInputElement>,
-        );
-      input.click();
-    };
-
-    const handleImageAttachment = () => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.multiple = true;
-      input.onchange = (e) =>
-        handleFileSelection(
-          e as unknown as React.ChangeEvent<HTMLInputElement>,
-        );
-      input.click();
-    };
-
-    const removeAttachment = (indexToRemove: number) => {
-      const attachmentToRemove = attachments[indexToRemove];
-      if (attachmentToRemove?.previewUrl) {
-        URL.revokeObjectURL(attachmentToRemove.previewUrl);
-      }
-
-      const newAttachments = attachments.filter(
-        (_, index) => index !== indexToRemove,
-      );
-      setAttachments(newAttachments);
-      onAttachmentsChange(newAttachments);
-
-      if (newAttachments.length === 0 && messageValue === '') {
-        resetInputHeightState();
-      }
-    };
-
-    const toggleAttachMenu = () => {
-      if (isIosDevice) {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.multiple = true;
-        input.onchange = (e) =>
-          handleFileSelection(
-            e as unknown as React.ChangeEvent<HTMLInputElement>,
-          );
-        input.click();
-      } else {
-        setShowAttachMenu((prev) => !prev);
-      }
-    };
-
-    useEffect(() => {
-      const handleClickOutside = (event: MouseEvent) => {
-        if (
-          menuRef.current &&
-          !menuRef.current.contains(event.target as Node) &&
-          attachButtonRef.current &&
-          !attachButtonRef.current.contains(event.target as Node)
-        ) {
-          setShowAttachMenu(false);
-        }
-      };
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-      };
-    }, []);
-
-    useImperativeHandle(ref, () => ({
-      clear: internalClearAttachments,
-      removeAttachment,
-      processPastedFiles: (files: File[]) => {
-        processFiles(files);
-      },
-    }));
-
-    return (
-      <div className="relative w-full">
-        <div className="flex items-end w-full">
-          <div className="flex items-center">
-            <div className="relative">
-              <button
-                ref={attachButtonRef}
-                type="button"
-                onClick={toggleAttachMenu}
-                className="p-2.5 text-primary/70 hover:text-primary focus:outline-none transition-colors cursor-pointer"
-                title="Add files and photos"
-              >
-                <CgAttachment size={20} />
-              </button>
-              {!isIosDevice && showAttachMenu && (
-                <AttachmentMenuComponent
-                  menuRef={menuRef}
-                  handleDocumentAttachment={handleDocumentAttachment}
-                  handleImageAttachment={handleImageAttachment}
-                />
-              )}
-            </div>
-          </div>
-          {children}
-        </div>
-      </div>
-    );
-  },
-);
+      {/* Trigger button */}
+      <button
+        type="button"
+        onClick={openFilePicker}
+        className="p-2 rounded-full hover:bg-primary/10 text-primary transition-all"
+      >
+        {children}
+      </button>
+    </div>
+  );
+});
 
 AttachmentInputArea.displayName = 'AttachmentInputArea';
