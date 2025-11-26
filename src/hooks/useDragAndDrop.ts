@@ -2,7 +2,6 @@
 
 import { ShowToastOptions } from '@/components/ui/ToastProvider';
 import { ChatAttachmentInputState } from '@/types/chat';
-import { supabase } from '@/lib/supabaseClient';
 import {
   MutableRefObject,
   useCallback,
@@ -19,46 +18,7 @@ interface UseDragAndDropProps {
   inputRef: MutableRefObject<HTMLTextAreaElement | null>;
 }
 
-const STORAGE_BUCKET =
-  process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET || 'attachments';
-
-const buildStoragePath = (file: File) => {
-  const ext = file.name.split('.').pop() || 'bin';
-  const rand = Math.random().toString(36).slice(2);
-  return `${Date.now()}-${rand}.${ext}`;
-};
-
-async function uploadFileToStorage(file: File): Promise<{
-  storagePath: string;
-  publicUrl: string;
-} | null> {
-  try {
-    const path = buildStoragePath(file);
-
-    const { error } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .upload(path, file, {
-        cacheControl: '3600',
-        upsert: false,
-        contentType: file.type || undefined,
-      });
-
-    if (error) {
-      console.error('Supabase upload error (drag-drop)', error);
-      return null;
-    }
-
-    const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-
-    return {
-      storagePath: path,
-      publicUrl: data.publicUrl,
-    };
-  } catch (err) {
-    console.error('Unexpected Supabase upload error (drag-drop)', err);
-    return null;
-  }
-}
+const MAX_FILE_SIZE_MB = 25;
 
 export const useDragAndDrop = ({
   maxAttachments,
@@ -71,7 +31,7 @@ export const useDragAndDrop = ({
   const dragCounterRef = useRef<number>(0);
 
   const handleDrop = useCallback(
-    async (e: DragEvent) => {
+    (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       dragCounterRef.current = 0;
@@ -80,14 +40,13 @@ export const useDragAndDrop = ({
       const files = e.dataTransfer?.files;
       if (!files || files.length === 0) return;
 
-      const newAttachments: ChatAttachmentInputState[] = [];
-      let invalidCount = 0;
-      let uploadFailedCount = 0;
+      const validFiles: ChatAttachmentInputState[] = [];
+      let rejectedCount = 0;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
 
-        if (currentAttachments.length + newAttachments.length >= maxAttachments) {
+        if (currentAttachments.length + validFiles.length >= maxAttachments) {
           showToast(`You can select a maximum of ${maxAttachments} files.`, {
             type: 'error',
             position: 'conversation',
@@ -95,35 +54,25 @@ export const useDragAndDrop = ({
           break;
         }
 
-        const isValid =
-          file.type.startsWith('image/') || file.type === 'application/pdf';
-
-        if (!isValid) {
-          invalidCount++;
+        const sizeMb = file.size / (1024 * 1024);
+        if (sizeMb > MAX_FILE_SIZE_MB) {
+          rejectedCount++;
           continue;
         }
 
-        const uploadResult = await uploadFileToStorage(file);
-        if (!uploadResult) {
-          uploadFailedCount++;
-          continue;
-        }
+        const isImage = file.type.startsWith('image/');
+        const type: 'image' | 'document' = isImage ? 'image' : 'document';
 
-        const type =
-          file.type === 'application/pdf' ? 'document' : 'image';
-
-        newAttachments.push({
+        validFiles.push({
           file,
           previewUrl: URL.createObjectURL(file),
           type,
-          storagePath: uploadResult.storagePath,
-          publicUrl: uploadResult.publicUrl,
         });
       }
 
-      if (newAttachments.length > 0) {
-        const updated = [...currentAttachments, ...newAttachments];
-        setCurrentAttachments(updated);
+      if (validFiles.length > 0) {
+        const newAttachments = [...currentAttachments, ...validFiles];
+        setCurrentAttachments(newAttachments);
 
         if (inputRef.current) {
           setTimeout(() => {
@@ -132,27 +81,17 @@ export const useDragAndDrop = ({
         }
       }
 
-      if (invalidCount > 0) {
-        showToast('Error uploading file. Only PDF and images are supported.', {
-          type: 'error',
-          position: 'conversation',
-        });
-      }
-
-      if (uploadFailedCount > 0) {
-        showToast('Failed to upload some files. Please try again.', {
-          type: 'error',
-          position: 'conversation',
-        });
+      if (rejectedCount > 0) {
+        showToast(
+          `Some files were skipped (unsupported type or larger than ${MAX_FILE_SIZE_MB} MB).`,
+          {
+            type: 'error',
+            position: 'conversation',
+          },
+        );
       }
     },
-    [
-      currentAttachments,
-      inputRef,
-      maxAttachments,
-      setCurrentAttachments,
-      showToast,
-    ],
+    [currentAttachments, inputRef, maxAttachments, setCurrentAttachments, showToast],
   );
 
   useEffect(() => {
