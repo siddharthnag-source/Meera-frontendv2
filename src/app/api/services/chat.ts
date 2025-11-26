@@ -6,14 +6,6 @@ import {
 import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
 import { supabase } from '@/lib/supabaseClient';
-import { streamMeera } from '@/lib/streamMeera';
-
-const HIVE_API_URL =
-  process.env.NEXT_PUBLIC_HIVE_API_URL ??
-  'https://meera-hive-mind-agents-api-1.onrender.com';
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export class SessionExpiredError extends Error {
   constructor(message: string) {
@@ -51,6 +43,11 @@ type LLMHistoryMessage = {
 };
 
 const CONTEXT_WINDOW = 20;
+
+// Main Hive Mind backend URL (Render)
+const HIVE_API_URL =
+  process.env.NEXT_PUBLIC_HIVE_API_URL ??
+  'https://meera-hive-mind-agents-api-1.onrender.com';
 
 export const chatService = {
   /**
@@ -114,7 +111,7 @@ export const chatService = {
 
   /**
    * Non-streaming sendMessage.
-   * Calls Meera Hive Mind backend (Render) and persists both user and assistant messages.
+   * Calls Hive Mind backend on Render and persists both user and assistant messages.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
     const message = (formData.get('message') as string) || '';
@@ -132,8 +129,7 @@ export const chatService = {
 
       const userId = session.user.id;
 
-      // We still fetch history for potential future use or analytics,
-      // but we do not need to send it to the Hive Mind API right now.
+      // Optional: fetch last N messages for context (if you want to send history to backend)
       const { data: historyRows, error: historyError } = await supabase
         .from('messages')
         .select('content_type, content, timestamp')
@@ -159,11 +155,10 @@ export const chatService = {
           content: row.content,
         }));
 
-      // Current message for local history (not sent to backend yet)
       historyForModel.push({ role: 'user', content: message });
 
-      // Call Hive Mind backend on Render
-      const apiRes = await fetch(`${HIVE_API_URL}/chat`, {
+      // Call Hive Mind backend (Render)
+      const response = await fetch(`${HIVE_API_URL}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -171,32 +166,34 @@ export const chatService = {
         body: JSON.stringify({
           user_id: userId,
           user_message: message,
+          // If in future you want to send history:
+          // history: historyForModel,
         }),
       });
 
-      if (!apiRes.ok) {
-        const errorBody = (await apiRes.json().catch(() => ({}))) as {
+      if (!response.ok) {
+        const errorBody = (await response.json().catch(() => ({}))) as {
           error?: string;
           detail?: string;
         };
 
         throw new ApiError(
-          errorBody.error || errorBody.detail || 'Failed to get reply from Meera',
-          apiRes.status,
+          errorBody.error || errorBody.detail || 'Failed to get reply from Meera (Hive Mind)',
+          response.status,
           errorBody,
         );
       }
 
-      const body = (await apiRes.json()) as {
+      const body = (await response.json()) as {
         response: string;
         intent?: string | null;
         memory_ids?: string[] | null;
+        [key: string]: unknown;
       };
 
-      const assistantText = body.response;
       const nowIso = new Date().toISOString();
 
-      // Persist both user and assistant messages in your `messages` table
+      // Persist both user and assistant messages for UI history
       const { data: insertedRows, error: insertError } = await supabase
         .from('messages')
         .insert([
@@ -211,7 +208,7 @@ export const chatService = {
           {
             user_id: userId,
             content_type: 'assistant',
-            content: assistantText,
+            content: body.response,
             timestamp: nowIso,
             is_call: false,
             model: null,
@@ -223,42 +220,16 @@ export const chatService = {
         console.error('sendMessage: failed to save messages to DB', insertError);
       }
 
-      const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.find(
-        (row) => row.content_type === 'assistant',
-      );
-
-      const assistantMessage: ChatMessageFromServer = dbAssistantRow
-        ? {
-            message_id: dbAssistantRow.message_id,
-            content_type: 'assistant',
-            content: dbAssistantRow.content,
-            timestamp: dbAssistantRow.timestamp,
-            attachments: [],
-            is_call: false,
-            failed: false,
-            finish_reason: null,
-          }
-        : {
-            message_id: crypto.randomUUID(),
-            content_type: 'assistant',
-            content: assistantText,
-            timestamp: nowIso,
-            attachments: [],
-            is_call: false,
-            failed: false,
-            finish_reason: null,
-          };
-
-      // Return only what ChatMessageResponseData allows
+      // We only need a minimal response for the UI here
       const chatResponse: ChatMessageResponse = {
         message: 'ok',
         data: {
-          response: assistantMessage.content,
+          response: body.response,
         },
       };
 
-      // keep assistantMessage for DB correctness / potential future use
-      void assistantMessage;
+      // (assistant row is still saved above for history)
+      void insertedRows;
 
       return chatResponse;
     } catch (err) {
@@ -268,9 +239,9 @@ export const chatService = {
   },
 
   /**
-   * Streaming version.
-   * Currently still uses Supabase Edge Function via streamMeera.
-   * We can later migrate this to stream directly from the Hive Mind backend.
+   * "Streaming" version for the UI, but implemented on top of the Hive Mind backend.
+   * It calls the Render API once, then pushes the full reply as a single delta and onDone.
+   * No Supabase Edge Function is used anymore.
    */
   async streamMessage({
     message,
@@ -286,10 +257,6 @@ export const chatService = {
     signal?: AbortSignal;
   }): Promise<void> {
     try {
-      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
-      }
-
       const {
         data: { session },
         error: sessionError,
@@ -301,8 +268,8 @@ export const chatService = {
       }
 
       const userId = session.user.id;
-      const userNowIso = new Date().toISOString();
 
+      // Optional history fetch, kept in case you want to send it later
       const { data: historyRows, error: historyError } = await supabase
         .from('messages')
         .select('content_type, content, timestamp')
@@ -330,6 +297,8 @@ export const chatService = {
 
       historyForModel.push({ role: 'user', content: message });
 
+      // First save the user message to DB
+      const userNowIso = new Date().toISOString();
       const { error: userInsertError } = await supabase.from('messages').insert([
         {
           user_id: userId,
@@ -345,68 +314,93 @@ export const chatService = {
         console.error('streamMessage: failed to save user message', userInsertError);
       }
 
-      let assistantText = '';
-
-      await streamMeera({
-        supabaseUrl: SUPABASE_URL,
-        supabaseAnonKey: SUPABASE_ANON_KEY,
-        messages: historyForModel,
-        onAnswerDelta: (delta) => {
-          assistantText += delta;
-          onDelta(delta);
+      // Call Hive Mind backend (same as sendMessage, but we adapt to streaming callbacks)
+      const response = await fetch(`${HIVE_API_URL}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        onDone: async () => {
-          const assistantNowIso = new Date().toISOString();
-
-          const { data: insertedRows, error: assistantInsertError } = await supabase
-            .from('messages')
-            .insert([
-              {
-                user_id: userId,
-                content_type: 'assistant',
-                content: assistantText,
-                timestamp: assistantNowIso,
-                is_call: false,
-                model: null,
-              },
-            ])
-            .select('message_id, content_type, content, timestamp, model');
-
-          if (assistantInsertError) {
-            console.error('streamMessage: failed to save assistant message', assistantInsertError);
-          }
-
-          const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
-
-          const assistantMessage: ChatMessageFromServer = dbAssistantRow
-            ? {
-                message_id: dbAssistantRow.message_id,
-                content_type: 'assistant',
-                content: dbAssistantRow.content,
-                timestamp: dbAssistantRow.timestamp,
-                attachments: [],
-                is_call: false,
-                failed: false,
-                finish_reason: null,
-              }
-            : {
-                message_id: crypto.randomUUID(),
-                content_type: 'assistant',
-                content: assistantText,
-                timestamp: assistantNowIso,
-                attachments: [],
-                is_call: false,
-                failed: false,
-                finish_reason: null,
-              };
-
-          onDone?.(assistantMessage);
-        },
-        onError: (err) => {
-          onError?.(err);
-        },
+        body: JSON.stringify({
+          user_id: userId,
+          user_message: message,
+          // history: historyForModel,
+        }),
         signal,
       });
+
+      if (!response.ok) {
+        const errorBody = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          detail?: string;
+        };
+
+        throw new ApiError(
+          errorBody.error || errorBody.detail || 'Failed to get reply from Meera (Hive Mind)',
+          response.status,
+          errorBody,
+        );
+      }
+
+      const body = (await response.json()) as {
+        response: string;
+        intent?: string | null;
+        memory_ids?: string[] | null;
+        [key: string]: unknown;
+      };
+
+      const assistantText = body.response ?? '';
+
+      // Push the whole answer as one "delta" to keep your existing UI happy
+      if (assistantText) {
+        onDelta(assistantText);
+      }
+
+      const assistantNowIso = new Date().toISOString();
+
+      // Save assistant message to DB for history
+      const { data: insertedRows, error: assistantInsertError } = await supabase
+        .from('messages')
+        .insert([
+          {
+            user_id: userId,
+            content_type: 'assistant',
+            content: assistantText,
+            timestamp: assistantNowIso,
+            is_call: false,
+            model: null,
+          },
+        ])
+        .select('message_id, content_type, content, timestamp, model');
+
+      if (assistantInsertError) {
+        console.error('streamMessage: failed to save assistant message', assistantInsertError);
+      }
+
+      const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
+
+      const assistantMessage: ChatMessageFromServer = dbAssistantRow
+        ? {
+            message_id: dbAssistantRow.message_id,
+            content_type: 'assistant',
+            content: dbAssistantRow.content,
+            timestamp: dbAssistantRow.timestamp,
+            attachments: [],
+            is_call: false,
+            failed: false,
+            finish_reason: null,
+          }
+        : {
+            message_id: crypto.randomUUID(),
+            content_type: 'assistant',
+            content: assistantText,
+            timestamp: assistantNowIso,
+            attachments: [],
+            is_call: false,
+            failed: false,
+            finish_reason: null,
+          };
+
+      onDone?.(assistantMessage);
     } catch (err) {
       console.error('Error in streamMessage:', err);
       onError?.(err);
