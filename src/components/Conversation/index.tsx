@@ -15,7 +15,14 @@ import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { FiArrowUp, FiGlobe, FiMenu } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
@@ -60,39 +67,51 @@ type LegacyMessageRow = {
   is_call: boolean | null;
 };
 
-const MemoizedRenderedMessageItem = React.memo(RenderedMessageItem, (prevProps, nextProps) => {
-  return (
-    prevProps.message.message_id === nextProps.message.message_id &&
-    prevProps.message.content === nextProps.message.content &&
-    prevProps.isStreaming === nextProps.isStreaming &&
-    prevProps.isLastFailedMessage === nextProps.isLastFailedMessage &&
-    prevProps.message.failed === nextProps.message.failed &&
-    prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
-    prevProps.thoughtText === nextProps.thoughtText &&
-    prevProps.hasMinHeight === nextProps.hasMinHeight &&
-    prevProps.dynamicMinHeight === nextProps.dynamicMinHeight
-  );
-});
+const MemoizedRenderedMessageItem = React.memo(
+  RenderedMessageItem,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.message.message_id === nextProps.message.message_id &&
+      prevProps.message.content === nextProps.message.content &&
+      prevProps.isStreaming === nextProps.isStreaming &&
+      prevProps.isLastFailedMessage === nextProps.isLastFailedMessage &&
+      prevProps.message.failed === nextProps.message.failed &&
+      prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
+      prevProps.thoughtText === nextProps.thoughtText &&
+      prevProps.hasMinHeight === nextProps.hasMinHeight &&
+      prevProps.dynamicMinHeight === nextProps.dynamicMinHeight
+    );
+  },
+);
 
-const MemoizedCallSessionItem = React.memo(CallSessionItem, (prevProps, nextProps) => {
-  return (
-    prevProps.messages.length === nextProps.messages.length &&
-    prevProps.messages.every((msg, index) => msg.message_id === nextProps.messages[index]?.message_id)
-  );
-});
+const MemoizedCallSessionItem = React.memo(
+  CallSessionItem,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.messages.length === nextProps.messages.length &&
+      prevProps.messages.every(
+        (msg, index) => msg.message_id === nextProps.messages[index]?.message_id,
+      )
+    );
+  },
+);
 
-const MemoizedAttachmentPreview = React.memo(AttachmentPreview, (prevProps, nextProps) => {
-  return (
-    prevProps.attachment.file?.name === nextProps.attachment.file?.name &&
-    prevProps.attachment.previewUrl === nextProps.attachment.previewUrl &&
-    prevProps.index === nextProps.index
-  );
-});
+const MemoizedAttachmentPreview = React.memo(
+  AttachmentPreview,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.attachment.file?.name === nextProps.attachment.file?.name &&
+      prevProps.attachment.previewUrl === nextProps.attachment.previewUrl &&
+      prevProps.index === nextProps.index
+    );
+  },
+);
 
 export const Conversation: React.FC = () => {
   const [message, setMessage] = useState('');
   const [inputValue, setInputValue] = useState('');
-  const [currentAttachments, setCurrentAttachments] = useState<ChatAttachmentInputState[]>([]);
+  const [currentAttachments, setCurrentAttachments] =
+    useState<ChatAttachmentInputState[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessageFromServer[]>([]);
   const [isSearchActive, setIsSearchActive] = useState(true);
   const [currentThoughtText, setCurrentThoughtText] = useState('');
@@ -222,8 +241,10 @@ export const Conversation: React.FC = () => {
         }
 
         return displayItems.sort((a, b) => {
-          const timestampA = a.type === 'message' ? a.message.timestamp : a.timestamp;
-          const timestampB = b.type === 'message' ? b.message.timestamp : b.timestamp;
+          const timestampA =
+            a.type === 'message' ? a.message.timestamp : a.timestamp;
+          const timestampB =
+            b.type === 'message' ? b.message.timestamp : b.timestamp;
           return timestampA.localeCompare(timestampB);
         });
       };
@@ -231,7 +252,8 @@ export const Conversation: React.FC = () => {
       const displayItems = groupCallSessions(messages);
 
       displayItems.forEach((item) => {
-        const timestamp = item.type === 'message' ? item.message.timestamp : item.timestamp;
+        const timestamp =
+          item.type === 'message' ? item.message.timestamp : item.timestamp;
         const tsMatch = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})/);
         const dateKey = tsMatch ? tsMatch[0] : 'unknown';
 
@@ -260,19 +282,21 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  // Auto-scroll only when forced (send and initial loads)
-  const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
-    const el = mainScrollRef.current;
-    if (!el) return;
-    if (!force) return;
+  const scrollToBottom = useCallback(
+    (smooth: boolean = true, force: boolean = false) => {
+      const el = mainScrollRef.current;
+      if (!el) return;
+      if (!force) return;
 
-    requestAnimationFrame(() => {
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: smooth ? 'smooth' : 'auto',
+      requestAnimationFrame(() => {
+        el.scrollTo({
+          top: el.scrollHeight,
+          behavior: smooth ? 'smooth' : 'auto',
+        });
       });
-    });
-  }, []);
+    },
+    [],
+  );
 
   // Legacy user id by email
   useEffect(() => {
@@ -307,7 +331,9 @@ export const Conversation: React.FC = () => {
 
         const { data, error } = await supabase
           .from('messages')
-          .select('message_id,user_id,content_type,content,timestamp,session_id,is_call')
+          .select(
+            'message_id,user_id,content_type,content,timestamp,session_id,is_call',
+          )
           .eq('user_id', legacyUserId)
           .order('timestamp', { ascending: true });
 
@@ -317,18 +343,20 @@ export const Conversation: React.FC = () => {
           return;
         }
 
-        const mapped: ChatMessageFromServer[] = (data as LegacyMessageRow[]).map((row) => ({
-          message_id: row.message_id,
-          user_id: row.user_id,
-          content_type: row.content_type,
-          content: row.content,
-          timestamp: row.timestamp,
-          session_id: row.session_id ?? undefined,
-          is_call: row.is_call ?? false,
-          attachments: [],
-          failed: false,
-          finish_reason: null,
-        }));
+        const mapped: ChatMessageFromServer[] = (data as LegacyMessageRow[]).map(
+          (row) => ({
+            message_id: row.message_id,
+            user_id: row.user_id,
+            content_type: row.content_type,
+            content: row.content,
+            timestamp: row.timestamp,
+            session_id: row.session_id ?? undefined,
+            is_call: row.is_call ?? false,
+            attachments: [],
+            failed: false,
+            finish_reason: null,
+          }),
+        );
 
         setChatMessages(mapped);
         setHasLoadedLegacyHistory(true);
@@ -350,10 +378,12 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
+      if (requestCache.current.has(cacheKey))
+        return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
-      if (fetchState.abortController && !isInitial) fetchState.abortController.abort();
+      if (fetchState.abortController && !isInitial)
+        fetchState.abortController.abort();
       const abortController = new AbortController();
 
       const loadPromise = (async () => {
@@ -373,7 +403,10 @@ export const Conversation: React.FC = () => {
 
           if (response.data && response.data.length > 0) {
             const messages = response.data
-              .map((msg: ChatMessageFromServer) => ({ ...msg, attachments: msg.attachments || [] }))
+              .map((msg: ChatMessageFromServer) => ({
+                ...msg,
+                attachments: msg.attachments || [],
+              }))
               .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
             if (isInitial && !hasLoadedLegacyHistory) {
@@ -383,11 +416,14 @@ export const Conversation: React.FC = () => {
               });
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
-              if (scrollContainer) previousScrollHeight.current = scrollContainer.scrollHeight;
+              if (scrollContainer)
+                previousScrollHeight.current = scrollContainer.scrollHeight;
 
               setChatMessages((prev) => {
                 const existingIds = new Set(prev.map((m) => m.message_id));
-                const newMessages = messages.filter((m) => !existingIds.has(m.message_id));
+                const newMessages = messages.filter(
+                  (m) => !existingIds.has(m.message_id),
+                );
                 return [...newMessages, ...prev];
               });
             }
@@ -422,7 +458,10 @@ export const Conversation: React.FC = () => {
               (error as { code?: string }).code === 'NETWORK_ERROR') ||
               !navigator.onLine)
           ) {
-            setTimeout(() => loadChatHistory(page, isInitial, retryCount + 1), 1000 * (retryCount + 1));
+            setTimeout(
+              () => loadChatHistory(page, isInitial, retryCount + 1),
+              1000 * (retryCount + 1),
+            );
             return;
           }
 
@@ -475,8 +514,8 @@ export const Conversation: React.FC = () => {
         currentScrollTop > lastScrollTopRef.current
           ? 'down'
           : currentScrollTop < lastScrollTopRef.current
-            ? 'up'
-            : 'still';
+          ? 'up'
+          : 'still';
       lastScrollTopRef.current = currentScrollTop;
 
       if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
@@ -551,7 +590,8 @@ export const Conversation: React.FC = () => {
           textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
         const isCursorAtEnd = cursorPosition === textarea.value.length;
 
-        const shouldAutoScroll = !shouldPreserveCursor || isScrolledToBottom || isCursorAtEnd;
+        const shouldAutoScroll =
+          !shouldPreserveCursor || isScrolledToBottom || isCursorAtEnd;
 
         textarea.style.height = 'auto';
         const scrollHeight = textarea.scrollHeight;
@@ -559,10 +599,13 @@ export const Conversation: React.FC = () => {
         textarea.style.height = `${newHeight}px`;
 
         if (scrollHeight > dynamicMaxHeight) {
-          textarea.scrollTop = shouldAutoScroll ? textarea.scrollHeight : currentScrollTop;
+          textarea.scrollTop = shouldAutoScroll
+            ? textarea.scrollHeight
+            : currentScrollTop;
         }
 
-        if (shouldPreserveCursor) textarea.setSelectionRange(cursorPosition, selectionEnd);
+        if (shouldPreserveCursor)
+          textarea.setSelectionRange(cursorPosition, selectionEnd);
       });
     },
     [currentAttachments.length, dynamicMaxHeight],
@@ -584,7 +627,12 @@ export const Conversation: React.FC = () => {
         e.preventDefault();
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
-        setTimeout(() => inputRef.current && handleTextareaResize(inputRef.current, false), 10);
+        setTimeout(
+          () =>
+            inputRef.current &&
+            handleTextareaResize(inputRef.current, false),
+          10,
+        );
       }
     },
     [handleTextareaResize],
@@ -622,7 +670,8 @@ export const Conversation: React.FC = () => {
 
   const stableCallbacks = useMemo(
     () => ({
-      toggleSearchActive: () => setIsSearchActive((prev) => !prev),
+      toggleSearchActive: () =>
+        setIsSearchActive((prev) => !prev),
       handleRemoveAttachment: (indexToRemove: number) => {
         attachmentInputAreaRef.current?.removeAttachment(indexToRemove);
       },
@@ -632,9 +681,14 @@ export const Conversation: React.FC = () => {
   );
 
   useLayoutEffect(() => {
-    if (!fetchState.isLoading && previousScrollHeight.current > 0 && mainScrollRef.current) {
+    if (
+      !fetchState.isLoading &&
+      previousScrollHeight.current > 0 &&
+      mainScrollRef.current
+    ) {
       const scrollContainer = mainScrollRef.current;
-      const heightDifference = scrollContainer.scrollHeight - previousScrollHeight.current;
+      const heightDifference =
+        scrollContainer.scrollHeight - previousScrollHeight.current;
 
       if (heightDifference > 0) {
         requestAnimationFrame(() => {
@@ -654,7 +708,6 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // ONLY scroll on send. No scrollIntoView shifting.
   useEffect(() => {
     if (justSentMessageRef.current) {
       scrollToBottom(true, true);
@@ -665,14 +718,17 @@ export const Conversation: React.FC = () => {
   useEffect(() => {
     handleResize();
     window.addEventListener('resize', debouncedHandleResize);
-    const cleanup = () => window.removeEventListener('resize', debouncedHandleResize);
+    const cleanup = () =>
+      window.removeEventListener('resize', debouncedHandleResize);
     cleanupFunctions.current.push(cleanup);
     return cleanup;
   }, [handleResize, debouncedHandleResize]);
 
   useEffect(() => {
     return () => {
-      currentAttachments.forEach((att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl));
+      currentAttachments.forEach(
+        (att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl),
+      );
     };
   }, []);
 
@@ -687,7 +743,9 @@ export const Conversation: React.FC = () => {
       cleanupFunctions.current = [];
       requestCache.current.clear();
 
-      currentAttachments.forEach((att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl));
+      currentAttachments.forEach(
+        (att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl),
+      );
     };
   }, [fetchState.abortController, currentAttachments]);
 
@@ -713,7 +771,9 @@ export const Conversation: React.FC = () => {
           <button
             onClick={() => setShowUserProfile(true)}
             className={`flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
-              sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
+              sessionStatus === 'authenticated' && sessionData?.user?.image
+                ? ''
+                : 'p-2'
             }`}
           >
             <FiMenu size={20} className="text-primary" />
@@ -735,7 +795,11 @@ export const Conversation: React.FC = () => {
         </div>
       </header>
 
-      <main ref={mainScrollRef} className="overflow-y-auto w-full scroll-pt-2.5" onScroll={handleScroll}>
+      <main
+        ref={mainScrollRef}
+        className="overflow-y-auto w-full scroll-pt-2.5"
+        onScroll={handleScroll}
+      >
         <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
           {isInitialLoading && (
             <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
@@ -743,23 +807,29 @@ export const Conversation: React.FC = () => {
             </div>
           )}
 
-          {fetchState.error && !isInitialLoading && chatMessages.length === 0 && (
-            <div className="flex flex-col justify-center items-center h-[calc(100vh-10rem)] text-center">
-              <p className="text-red-500 mb-2">{fetchState.error}</p>
-              <button
-                onClick={stableCallbacks.handleRetryLoadHistory}
-                className="px-4 py-2 bg-primary text-background rounded-md hover:bg-primary/90 transition-colors"
-              >
-                Try Again
-              </button>
-            </div>
-          )}
+          {fetchState.error &&
+            !isInitialLoading &&
+            chatMessages.length === 0 && (
+              <div className="flex flex-col justify-center items-center h-[calc(100vh-10rem)] text-center">
+                <p className="text-red-500 mb-2">{fetchState.error}</p>
+                <button
+                  onClick={stableCallbacks.handleRetryLoadHistory}
+                  className="px-4 py-2 bg-primary text-background rounded-md hover:bg-primary/90 transition-colors"
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
 
-          {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
-            <div className="flex justify-center items-center h-[calc(100vh-10rem)]">
-              <p className="text-primary/70">No messages yet. Start the conversation!</p>
-            </div>
-          )}
+          {!isInitialLoading &&
+            !fetchState.error &&
+            chatMessages.length === 0 && (
+              <div className="flex justify-center items-center h-[calc(100vh-10rem)]">
+                <p className="text-primary/70">
+                  No messages yet. Start the conversation!
+                </p>
+              </div>
+            )}
 
           {!isInitialLoading && chatMessages.length > 0 && (
             <div className="flex flex-col space-y-0 w-full">
@@ -787,7 +857,12 @@ export const Conversation: React.FC = () => {
                     <div className="messages-container">
                       {messages.map((item) => {
                         if (item.type === 'call_session') {
-                          return <MemoizedCallSessionItem key={item.id} messages={item.messages} />;
+                          return (
+                            <MemoizedCallSessionItem
+                              key={item.id}
+                              messages={item.messages}
+                            />
+                          );
                         }
 
                         const msg = item.message;
@@ -797,10 +872,14 @@ export const Conversation: React.FC = () => {
                           msg.message_id === lastMessage?.message_id &&
                           msg.finish_reason == null;
 
-                        const isLastFailedMessage = msg.message_id === lastFailedMessageId;
+                        const isLastFailedMessage =
+                          msg.message_id === lastFailedMessageId;
 
-                        const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
-                        const effectiveThoughtText = currentThoughtText || storedThoughts || undefined;
+                        const storedThoughts = (msg as unknown as {
+                          thoughts?: string;
+                        }).thoughts;
+                        const effectiveThoughtText =
+                          currentThoughtText || storedThoughts || undefined;
 
                         const shouldShowTypingIndicator =
                           msg.content_type === 'assistant' &&
@@ -823,8 +902,8 @@ export const Conversation: React.FC = () => {
                               isLatestUserMessage
                                 ? latestUserMessageRef
                                 : isLatestAssistantMessage
-                                  ? latestAssistantMessageRef
-                                  : null
+                                ? latestAssistantMessageRef
+                                : null
                             }
                             className="message-item-wrapper w-full transform-gpu will-change-transform"
                           >
@@ -852,19 +931,30 @@ export const Conversation: React.FC = () => {
         </div>
       </main>
 
-      <footer ref={footerRef} className="w-full z-40 p-2 md:pr-[13px] bg-transparent">
+      <footer
+        ref={footerRef}
+        className="w-full z-40 p-2 md:pr-[13px] bg-transparent"
+      >
         <div className="relative">
           <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
             {!isSubscriptionLoading &&
               !isSubscriptionError &&
               subscriptionData?.plan_type === 'paid' &&
-              !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
+              !(
+                new Date(subscriptionData?.subscription_end_date || 0) >=
+                new Date()
+              ) && (
                 <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
                   <span className="text-sm">
                     Your subscription has expired.{' '}
                     <span
                       className="text-primary font-medium cursor-pointer underline"
-                      onClick={() => openModal('subscription_has_ended_renew_here_toast_clicked', true)}
+                      onClick={() =>
+                        openModal(
+                          'subscription_has_ended_renew_here_toast_clicked',
+                          true,
+                        )
+                      }
                     >
                       Renew here
                     </span>
@@ -878,10 +968,14 @@ export const Conversation: React.FC = () => {
               subscriptionData?.tokens_left != null &&
               subscriptionData.tokens_left <= 5000 && (
                 <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
-                  <span className="text-sm">You have {subscriptionData?.tokens_left} tokens left. </span>
+                  <span className="text-sm">
+                    You have {subscriptionData?.tokens_left} tokens left.{' '}
+                  </span>
                   <span
                     className="text-primary font-medium cursor-pointer underline"
-                    onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
+                    onClick={() =>
+                      openModal('5000_tokens_left_toast_clicked', true)
+                    }
                   >
                     Add more
                   </span>
@@ -903,7 +997,10 @@ export const Conversation: React.FC = () => {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]">
+          <form
+            onSubmit={handleSubmit}
+            className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]"
+          >
             <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200 transform-gpu will-change-transform">
               {currentAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 px-4 pt-2.5 pb-1">
@@ -936,7 +1033,10 @@ export const Conversation: React.FC = () => {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    handleSubmit(e);
+                    const form = e.currentTarget.form;
+                    if (form) {
+                      form.requestSubmit();
+                    }
                   }
                 }}
                 onPaste={handlePaste}
@@ -948,7 +1048,9 @@ export const Conversation: React.FC = () => {
                     type="button"
                     onClick={stableCallbacks.toggleSearchActive}
                     className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform ${
-                      isSearchActive ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-50'
+                      isSearchActive
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-gray-500 hover:bg-gray-50'
                     }`}
                     title="Search"
                   >
@@ -988,7 +1090,10 @@ export const Conversation: React.FC = () => {
         </div>
       </footer>
 
-      <UserProfile isOpen={showUserProfile} onClose={() => setShowUserProfile(false)} />
+      <UserProfile
+        isOpen={showUserProfile}
+        onClose={() => setShowUserProfile(false)}
+      />
       <MeeraVoice
         isOpen={showMeeraVoice}
         onClose={(wasConnected) => {
