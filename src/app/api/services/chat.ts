@@ -152,19 +152,6 @@ export const chatService = {
 
       historyForModel.push({ role: 'user', content: message });
 
-      // Call Hive Mind backend (Render)
-      const response = await fetch(`${HIVE_API_URL}/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          user_message: message,
-          // If in future you want to send history:
-          // history: historyForModel,
-        }),
-      });
 
       if (!response.ok) {
         const errorBody = (await response.json().catch(() => ({}))) as {
