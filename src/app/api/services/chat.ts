@@ -50,7 +50,6 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  // This will surface clearly during build/runtime if env vars are missing
   console.warn(
     'NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY is not set. ' +
       'Streaming chat via Supabase edge function will fail.',
@@ -119,9 +118,11 @@ export const chatService = {
 
   /**
    * Non-streaming sendMessage.
-   * Right now the product uses the streaming path; keep this explicit to avoid silent misuse.
+   * Currently not used; keep explicit to avoid silent misuse.
    */
-  async sendMessage(_formData: FormData): Promise<ChatMessageResponse> {
+  async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
+    // Use param to satisfy ESLint and make it obvious this path is deprecated
+    console.warn('sendMessage is deprecated, use streamMessage instead.', formData);
     throw new Error('sendMessage is not supported; use streamMessage instead.');
   },
 
@@ -222,7 +223,7 @@ export const chatService = {
           onDelta(delta);
         },
         onDone: () => {
-          // We persist + call onDone AFTER the SSE stream completes below
+          // Persistence + onDone handled after SSE completes
         },
         onError: (err) => {
           console.error('streamMeera error:', err);
