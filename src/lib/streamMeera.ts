@@ -36,6 +36,13 @@ export async function streamMeera({
   signal?: AbortSignal;
 }) {
   try {
+    // Limit to last 500 messages before sending to the edge function
+    const MAX_MESSAGES = 500;
+    const trimmedMessages =
+      messages.length > MAX_MESSAGES
+        ? messages.slice(messages.length - MAX_MESSAGES)
+        : messages;
+
     const res = await fetch(`${supabaseUrl}/functions/v1/chat`, {
       method: 'POST',
       headers: {
@@ -43,7 +50,7 @@ export async function streamMeera({
         apikey: supabaseAnonKey,
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ messages, stream: true }),
+      body: JSON.stringify({ messages: trimmedMessages, stream: true }),
       signal,
     });
 
@@ -62,7 +69,7 @@ export async function streamMeera({
       buffer += decoder.decode(value, { stream: true });
 
       const events = buffer.split(/\r?\n\r?\n/);
-buffer = events.pop() || '';
+      buffer = events.pop() || '';
 
       for (const evt of events) {
         const dataLine = evt.split('\n').find((l) => l.startsWith('data:'));
@@ -78,6 +85,7 @@ buffer = events.pop() || '';
           const text = p?.text ?? '';
           if (!text) continue;
 
+          // Skip thoughts; only stream visible text
           if (p?.thought) continue;
 
           const delta = text.startsWith(lastAnswer)
