@@ -6,6 +6,7 @@ import {
 import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
 import { supabase } from '@/lib/supabaseClient';
+import { streamMeera } from '@/lib/streamMeera';
 
 export class SessionExpiredError extends Error {
   constructor(message: string) {
@@ -43,6 +44,18 @@ type LLMHistoryMessage = {
 };
 
 const CONTEXT_WINDOW = 20;
+
+// Read Supabase URL + anon key for calling the edge function directly
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  // This will surface clearly during build/runtime if env vars are missing
+  console.warn(
+    'NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY is not set. ' +
+      'Streaming chat via Supabase edge function will fail.',
+  );
+}
 
 export const chatService = {
   /**
@@ -106,124 +119,17 @@ export const chatService = {
 
   /**
    * Non-streaming sendMessage.
-   * Calls Hive Mind backend on Render and persists both user and assistant messages.
+   * Right now the product uses the streaming path; keep this explicit to avoid silent misuse.
    */
-  async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
-    const message = (formData.get('message') as string) || '';
-
-    try {
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
-
-      if (sessionError || !session?.user) {
-        console.error('sendMessage: no valid Supabase session', sessionError);
-        throw new SessionExpiredError('Your session has expired, please sign in again.');
-      }
-
-      const userId = session.user.id;
-
-      // Optional: fetch last N messages for context (if you want to send history to backend)
-      const { data: historyRows, error: historyError } = await supabase
-        .from('messages')
-        .select('content_type, content, timestamp')
-        .eq('user_id', userId)
-        .order('timestamp', { ascending: false })
-        .limit(CONTEXT_WINDOW);
-
-      if (historyError) {
-        console.error('sendMessage: failed to fetch history', historyError);
-      }
-
-      const sortedHistory = ((historyRows ?? []) as Pick<
-        DbMessageRow,
-        'content_type' | 'content' | 'timestamp'
-      >[])
-        .slice()
-        .reverse();
-
-      const historyForModel: LLMHistoryMessage[] = sortedHistory
-        .filter((row) => row.content && row.content.trim().length > 0)
-        .map((row) => ({
-          role: row.content_type === 'assistant' ? 'assistant' : 'user',
-          content: row.content,
-        }));
-
-      historyForModel.push({ role: 'user', content: message });
-
-
-      if (!response.ok) {
-        const errorBody = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          detail?: string;
-        };
-
-        throw new ApiError(
-          errorBody.error || errorBody.detail || 'Failed to get reply from Meera (Hive Mind)',
-          response.status,
-          errorBody,
-        );
-      }
-
-      const body = (await response.json()) as {
-        response: string;
-        intent?: string | null;
-        memory_ids?: string[] | null;
-        [key: string]: unknown;
-      };
-
-      const nowIso = new Date().toISOString();
-
-      // Persist both user and assistant messages for UI history
-      const { data: insertedRows, error: insertError } = await supabase
-        .from('messages')
-        .insert([
-          {
-            user_id: userId,
-            content_type: 'user',
-            content: message,
-            timestamp: nowIso,
-            is_call: false,
-            model: null,
-          },
-          {
-            user_id: userId,
-            content_type: 'assistant',
-            content: body.response,
-            timestamp: nowIso,
-            is_call: false,
-            model: null,
-          },
-        ])
-        .select('message_id, content_type, content, timestamp, model');
-
-      if (insertError) {
-        console.error('sendMessage: failed to save messages to DB', insertError);
-      }
-
-      // We only need a minimal response for the UI here
-      const chatResponse: ChatMessageResponse = {
-        message: 'ok',
-        data: {
-          response: body.response,
-        },
-      };
-
-      // (assistant row is still saved above for history)
-      void insertedRows;
-
-      return chatResponse;
-    } catch (err) {
-      console.error('Error in sendMessage:', err);
-      throw err;
-    }
+  async sendMessage(_formData: FormData): Promise<ChatMessageResponse> {
+    throw new Error('sendMessage is not supported; use streamMessage instead.');
   },
 
   /**
-   * "Streaming" version for the UI, but implemented on top of the Hive Mind backend.
-   * It calls the Render API once, then pushes the full reply as a single delta and onDone.
-   * No Supabase Edge Function is used anymore.
+   * Streaming chat via Supabase edge function (`functions/v1/chat`).
+   * - Saves user message to DB
+   * - Streams assistant tokens into the UI
+   * - On completion, saves full assistant message to DB and returns it via onDone
    */
   async streamMessage({
     message,
@@ -239,6 +145,12 @@ export const chatService = {
     signal?: AbortSignal;
   }): Promise<void> {
     try {
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        throw new Error(
+          'Supabase env vars missing: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY',
+        );
+      }
+
       const {
         data: { session },
         error: sessionError,
@@ -251,7 +163,7 @@ export const chatService = {
 
       const userId = session.user.id;
 
-      // Optional history fetch, kept in case you want to send it later
+      // Fetch last N messages for context
       const { data: historyRows, error: historyError } = await supabase
         .from('messages')
         .select('content_type, content, timestamp')
@@ -277,9 +189,10 @@ export const chatService = {
           content: row.content,
         }));
 
+      // Add the new user message as the last item
       historyForModel.push({ role: 'user', content: message });
 
-      // First save the user message to DB
+      // Save user message to DB immediately
       const userNowIso = new Date().toISOString();
       const { error: userInsertError } = await supabase.from('messages').insert([
         {
@@ -296,46 +209,26 @@ export const chatService = {
         console.error('streamMessage: failed to save user message', userInsertError);
       }
 
-      // Call Hive Mind backend (same as sendMessage, but we adapt to streaming callbacks)
-      const response = await fetch(`${HIVE_API_URL}/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          user_message: message,
-          // history: historyForModel,
-        }),
+      // Accumulate full assistant response while streaming
+      let fullAssistantText = '';
+
+      await streamMeera({
+        supabaseUrl: SUPABASE_URL,
+        supabaseAnonKey: SUPABASE_ANON_KEY,
+        messages: historyForModel,
         signal,
+        onAnswerDelta: (delta) => {
+          fullAssistantText += delta;
+          onDelta(delta);
+        },
+        onDone: () => {
+          // We persist + call onDone AFTER the SSE stream completes below
+        },
+        onError: (err) => {
+          console.error('streamMeera error:', err);
+          onError?.(err);
+        },
       });
-
-      if (!response.ok) {
-        const errorBody = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          detail?: string;
-        };
-
-        throw new ApiError(
-          errorBody.error || errorBody.detail || 'Failed to get reply from Meera (Hive Mind)',
-          response.status,
-          errorBody,
-        );
-      }
-
-      const body = (await response.json()) as {
-        response: string;
-        intent?: string | null;
-        memory_ids?: string[] | null;
-        [key: string]: unknown;
-      };
-
-      const assistantText = body.response ?? '';
-
-      // Push the whole answer as one "delta" to keep your existing UI happy
-      if (assistantText) {
-        onDelta(assistantText);
-      }
 
       const assistantNowIso = new Date().toISOString();
 
@@ -346,7 +239,7 @@ export const chatService = {
           {
             user_id: userId,
             content_type: 'assistant',
-            content: assistantText,
+            content: fullAssistantText,
             timestamp: assistantNowIso,
             is_call: false,
             model: null,
@@ -374,7 +267,7 @@ export const chatService = {
         : {
             message_id: crypto.randomUUID(),
             content_type: 'assistant',
-            content: assistantText,
+            content: fullAssistantText,
             timestamp: assistantNowIso,
             attachments: [],
             is_call: false,
