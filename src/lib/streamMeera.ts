@@ -36,8 +36,8 @@ export async function streamMeera({
   signal?: AbortSignal;
 }) {
   try {
-    // Limit to last 500 messages before sending to the edge function
-    const MAX_MESSAGES = 500;
+    // Limit to last 200 messages before sending to the edge function
+    const MAX_MESSAGES = 200;
     const trimmedMessages =
       messages.length > MAX_MESSAGES
         ? messages.slice(messages.length - MAX_MESSAGES)
@@ -85,7 +85,7 @@ export async function streamMeera({
           const text = p?.text ?? '';
           if (!text) continue;
 
-          // Skip thoughts; only stream visible text
+          // Skip internal thoughts; only stream visible text
           if (p?.thought) continue;
 
           const delta = text.startsWith(lastAnswer)
