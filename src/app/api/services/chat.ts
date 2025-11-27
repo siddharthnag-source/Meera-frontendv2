@@ -43,7 +43,7 @@ type LLMHistoryMessage = {
   content: string;
 };
 
-const CONTEXT_WINDOW = 80;
+const CONTEXT_WINDOW = 500;
 
 // Read Supabase URL + anon key for calling the edge function directly
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
