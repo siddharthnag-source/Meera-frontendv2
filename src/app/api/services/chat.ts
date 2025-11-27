@@ -47,7 +47,7 @@ const CONTEXT_WINDOW = 20;
 // Main Hive Mind backend URL (Render)
 const HIVE_API_URL =
   process.env.NEXT_PUBLIC_HIVE_API_URL ??
-  'https://meera-hive-mind-agents-api-1.onrender.com';
+  'NEXT_PUBLIC_HIVE_API_URL';
 
 export const chatService = {
   /**
