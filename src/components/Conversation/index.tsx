@@ -418,8 +418,8 @@ export const Conversation: React.FC = () => {
               });
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
-              if (scrollContainer) previousScrollHeight.current =
-                scrollContainer.scrollHeight;
+              if (scrollContainer)
+                previousScrollHeight.current = scrollContainer.scrollHeight;
 
               setChatMessages((prev) => {
                 const existingIds = new Set(prev.map((m) => m.message_id));
@@ -436,11 +436,12 @@ export const Conversation: React.FC = () => {
               abortController: null,
             }));
           } else {
+            // Empty history is a valid state, not an error
             setFetchState((prev) => ({
               ...prev,
               isLoading: false,
               hasMore: false,
-              error: isInitial ? 'No messages found.' : null,
+              error: null,
               abortController: null,
             }));
 
@@ -829,10 +830,9 @@ export const Conversation: React.FC = () => {
             </div>
           )}
 
+          {/* For an empty, non-error initial state, render nothing in the middle */}
           {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
-            <div className="flex justify-center items-center h-[calc(100vh-10rem)]">
-              <p className="text-primary/70">No messages yet. Start the conversation!</p>
-            </div>
+            <div className="h-[calc(100vh-10rem)]" />
           )}
 
           {!isInitialLoading && chatMessages.length > 0 && (
