@@ -44,11 +44,6 @@ type LLMHistoryMessage = {
 
 const CONTEXT_WINDOW = 20;
 
-// Main Hive Mind backend URL (Render)
-const HIVE_API_URL =
-  process.env.NEXT_PUBLIC_HIVE_API_URL ??
-  'NEXT_PUBLIC_HIVE_API_URL';
-
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
