@@ -44,6 +44,7 @@ type LLMHistoryMessage = {
 };
 
 const CONTEXT_WINDOW = 2000;
+const SUPABASE_PAGE_LIMIT = 1000;
 
 // Read Supabase URL + anon key for calling the edge function directly
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -121,7 +122,6 @@ export const chatService = {
    * Currently not used; keep explicit to avoid silent misuse.
    */
   async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
-    // Use param to satisfy ESLint and make it obvious this path is deprecated
     console.warn('sendMessage is deprecated, use streamMessage instead.', formData);
     throw new Error('sendMessage is not supported; use streamMessage instead.');
   },
@@ -164,24 +164,53 @@ export const chatService = {
 
       const userId = session.user.id;
 
-      // Fetch last N messages for context
-      const { data: historyRows, error: historyError } = await supabase
-        .from('messages')
-        .select('content_type, content, timestamp')
-        .eq('user_id', userId)
-        .order('timestamp', { ascending: false })
-        .limit(CONTEXT_WINDOW);
+      // -------- HISTORY FETCH WITH PAGINATION UP TO 2000 ROWS --------
+      let historyRows: Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[] = [];
 
-      if (historyError) {
-        console.error('streamMessage: failed to fetch history', historyError);
+      try {
+        // Page 1: newest up to 1000 messages
+        const { data: page1, error: err1 } = await supabase
+          .from('messages')
+          .select('content_type, content, timestamp')
+          .eq('user_id', userId)
+          .order('timestamp', { ascending: false })
+          .limit(Math.min(CONTEXT_WINDOW, SUPABASE_PAGE_LIMIT));
+
+        if (err1) throw err1;
+
+        historyRows = (page1 ?? []) as Pick<
+          DbMessageRow,
+          'content_type' | 'content' | 'timestamp'
+        >[];
+
+        // Page 2: next 1000 messages (1000–1999) if needed
+        if (
+          CONTEXT_WINDOW > SUPABASE_PAGE_LIMIT &&
+          (page1?.length ?? 0) === SUPABASE_PAGE_LIMIT
+        ) {
+          const { data: page2, error: err2 } = await supabase
+            .from('messages')
+            .select('content_type, content, timestamp')
+            .eq('user_id', userId)
+            .order('timestamp', { ascending: false })
+            .range(
+              SUPABASE_PAGE_LIMIT,
+              Math.min(CONTEXT_WINDOW, SUPABASE_PAGE_LIMIT * 2) - 1,
+            ); // 1000–1999
+
+          if (err2) throw err2;
+
+          if (page2 && page2.length > 0) {
+            historyRows = historyRows.concat(
+              page2 as Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[],
+            );
+          }
+        }
+      } catch (err) {
+        console.error('streamMessage: failed to fetch history', err);
       }
 
-      const sortedHistory = ((historyRows ?? []) as Pick<
-        DbMessageRow,
-        'content_type' | 'content' | 'timestamp'
-      >[])
-        .slice()
-        .reverse();
+      const sortedHistory = historyRows.slice().reverse();
 
       const historyForModel: LLMHistoryMessage[] = sortedHistory
         .filter((row) => row.content && row.content.trim().length > 0)
