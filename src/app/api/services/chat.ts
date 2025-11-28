@@ -44,7 +44,7 @@ type LLMHistoryMessage = {
 };
 
 const CONTEXT_WINDOW = 2500;
-const SUPABASE_PAGE_LIMIT = 1250;
+const SUPABASE_PAGE_LIMIT = CONTEXT_WINDOW;
 
 // Read Supabase URL + anon key for calling the edge function directly
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
