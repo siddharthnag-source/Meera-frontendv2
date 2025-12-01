@@ -23,6 +23,7 @@ export async function streamMeera({
   supabaseAnonKey,
   messages,
   userId,
+  sessionId,
   onAnswerDelta,
   onDone,
   onError,
@@ -31,7 +32,8 @@ export async function streamMeera({
   supabaseUrl: string;
   supabaseAnonKey: string;
   messages: LLMHistoryMessage[];
-  userId: string;                          // 🔴 NEW
+  userId: string;
+  sessionId?: string;
   onAnswerDelta: (t: string) => void;
   onDone?: () => void;
   onError?: (e: unknown) => void;
@@ -47,13 +49,16 @@ export async function streamMeera({
       },
       body: JSON.stringify({
         messages,
-        userId,           // 🔴 NEW: forwarded to edge function for RAG
+        userId,
+        sessionId,
         stream: true,
       }),
       signal,
     });
 
-    if (!res.ok || !res.body) throw new Error(await res.text());
+    if (!res.ok || !res.body) {
+      throw new Error(await res.text());
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -84,7 +89,7 @@ export async function streamMeera({
           const text = p?.text ?? '';
           if (!text) continue;
 
-          // Skip thought tokens
+          // skip thought tokens
           if (p?.thought) continue;
 
           // Gemini sometimes re-sends the full answer; diff it
@@ -100,6 +105,7 @@ export async function streamMeera({
 
     onDone?.();
   } catch (e: unknown) {
+    console.error('streamMeera error:', e);
     onError?.(e);
   }
 }
