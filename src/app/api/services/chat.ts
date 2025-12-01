@@ -134,12 +134,14 @@ export const chatService = {
    */
   async streamMessage({
     message,
+    sessionId = 'sess_1', // default logical session/thread id
     onDelta,
     onDone,
     onError,
     signal,
   }: {
     message: string;
+    sessionId?: string;
     onDelta: (delta: string) => void;
     onDone?: (finalAssistantMessage: ChatMessageFromServer) => void;
     onError?: (err: unknown) => void;
@@ -173,6 +175,8 @@ export const chatService = {
           .from('messages')
           .select('content_type, content, timestamp')
           .eq('user_id', userId)
+          // If you want per-thread context later, you can also filter on session_id
+          // .eq('session_id', sessionId)
           .order('timestamp', { ascending: false })
           .limit(Math.min(CONTEXT_WINDOW, SUPABASE_PAGE_LIMIT));
 
@@ -192,6 +196,7 @@ export const chatService = {
             .from('messages')
             .select('content_type, content, timestamp')
             .eq('user_id', userId)
+            // optional: .eq('session_id', sessionId)
             .order('timestamp', { ascending: false })
             .range(
               SUPABASE_PAGE_LIMIT,
@@ -227,6 +232,7 @@ export const chatService = {
       const { error: userInsertError } = await supabase.from('messages').insert([
         {
           user_id: userId,
+          session_id: sessionId,
           content_type: 'user',
           content: message,
           timestamp: userNowIso,
@@ -246,7 +252,8 @@ export const chatService = {
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
         messages: historyForModel,
-        userId,                            // 🔴 NEW: wired into edge function
+        userId,
+        sessionId,
         signal,
         onAnswerDelta: (delta) => {
           fullAssistantText += delta;
@@ -269,6 +276,7 @@ export const chatService = {
         .insert([
           {
             user_id: userId,
+            session_id: sessionId,
             content_type: 'assistant',
             content: fullAssistantText,
             timestamp: assistantNowIso,
