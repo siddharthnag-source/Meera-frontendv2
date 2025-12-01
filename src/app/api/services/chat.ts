@@ -164,11 +164,11 @@ export const chatService = {
 
       const userId = session.user.id;
 
-      // -------- HISTORY FETCH WITH PAGINATION UP TO 2000 ROWS --------
+      // -------- HISTORY FETCH WITH PAGINATION UP TO CONTEXT_WINDOW ROWS --------
       let historyRows: Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[] = [];
 
       try {
-        // Page 1: newest up to 1000 messages
+        // Page 1: newest up to 125 messages
         const { data: page1, error: err1 } = await supabase
           .from('messages')
           .select('content_type, content, timestamp')
@@ -183,7 +183,7 @@ export const chatService = {
           'content_type' | 'content' | 'timestamp'
         >[];
 
-        // Page 2: next 1000 messages (1000–1999) if needed
+        // Page 2: next 125 messages if needed (125–249)
         if (
           CONTEXT_WINDOW > SUPABASE_PAGE_LIMIT &&
           (page1?.length ?? 0) === SUPABASE_PAGE_LIMIT
@@ -196,7 +196,7 @@ export const chatService = {
             .range(
               SUPABASE_PAGE_LIMIT,
               Math.min(CONTEXT_WINDOW, SUPABASE_PAGE_LIMIT * 2) - 1,
-            ); // 1000–1999
+            );
 
           if (err2) throw err2;
 
@@ -246,6 +246,7 @@ export const chatService = {
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
         messages: historyForModel,
+        userId,                            // 🔴 NEW: wired into edge function
         signal,
         onAnswerDelta: (delta) => {
           fullAssistantText += delta;
