@@ -43,11 +43,6 @@ type LLMHistoryMessage = {
   content: string;
 };
 
-type GeneratedImageAttachment = {
-  mimeType?: string;
-  data: string;
-};
-
 const CONTEXT_WINDOW = 40;
 const SUPABASE_PAGE_LIMIT = 20;
 
@@ -116,7 +111,7 @@ export const chatService = {
       }));
 
       return { message: 'ok', data: mapped };
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('getChatHistory: unexpected error', err);
       return { message: 'error', data: [] };
     }
@@ -126,8 +121,8 @@ export const chatService = {
    * Non-streaming sendMessage.
    * Currently not used; keep explicit to avoid silent misuse.
    */
-  async sendMessage(formData: FormData): Promise<ChatMessageResponse> {
-    console.warn('sendMessage is deprecated, use streamMessage instead.', formData);
+  async sendMessage(_formData: FormData): Promise<ChatMessageResponse> {
+    console.warn('sendMessage is deprecated, use streamMessage instead.');
     throw new Error('sendMessage is not supported; use streamMessage instead.');
   },
 
@@ -136,7 +131,6 @@ export const chatService = {
    * - Saves user message to DB
    * - Streams assistant tokens into the UI
    * - On completion, saves full assistant message to DB and returns it via onDone
-   * - Also supports non-streaming image responses returned by the edge function
    */
   async streamMessage({
     message,
@@ -176,7 +170,7 @@ export const chatService = {
       let historyRows: Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[] = [];
 
       try {
-        // Page 1: newest up to SUPABASE_PAGE_LIMIT messages
+        // Page 1
         const { data: page1, error: err1 } = await supabase
           .from('messages')
           .select('content_type, content, timestamp')
@@ -193,7 +187,7 @@ export const chatService = {
           'content_type' | 'content' | 'timestamp'
         >[];
 
-        // Page 2: next messages if needed
+        // Page 2: next segment, only if needed
         if (
           CONTEXT_WINDOW > SUPABASE_PAGE_LIMIT &&
           (page1?.length ?? 0) === SUPABASE_PAGE_LIMIT
@@ -217,7 +211,7 @@ export const chatService = {
             );
           }
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('streamMessage: failed to fetch history', err);
       }
 
@@ -254,15 +248,6 @@ export const chatService = {
       // Accumulate full assistant response while streaming
       let fullAssistantText = '';
 
-      // If edge function chooses image mode, it can call this callback once with the image payload.
-      let generatedImageResult:
-        | {
-            reply: string;
-            images: GeneratedImageAttachment[];
-            model: string | null;
-          }
-        | null = null;
-
       await streamMeera({
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
@@ -273,18 +258,6 @@ export const chatService = {
         onAnswerDelta: (delta: string) => {
           fullAssistantText += delta;
           onDelta(delta);
-        },
-        // New optional image callback; streamMeera can ignore this if not in image mode.
-        onImageResult: (payload: {
-          reply: string;
-          images: GeneratedImageAttachment[];
-          model?: string | null;
-        }) => {
-          generatedImageResult = {
-            reply: payload.reply,
-            images: payload.images,
-            model: payload.model ?? null,
-          };
         },
         onDone: () => {
           // Persistence + onDone handled after SSE completes
@@ -297,68 +270,7 @@ export const chatService = {
 
       const assistantNowIso = new Date().toISOString();
 
-      // ---------- IMAGE RESPONSE PATH ----------
-      if (generatedImageResult) {
-        const { reply, images, model } = generatedImageResult;
-
-        const { data: insertedRows, error: assistantInsertError } = await supabase
-          .from('messages')
-          .insert([
-            {
-              user_id: userId,
-              session_id: sessionId,
-              content_type: 'assistant',
-              content: reply,
-              timestamp: assistantNowIso,
-              is_call: false,
-              model: model ?? null,
-            },
-          ])
-          .select('message_id, content_type, content, timestamp, model');
-
-        if (assistantInsertError) {
-          console.error(
-            'streamMessage: failed to save assistant image message',
-            assistantInsertError,
-          );
-        }
-
-        const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
-
-        const attachments = (images || []).map((img: GeneratedImageAttachment) => ({
-          type: 'generated_image',
-          mimeType: img.mimeType || 'image/png',
-          data: img.data,
-          name: 'Generated image',
-        }));
-
-        const assistantMessage: ChatMessageFromServer = dbAssistantRow
-          ? {
-              message_id: dbAssistantRow.message_id,
-              content_type: 'assistant',
-              content: dbAssistantRow.content,
-              timestamp: dbAssistantRow.timestamp,
-              attachments,
-              is_call: false,
-              failed: false,
-              finish_reason: null,
-            }
-          : {
-              message_id: crypto.randomUUID(),
-              content_type: 'assistant',
-              content: reply,
-              timestamp: assistantNowIso,
-              attachments,
-              is_call: false,
-              failed: false,
-              finish_reason: null,
-            };
-
-        onDone?.(assistantMessage);
-        return;
-      }
-
-      // ---------- TEXT RESPONSE PATH (existing behaviour) ----------
+      // Save assistant message to DB for history
       const { data: insertedRows, error: assistantInsertError } = await supabase
         .from('messages')
         .insert([
@@ -375,7 +287,10 @@ export const chatService = {
         .select('message_id, content_type, content, timestamp, model');
 
       if (assistantInsertError) {
-        console.error('streamMessage: failed to save assistant message', assistantInsertError);
+        console.error(
+          'streamMessage: failed to save assistant message',
+          assistantInsertError,
+        );
       }
 
       const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
@@ -403,7 +318,7 @@ export const chatService = {
           };
 
       onDone?.(assistantMessage);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error in streamMessage:', err);
       onError?.(err);
       throw err;
