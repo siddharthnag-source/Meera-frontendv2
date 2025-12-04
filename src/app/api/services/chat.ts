@@ -57,6 +57,33 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   );
 }
 
+/* ---------- Image helpers ---------- */
+
+const IMAGE_TRIGGER_WORDS = ['image', 'photo', 'picture', 'img', 'pic'];
+
+function isImagePrompt(text: string): boolean {
+  const lower = text.toLowerCase();
+  return IMAGE_TRIGGER_WORDS.some((word) => lower.includes(word));
+}
+
+function base64ToBlobUrl(base64: string, mimeType: string): string {
+  const byteCharacters = atob(base64);
+  const byteNumbers: number[] = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i += 1) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  const blob = new Blob([byteArray], { type: mimeType });
+  return URL.createObjectURL(blob);
+}
+
+type MeeraImageResponse = {
+  reply?: string;
+  thoughts?: string;
+  images?: { mimeType?: string; data: string }[];
+  model?: string;
+};
+
 export const chatService = {
   /**
    * Load chat history directly from Supabase for the logged-in user.
@@ -119,9 +146,9 @@ export const chatService = {
 
   /**
    * Non-streaming sendMessage.
-   * Currently not used; kept explicit to avoid silent misuse.
+   * Currently not used; keep explicit to avoid silent misuse.
    */
-  async sendMessage(): Promise<ChatMessageResponse> {
+  async sendMessage(_formData: FormData): Promise<ChatMessageResponse> {
     console.warn('sendMessage is deprecated, use streamMessage instead.');
     throw new Error('sendMessage is not supported; use streamMessage instead.');
   },
@@ -129,7 +156,8 @@ export const chatService = {
   /**
    * Streaming chat via Supabase edge function (`functions/v1/chat`).
    * - Saves user message to DB
-   * - Streams assistant tokens into the UI
+   * - For normal text: streams assistant tokens into the UI
+   * - For image prompts: calls Meera once, returns text + image attachment(s)
    * - On completion, saves full assistant message to DB and returns it via onDone
    */
   async streamMessage({
@@ -187,7 +215,7 @@ export const chatService = {
           'content_type' | 'content' | 'timestamp'
         >[];
 
-        // Page 2: next segment, only if needed
+        // Page 2 if needed
         if (
           CONTEXT_WINDOW > SUPABASE_PAGE_LIMIT &&
           (page1?.length ?? 0) === SUPABASE_PAGE_LIMIT
@@ -245,6 +273,114 @@ export const chatService = {
         console.error('streamMessage: failed to save user message', userInsertError);
       }
 
+      const imageMode = isImagePrompt(message);
+
+      // ---------- IMAGE MODE (non-stream, JSON response) ----------
+      if (imageMode) {
+        let fullAssistantText = '';
+        const attachmentList: NonNullable<ChatMessageFromServer['attachments']> = [];
+
+        try {
+          const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({
+              message,
+              messages: historyForModel,
+              userId,
+              sessionId,
+              stream: false,
+            }),
+            signal,
+          });
+
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Meera image call failed: ${res.status} ${text}`);
+          }
+
+          const json = (await res.json()) as MeeraImageResponse;
+
+          fullAssistantText = json.reply?.trim() || 'Here is your image.';
+
+          // Send text once to the UI
+          onDelta(fullAssistantText);
+
+          const images = json.images ?? [];
+          images.forEach((img, index) => {
+            if (!img.data) return;
+            const mime = img.mimeType || 'image/png';
+            const url = base64ToBlobUrl(img.data, mime);
+
+            attachmentList.push({
+              type: 'image',
+              url,
+              name: `generated-image-${index + 1}.png`,
+            } as NonNullable<ChatMessageFromServer['attachments']>[number]);
+          });
+        } catch (err: unknown) {
+          console.error('streamMessage (image mode) error:', err);
+          onError?.(err);
+          throw err;
+        }
+
+        const assistantNowIso = new Date().toISOString();
+
+        const { data: insertedRows, error: assistantInsertError } = await supabase
+          .from('messages')
+          .insert([
+            {
+              user_id: userId,
+              session_id: sessionId,
+              content_type: 'assistant',
+              content: fullAssistantText,
+              timestamp: assistantNowIso,
+              is_call: false,
+              model: null,
+            },
+          ])
+          .select('message_id, content_type, content, timestamp, model');
+
+        if (assistantInsertError) {
+          console.error(
+            'streamMessage: failed to save assistant message (image mode)',
+            assistantInsertError,
+          );
+        }
+
+        const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
+
+        const assistantMessage: ChatMessageFromServer = dbAssistantRow
+          ? {
+              message_id: dbAssistantRow.message_id,
+              content_type: 'assistant',
+              content: dbAssistantRow.content,
+              timestamp: dbAssistantRow.timestamp,
+              attachments: attachmentList,
+              is_call: false,
+              failed: false,
+              finish_reason: null,
+            }
+          : {
+              message_id: crypto.randomUUID(),
+              content_type: 'assistant',
+              content: fullAssistantText,
+              timestamp: assistantNowIso,
+              attachments: attachmentList,
+              is_call: false,
+              failed: false,
+              finish_reason: null,
+            };
+
+        onDone?.(assistantMessage);
+        return;
+      }
+
+      // ---------- TEXT MODE (existing SSE streaming path) ----------
+
       // Accumulate full assistant response while streaming
       let fullAssistantText = '';
 
@@ -255,7 +391,7 @@ export const chatService = {
         userId,
         sessionId,
         signal,
-        onAnswerDelta: (delta: string) => {
+        onAnswerDelta: (delta) => {
           fullAssistantText += delta;
           onDelta(delta);
         },
@@ -287,10 +423,7 @@ export const chatService = {
         .select('message_id, content_type, content, timestamp, model');
 
       if (assistantInsertError) {
-        console.error(
-          'streamMessage: failed to save assistant message',
-          assistantInsertError,
-        );
+        console.error('streamMessage: failed to save assistant message', assistantInsertError);
       }
 
       const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
