@@ -71,7 +71,7 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
               .replace(/^[-*]\s*/, '')
               .trim(),
           )
-          .find(Boolean) || '';
+          .find((line) => line.length > 0) || '';
 
       return firstLine;
     }
@@ -129,16 +129,19 @@ export const RenderedMessageItem: React.FC<{
     const textColor = isUser ? 'text-background' : 'text-primary';
 
     const hasTextContent =
-      !!message.content || (message.content_type === 'assistant' && !!message.failed);
-    const hasAttachments = !!(message.attachments && message.attachments.length > 0);
+      Boolean(message.content) ||
+      (message.content_type === 'assistant' && Boolean(message.failed));
+    const hasAttachments = Boolean(message.attachments && message.attachments.length > 0);
     const hasMainContent = hasTextContent || hasAttachments;
 
-    /* Phase progression: Orchestrating 2.5s -> Searching memories 2.5s -> Thinking */
+    type TimeoutType = ReturnType<typeof setTimeout>;
+
+    /* Phase progression: Orchestrating -> Searching memories -> Thinking */
     useEffect(() => {
       if (showTypingIndicator && !isUser) {
         setPhase('orchestrating');
 
-        const timeouts: NodeJS.Timeout[] = [];
+        const timeouts: TimeoutType[] = [];
 
         timeouts.push(
           setTimeout(() => {
@@ -153,7 +156,7 @@ export const RenderedMessageItem: React.FC<{
         );
 
         return () => {
-          timeouts.forEach(clearTimeout);
+          timeouts.forEach((t) => clearTimeout(t));
         };
       } else {
         if (!thoughtText) {
@@ -164,7 +167,7 @@ export const RenderedMessageItem: React.FC<{
 
     /* When model thoughts arrive, show them */
     useEffect(() => {
-      if (!isUser && thoughtText && thoughtText.trim()) {
+      if (!isUser && thoughtText && thoughtText.trim().length > 0) {
         setPhase('thoughts');
       }
     }, [thoughtText, isUser]);
@@ -205,7 +208,8 @@ export const RenderedMessageItem: React.FC<{
           setIsCopied(true);
           setTimeout(() => setIsCopied(false), 2000);
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
+          // eslint-disable-next-line no-console
           console.error('Failed to copy text: ', err);
         });
     };
@@ -219,7 +223,7 @@ export const RenderedMessageItem: React.FC<{
     const showThinkingRow =
       !isUser &&
       !message.isGeneratingImage &&
-      (showTypingIndicator || (phase === 'thoughts' && !!thoughtText));
+      (showTypingIndicator || (phase === 'thoughts' && Boolean(thoughtText)));
 
     const onlyThinking = showThinkingRow && !hasMainContent;
 
@@ -293,7 +297,7 @@ export const RenderedMessageItem: React.FC<{
                         code(
                           props: React.ComponentPropsWithoutRef<'code'> & {
                             inline?: boolean;
-                            node?: unknown;
+                            node?: React.ReactNode;
                             children?: React.ReactNode;
                           },
                         ) {
@@ -311,31 +315,28 @@ export const RenderedMessageItem: React.FC<{
                               children: markdownChildren,
                               node,
                             });
-                          } else {
-                            const match = /language-(\w+)/.exec(className || '');
-                            const lang = match ? match[1] : '';
-                            const isMultiLine =
-                              String(markdownChildren || '').includes('\n');
-
-                            if (lang || isMultiLine) {
-                              return (
-                                <CodeBlock
-                                  language={lang}
-                                  code={String(markdownChildren || '').replace(
-                                    /\n$/,
-                                    '',
-                                  )}
-                                  {...restProps}
-                                />
-                              );
-                            } else {
-                              return renderStandardInlineCode({
-                                className,
-                                children: markdownChildren,
-                                node,
-                              });
-                            }
                           }
+
+                          const match = /language-(\w+)/.exec(className || '');
+                          const lang = match ? match[1] : '';
+                          const codeText = String(markdownChildren || '');
+                          const isMultiLine = codeText.includes('\n');
+
+                          if (lang || isMultiLine) {
+                            return (
+                              <CodeBlock
+                                language={lang}
+                                code={codeText.replace(/\n$/, '')}
+                                {...restProps}
+                              />
+                            );
+                          }
+
+                          return renderStandardInlineCode({
+                            className,
+                            children: markdownChildren,
+                            node,
+                          });
                         },
                       }}
                     >
@@ -354,14 +355,11 @@ export const RenderedMessageItem: React.FC<{
                 {(() => {
                   const attachments = message.attachments ?? [];
 
-                  // Treat both uploaded images and generated images as "images"
                   const images = attachments.filter(
-                    (att) =>
-                      att.type === 'image' || att.type === 'generated_image',
+                    (att) => att.type === 'image' || att.type === 'generated_image',
                   );
                   const documents = attachments.filter(
-                    (att) =>
-                      att.type !== 'image' && att.type !== 'generated_image',
+                    (att) => att.type !== 'image' && att.type !== 'generated_image',
                   );
 
                   return (
@@ -373,49 +371,58 @@ export const RenderedMessageItem: React.FC<{
                           }`}
                         >
                           {images.map((att, index) => {
-                            const url =
-                              // uploaded image case
-                              (att as any).url ||
-                              // generated_image base64 → data URL
-                              ((att as any).data
-                                ? `data:${
-                                    (att as any).mimeType || 'image/png'
-                                  };base64,${(att as any).data}`
-                                : undefined);
+                            const hasUrl = Boolean(att.url);
+                            const isGenerated = att.type === 'generated_image';
+                            const hasData =
+                              isGenerated &&
+                              typeof (att as { data?: string }).data === 'string' &&
+                              (att as { data?: string }).data !== '';
+
+                            const src = hasUrl
+                              ? (att.url as string)
+                              : isGenerated && hasData
+                              ? `data:${
+                                  (att as { mimeType?: string }).mimeType || 'image/png'
+                                };base64.${(att as { data?: string }).data as string}`
+                              : '';
+
+                            if (!src) {
+                              return (
+                                <div
+                                  key={`image-${index}`}
+                                  className="flex items-center justify-center h-24 rounded-lg border border-dashed border-red-400/50 bg-red-50/50"
+                                >
+                                  <div className="text-center">
+                                    <FiPaperclip
+                                      size={24}
+                                      className="text-red-500 mx-auto mb-1"
+                                    />
+                                    <p className="text-xs text-red-500">Error loading image</p>
+                                  </div>
+                                </div>
+                              );
+                            }
 
                             return (
                               <div key={`image-${index}`} className="relative">
-                                {url ? (
-                                  <div
-                                    onClick={() => {
-                                      setCurrentImageUrl(url);
-                                      setImageModalOpen(true);
-                                    }}
-                                    className="block rounded-lg overflow-hidden border border-primary/20 shadow-sm text-center cursor-pointer"
-                                  >
-                                    <Image
-                                      src={url}
-                                      alt={att.name || 'Attached image'}
-                                      width={200}
-                                      height={200}
-                                      className="w-full h-auto object-contain rounded-md"
-                                      loading="lazy"
-                                      sizes="(max-width: 768px) 100vw, 200px"
-                                    />
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center justify-center h-24 rounded-lg border border-dashed border-red-400/50 bg-red-50/50">
-                                    <div className="text-center">
-                                      <FiPaperclip
-                                        size={24}
-                                        className="text-red-500 mx-auto mb-1"
-                                      />
-                                      <p className="text-xs text-red-500">
-                                        Error loading image
-                                      </p>
-                                    </div>
-                                  </div>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCurrentImageUrl(src);
+                                    setImageModalOpen(true);
+                                  }}
+                                  className="block rounded-lg overflow-hidden border border-primary/20 shadow-sm text-center cursor-pointer"
+                                >
+                                  <Image
+                                    src={src}
+                                    alt={att.name || 'Attached image'}
+                                    width={200}
+                                    height={200}
+                                    className="w-full h-auto object-contain rounded-md"
+                                    loading="lazy"
+                                    sizes="(max-width: 768px) 100vw, 200px"
+                                  />
+                                </button>
                               </div>
                             );
                           })}
@@ -426,9 +433,9 @@ export const RenderedMessageItem: React.FC<{
                         <div className="space-y-2">
                           {documents.map((att, index) => (
                             <div key={`doc-${index}`} className="relative">
-                              {att.type === 'pdf' && (att as any).url ? (
+                              {att.type === 'pdf' && att.url ? (
                                 <a
-                                  href={(att as any).url}
+                                  href={att.url}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="flex items-center p-2.5 rounded-lg border border-primary/20 bg-gray-100 hover:bg-gray-200 transition-colors"
@@ -454,9 +461,9 @@ export const RenderedMessageItem: React.FC<{
                                     )}
                                   </div>
                                 </a>
-                              ) : (att as any).url ? (
+                              ) : att.url ? (
                                 <a
-                                  href={(att as any).url}
+                                  href={att.url}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="flex items-center p-2.5 rounded-lg border border-primary/20 bg-gray-100 hover:bg-gray-200 transition-colors"
@@ -469,10 +476,7 @@ export const RenderedMessageItem: React.FC<{
                                     className="text-sm text-primary font-medium truncate"
                                     title={att.name}
                                   >
-                                    {truncateFileName(
-                                      att.name || 'attachment',
-                                      25,
-                                    )}
+                                    {truncateFileName(att.name || 'attachment', 25)}
                                   </p>
                                 </a>
                               ) : (
@@ -512,9 +516,7 @@ export const RenderedMessageItem: React.FC<{
             {/* Orchestrating / searching / thinking / thoughts row */}
             {showThinkingRow && (
               <div
-                className={`${
-                  onlyThinking ? '' : 'mt-1'
-                } flex w-full items-center justify-center`}
+                className={`${onlyThinking ? '' : 'mt-1'} flex w-full items-center justify-center`}
               >
                 <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
               </div>
@@ -541,6 +543,7 @@ export const RenderedMessageItem: React.FC<{
                 <div className="flex items-center space-x-1 pr-1">
                   {!isUser && message.content && (
                     <button
+                      type="button"
                       onClick={handleCopyToClipboard}
                       className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                       title={isCopied ? 'Copied!' : 'Copy text'}
@@ -558,19 +561,16 @@ export const RenderedMessageItem: React.FC<{
                   {!isUser &&
                     message.attachments &&
                     message.attachments.some(
-                      (att) =>
-                        att.type === 'image' ||
-                        att.type === 'generated_image' ||
-                        att.type === 'pdf',
+                      (att) => att.type === 'image' || att.type === 'pdf',
                     ) && (
                       <button
+                        type="button"
                         onClick={() => {
                           const firstAttachment = message.attachments?.find(
-                            (att) =>
-                              att.type === 'image' || att.type === 'pdf',
+                            (att) => att.type === 'image' || att.type === 'pdf',
                           );
-                          if ((firstAttachment as any)?.url) {
-                            downloadFile((firstAttachment as any).url);
+                          if (firstAttachment?.url) {
+                            downloadFile(firstAttachment.url);
                           }
                         }}
                         className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
@@ -584,6 +584,7 @@ export const RenderedMessageItem: React.FC<{
                     )}
                   {isUser && message.failed && isLastFailedMessage && (
                     <button
+                      type="button"
                       onClick={handleRetry}
                       className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                       title="Retry sending"
@@ -596,6 +597,7 @@ export const RenderedMessageItem: React.FC<{
                   )}
                   {isUser && showExpandButton && !isExpanded && (
                     <button
+                      type="button"
                       onClick={() => setIsExpanded(true)}
                       className="p-0.5 rounded text-xs text-background/60 hover:text-background/90 transition-colors focus:outline-none cursor-pointer "
                       title="Show more"
@@ -605,6 +607,7 @@ export const RenderedMessageItem: React.FC<{
                   )}
                   {isUser && isExpanded && (
                     <button
+                      type="button"
                       onClick={() => setIsExpanded(false)}
                       className="p-0.5 rounded text-xs text-background/60 hover:text-background/90 transition-colors focus:outline-none cursor-pointer"
                       title="Show less"
@@ -623,15 +626,20 @@ export const RenderedMessageItem: React.FC<{
                     const timestamp = message.timestamp;
                     if (!timestamp) return '';
 
+                    if (message.content_type === 'assistant' && isStreaming) {
+                      return '';
+                    }
+
                     try {
                       const match = timestamp.match(/(\d{2}):(\d{2}):/);
-                      if (!match) return '';
-
-                      const hours = parseInt(match[1], 10);
-                      const minutes = match[2];
-                      const ampm = hours >= 12 ? 'PM' : 'AM';
-                      const formattedHours = hours % 12 || 12;
-                      return `${formattedHours}:${minutes} ${ampm}`;
+                      if (match) {
+                        const hours = parseInt(match[1], 10);
+                        const minutes = match[2];
+                        const ampm = hours >= 12 ? 'PM' : 'AM';
+                        const formattedHours = hours % 12 || 12;
+                        return `${formattedHours}:${minutes} ${ampm}`;
+                      }
+                      return '';
                     } catch {
                       return '';
                     }
