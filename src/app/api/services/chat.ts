@@ -43,6 +43,11 @@ type LLMHistoryMessage = {
   content: string;
 };
 
+type GeneratedImageAttachment = {
+  mimeType?: string;
+  data: string;
+};
+
 const CONTEXT_WINDOW = 40;
 const SUPABASE_PAGE_LIMIT = 20;
 
@@ -56,18 +61,6 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       'Streaming chat via Supabase edge function will fail.',
   );
 }
-
-// ---------- IMAGE PROMPT DETECTION ----------
-
-const IMAGE_TRIGGERS = ['image', 'photo', 'picture', 'img', 'pic'];
-
-function isImagePrompt(text: string | null | undefined): boolean {
-  if (!text) return false;
-  const lower = text.toLowerCase();
-  return IMAGE_TRIGGERS.some((t) => new RegExp('\\b' + t + '\\b', 'i').test(lower));
-}
-
-// ---------- SERVICE ----------
 
 export const chatService = {
   /**
@@ -141,9 +134,9 @@ export const chatService = {
   /**
    * Streaming chat via Supabase edge function (`functions/v1/chat`).
    * - Saves user message to DB
-   * - For normal prompts: streams assistant tokens into the UI
-   * - For image prompts: calls edge function non-stream and returns full reply + image
+   * - Streams assistant tokens into the UI
    * - On completion, saves full assistant message to DB and returns it via onDone
+   * - Also supports non-streaming image responses returned by the edge function
    */
   async streamMessage({
     message,
@@ -183,7 +176,7 @@ export const chatService = {
       let historyRows: Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[] = [];
 
       try {
-        // Page 1: newest up to 125 messages
+        // Page 1: newest up to SUPABASE_PAGE_LIMIT messages
         const { data: page1, error: err1 } = await supabase
           .from('messages')
           .select('content_type, content, timestamp')
@@ -200,7 +193,7 @@ export const chatService = {
           'content_type' | 'content' | 'timestamp'
         >[];
 
-        // Page 2: next 125 messages if needed (125–249)
+        // Page 2: next messages if needed
         if (
           CONTEXT_WINDOW > SUPABASE_PAGE_LIMIT &&
           (page1?.length ?? 0) === SUPABASE_PAGE_LIMIT
@@ -240,8 +233,6 @@ export const chatService = {
       // Add the new user message as the last item
       historyForModel.push({ role: 'user', content: message });
 
-      const wantsImage = isImagePrompt(message);
-
       // Save user message to DB immediately
       const userNowIso = new Date().toISOString();
       const { error: userInsertError } = await supabase.from('messages').insert([
@@ -260,118 +251,17 @@ export const chatService = {
         console.error('streamMessage: failed to save user message', userInsertError);
       }
 
-      // ---------------- IMAGE PATH: NON-STREAM ----------------
-      if (wantsImage) {
-        try {
-          const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              apikey: SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-            },
-            body: JSON.stringify({
-              message,
-              messages: historyForModel,
-              userId,
-              sessionId,
-              stream: false,
-            }),
-            signal,
-          });
-
-          if (!res.ok) {
-            const bodyText = await res.text();
-            console.error('image request failed', res.status, bodyText);
-            throw new ApiError('Image request failed', res.status, { error: bodyText });
-          }
-
-          const data: {
-            reply: string;
-            thoughts: string;
-            images?: { mimeType: string; data: string }[];
-            model?: string;
-          } = await res.json();
-
-          const assistantText = data.reply || '';
-          const images = data.images ?? [];
-
-          // Push whole answer once to UI
-          if (assistantText) {
-            onDelta(assistantText);
-          }
-
-          const assistantNowIso = new Date().toISOString();
-
-          // Save assistant text to DB (we are not persisting raw image bytes yet)
-          const { data: insertedRows, error: assistantInsertError } = await supabase
-            .from('messages')
-            .insert([
-              {
-                user_id: userId,
-                session_id: sessionId,
-                content_type: 'assistant',
-                content: assistantText,
-                timestamp: assistantNowIso,
-                is_call: false,
-                model: data.model ?? null,
-              },
-            ])
-            .select('message_id, content_type, content, timestamp, model');
-
-          if (assistantInsertError) {
-            console.error(
-              'streamMessage: failed to save assistant image message',
-              assistantInsertError,
-            );
-          }
-
-          const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
-
-          const assistantMessage: ChatMessageFromServer = dbAssistantRow
-            ? {
-                message_id: dbAssistantRow.message_id,
-                content_type: 'assistant',
-                content: dbAssistantRow.content,
-                timestamp: dbAssistantRow.timestamp,
-                attachments: (images || []).map((img) => ({
-                  // local-only attachment structure for now
-                  type: 'generated_image',
-                  mimeType: img.mimeType || 'image/png',
-                  data: img.data,
-                })) as any,
-                is_call: false,
-                failed: false,
-                finish_reason: null,
-              }
-            : {
-                message_id: crypto.randomUUID(),
-                content_type: 'assistant',
-                content: assistantText,
-                timestamp: assistantNowIso,
-                attachments: (images || []).map((img) => ({
-                  type: 'generated_image',
-                  mimeType: img.mimeType || 'image/png',
-                  data: img.data,
-                })) as any,
-                is_call: false,
-                failed: false,
-                finish_reason: null,
-              };
-
-          onDone?.(assistantMessage);
-          return;
-        } catch (err) {
-          console.error('streamMessage image path error:', err);
-          onError?.(err);
-          throw err;
-        }
-      }
-
-      // ---------------- TEXT PATH: STREAMING AS BEFORE ----------------
-
       // Accumulate full assistant response while streaming
       let fullAssistantText = '';
+
+      // If edge function chooses image mode, it can call this callback once with the image payload.
+      let generatedImageResult:
+        | {
+            reply: string;
+            images: GeneratedImageAttachment[];
+            model: string | null;
+          }
+        | null = null;
 
       await streamMeera({
         supabaseUrl: SUPABASE_URL,
@@ -380,14 +270,26 @@ export const chatService = {
         userId,
         sessionId,
         signal,
-        onAnswerDelta: (delta) => {
+        onAnswerDelta: (delta: string) => {
           fullAssistantText += delta;
           onDelta(delta);
+        },
+        // New optional image callback; streamMeera can ignore this if not in image mode.
+        onImageResult: (payload: {
+          reply: string;
+          images: GeneratedImageAttachment[];
+          model?: string | null;
+        }) => {
+          generatedImageResult = {
+            reply: payload.reply,
+            images: payload.images,
+            model: payload.model ?? null,
+          };
         },
         onDone: () => {
           // Persistence + onDone handled after SSE completes
         },
-        onError: (err) => {
+        onError: (err: unknown) => {
           console.error('streamMeera error:', err);
           onError?.(err);
         },
@@ -395,7 +297,68 @@ export const chatService = {
 
       const assistantNowIso = new Date().toISOString();
 
-      // Save assistant message to DB for history
+      // ---------- IMAGE RESPONSE PATH ----------
+      if (generatedImageResult) {
+        const { reply, images, model } = generatedImageResult;
+
+        const { data: insertedRows, error: assistantInsertError } = await supabase
+          .from('messages')
+          .insert([
+            {
+              user_id: userId,
+              session_id: sessionId,
+              content_type: 'assistant',
+              content: reply,
+              timestamp: assistantNowIso,
+              is_call: false,
+              model: model ?? null,
+            },
+          ])
+          .select('message_id, content_type, content, timestamp, model');
+
+        if (assistantInsertError) {
+          console.error(
+            'streamMessage: failed to save assistant image message',
+            assistantInsertError,
+          );
+        }
+
+        const dbAssistantRow = (insertedRows as DbMessageRow[] | null)?.[0];
+
+        const attachments = (images || []).map((img: GeneratedImageAttachment) => ({
+          type: 'generated_image',
+          mimeType: img.mimeType || 'image/png',
+          data: img.data,
+          name: 'Generated image',
+        }));
+
+        const assistantMessage: ChatMessageFromServer = dbAssistantRow
+          ? {
+              message_id: dbAssistantRow.message_id,
+              content_type: 'assistant',
+              content: dbAssistantRow.content,
+              timestamp: dbAssistantRow.timestamp,
+              attachments,
+              is_call: false,
+              failed: false,
+              finish_reason: null,
+            }
+          : {
+              message_id: crypto.randomUUID(),
+              content_type: 'assistant',
+              content: reply,
+              timestamp: assistantNowIso,
+              attachments,
+              is_call: false,
+              failed: false,
+              finish_reason: null,
+            };
+
+        onDone?.(assistantMessage);
+        return;
+      }
+
+      // ---------- TEXT RESPONSE PATH (existing behaviour) ----------
       const { data: insertedRows, error: assistantInsertError } = await supabase
         .from('messages')
         .insert([
