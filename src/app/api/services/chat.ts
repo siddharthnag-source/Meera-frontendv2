@@ -119,9 +119,9 @@ export const chatService = {
 
   /**
    * Non-streaming sendMessage.
-   * Currently not used; keep explicit to avoid silent misuse.
+   * Currently not used; kept explicit to avoid silent misuse.
    */
-  async sendMessage(_formData: FormData): Promise<ChatMessageResponse> {
+  async sendMessage(): Promise<ChatMessageResponse> {
     console.warn('sendMessage is deprecated, use streamMessage instead.');
     throw new Error('sendMessage is not supported; use streamMessage instead.');
   },
