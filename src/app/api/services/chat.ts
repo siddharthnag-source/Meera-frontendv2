@@ -43,12 +43,27 @@ type LLMHistoryMessage = {
   content: string;
 };
 
-/* ---------- Constants ---------- */
+type ImageAttachment = {
+  type: 'image';
+  url: string;
+  name: string;
+};
 
+type AssistantMsg = {
+  message_id: string;
+  content_type: 'assistant';
+  content: string;
+  timestamp: string;
+  attachments: ImageAttachment[];
+  is_call: false;
+  failed: false;
+  finish_reason: null;
+};
+
+/* ---------- Constants ---------- */
 const CONTEXT_WINDOW = 40;
 
 /* ---------- Env Vars ---------- */
-
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -66,10 +81,8 @@ function isImagePrompt(text: string): boolean {
 }
 
 function base64ToBlobUrl(base64: string, mimeType: string): string {
-  const byteChars = atob(base64);
-  const byteNumbers = Array.from(byteChars, (c) => c.charCodeAt(0));
-  const blob = new Blob([new Uint8Array(byteNumbers)], { type: mimeType });
-  return URL.createObjectURL(blob);
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 }
 
 type MeeraImageResponse = {
@@ -84,7 +97,7 @@ type MeeraImageResponse = {
 /* -------------------------------------------------------------------------- */
 
 export const chatService = {
-  /* ---------- History ---------- */
+  /* ---------- Load Chat History ---------- */
   async getChatHistory(page: number = 1) {
     const pageSize = 20;
     const from = (page - 1) * pageSize;
@@ -93,13 +106,9 @@ export const chatService = {
     try {
       const {
         data: { session },
-        error: sessionError,
       } = await supabase.auth.getSession();
 
-      if (sessionError || !session?.user) {
-        return { message: 'unauthorized', data: [] };
-      }
-
+      if (!session?.user) return { message: 'unauthorized', data: [] };
       const userId = session.user.id;
 
       const { data, error } = await supabase
@@ -150,7 +159,7 @@ export const chatService = {
     message: string;
     sessionId?: string;
     onDelta: (delta: string) => void;
-    onDone?: (finalMsg: any) => void;
+    onDone?: (finalMsg: AssistantMsg) => void;
     onError?: (err: unknown) => void;
     signal?: AbortSignal;
   }) {
@@ -160,12 +169,10 @@ export const chatService = {
       } = await supabase.auth.getSession();
 
       if (!session?.user) throw new SessionExpiredError('Session expired');
-
       const userId = session.user.id;
 
-      /* ---------- Load limited history (for context) ---------- */
-
-      let historyRows: Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[] = [];
+      /* ---------- Fetch context history ---------- */
+      let historyRows: DbMessageRow[] = [];
 
       try {
         const { data: page1 } = await supabase
@@ -175,45 +182,42 @@ export const chatService = {
           .order('timestamp', { ascending: false })
           .limit(CONTEXT_WINDOW);
 
-        historyRows = (page1 ?? []) as any[];
+        historyRows = (page1 ?? []) as DbMessageRow[];
       } catch (e) {
-        console.error('Failed to fetch history', e);
+        console.error('History load failed:', e);
       }
 
       const sortedHistory = historyRows.slice().reverse();
 
       const historyForModel: LLMHistoryMessage[] = sortedHistory
-        .filter((row) => row.content?.trim())
-        .map((row) => ({
-          role: row.content_type === 'assistant' ? 'assistant' : 'user',
-          content: row.content,
+        .filter((r) => r.content?.trim())
+        .map((r) => ({
+          role: r.content_type === 'assistant' ? 'assistant' : 'user',
+          content: r.content,
         }));
 
       historyForModel.push({ role: 'user', content: message });
 
-      /* ---------- Insert user message ---------- */
-
-      const userNow = new Date().toISOString();
+      /* ---------- Save user message ---------- */
       await supabase.from('messages').insert([
         {
           user_id: userId,
           session_id: sessionId,
           content_type: 'user',
           content: message,
-          timestamp: userNow,
-          is_call: false,
+          timestamp: new Date().toISOString(),
         },
       ]);
 
       const isImage = isImagePrompt(message);
 
       /* ---------------------------------------------------------------------- */
-      /*                             IMAGE MODE                                 */
+      /*                               IMAGE MODE                               */
       /* ---------------------------------------------------------------------- */
 
       if (isImage) {
         let finalText = '';
-        const attachments: any[] = [];
+        const attachments: ImageAttachment[] = [];
 
         try {
           const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
@@ -233,30 +237,24 @@ export const chatService = {
           });
 
           if (!res.ok) throw new Error(`Image call failed: ${res.status}`);
-
           const json = (await res.json()) as MeeraImageResponse;
 
           finalText = json.reply?.trim() || 'Here is your image.';
 
           (json.images ?? []).forEach((img, index) => {
             const mime = img.mimeType || 'image/png';
-            const blobUrl = base64ToBlobUrl(img.data, mime);
-            const dataUrl = `data:${mime};base64,${img.data}`;
+            const url = base64ToBlobUrl(img.data, mime);
+            const name = `generated-${index + 1}.png`;
 
-            attachments.push({
-              type: 'image',
-              url: blobUrl,
-              name: `generated-${index + 1}.png`,
-            });
+            attachments.push({ type: 'image', url, name });
 
             if (index === 0) {
-              finalText += `\n\n![Generated image](${dataUrl})`;
+              finalText += `\n\n![Generated image](data:${mime};base64,${img.data})`;
             }
           });
 
           onDelta(finalText);
         } catch (err) {
-          console.error(err);
           onError?.(err);
           throw err;
         }
@@ -272,41 +270,29 @@ export const chatService = {
               content_type: 'assistant',
               content: finalText,
               timestamp: now,
-              is_call: false,
             },
           ])
-          .select('message_id, content, timestamp');
+          .select();
 
-        const row = saved?.[0];
+        const row = (saved as DbMessageRow[] | null)?.[0];
 
-        const msg = row
-          ? {
-              message_id: row.message_id,
-              content_type: 'assistant',
-              content: row.content,
-              timestamp: row.timestamp,
-              attachments,
-              is_call: false,
-              failed: false,
-              finish_reason: null,
-            }
-          : {
-              message_id: crypto.randomUUID(),
-              content_type: 'assistant',
-              content: finalText,
-              timestamp: now,
-              attachments,
-              is_call: false,
-              failed: false,
-              finish_reason: null,
-            };
+        const assistantMsg: AssistantMsg = {
+          message_id: row?.message_id ?? crypto.randomUUID(),
+          content_type: 'assistant',
+          content: row?.content ?? finalText,
+          timestamp: row?.timestamp ?? now,
+          attachments,
+          is_call: false,
+          failed: false,
+          finish_reason: null,
+        };
 
-        onDone?.(msg);
+        onDone?.(assistantMsg);
         return;
       }
 
       /* ---------------------------------------------------------------------- */
-      /*                             TEXT MODE (SSE)                            */
+      /*                                 TEXT MODE                              */
       /* ---------------------------------------------------------------------- */
 
       let finalText = '';
@@ -335,38 +321,25 @@ export const chatService = {
             content_type: 'assistant',
             content: finalText,
             timestamp: now,
-            is_call: false,
           },
         ])
-        .select('message_id, content, timestamp');
+        .select();
 
-      const row = saved?.[0];
+      const row = (saved as DbMessageRow[] | null)?.[0];
 
-      const msg = row
-        ? {
-            message_id: row.message_id,
-            content_type: 'assistant',
-            content: row.content,
-            timestamp: row.timestamp,
-            attachments: [],
-            is_call: false,
-            failed: false,
-            finish_reason: null,
-          }
-        : {
-            message_id: crypto.randomUUID(),
-            content_type: 'assistant',
-            content: finalText,
-            timestamp: now,
-            attachments: [],
-            is_call: false,
-            failed: false,
-            finish_reason: null,
-          };
+      const assistantMsg: AssistantMsg = {
+        message_id: row?.message_id ?? crypto.randomUUID(),
+        content_type: 'assistant',
+        content: row?.content ?? finalText,
+        timestamp: row?.timestamp ?? now,
+        attachments: [],
+        is_call: false,
+        failed: false,
+        finish_reason: null,
+      };
 
-      onDone?.(msg);
+      onDone?.(assistantMsg);
     } catch (err) {
-      console.error('streamMessage error:', err);
       onError?.(err);
       throw err;
     }
