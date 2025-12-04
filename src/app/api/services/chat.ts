@@ -199,13 +199,10 @@ export const chatService = {
       let historyRows: Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[] = [];
 
       try {
-        // Page 1
         const { data: page1, error: err1 } = await supabase
           .from('messages')
           .select('content_type, content, timestamp')
           .eq('user_id', userId)
-          // If you want per-thread context later, you can also filter on session_id
-          // .eq('session_id', sessionId)
           .order('timestamp', { ascending: false })
           .limit(Math.min(CONTEXT_WINDOW, SUPABASE_PAGE_LIMIT));
 
@@ -216,7 +213,6 @@ export const chatService = {
           'content_type' | 'content' | 'timestamp'
         >[];
 
-        // Page 2 if needed
         if (
           CONTEXT_WINDOW > SUPABASE_PAGE_LIMIT &&
           (page1?.length ?? 0) === SUPABASE_PAGE_LIMIT
@@ -225,7 +221,6 @@ export const chatService = {
             .from('messages')
             .select('content_type, content, timestamp')
             .eq('user_id', userId)
-            // optional: .eq('session_id', sessionId)
             .order('timestamp', { ascending: false })
             .range(
               SUPABASE_PAGE_LIMIT,
@@ -307,21 +302,29 @@ export const chatService = {
 
           fullAssistantText = json.reply?.trim() || 'Here is your image.';
 
-          // Send text once to the UI
-          onDelta(fullAssistantText);
-
           const images = json.images ?? [];
           images.forEach((img, index) => {
             if (!img.data) return;
             const mime = img.mimeType || 'image/png';
-            const url = base64ToBlobUrl(img.data, mime);
 
+            const blobUrl = base64ToBlobUrl(img.data, mime);
+            const dataUrl = `data:${mime};base64,${img.data}`;
+
+            // Attach for gallery / attachment UI
             attachmentList.push({
               type: 'image',
-              url,
+              url: blobUrl,
               name: `generated-image-${index + 1}.png`,
             } as NonNullable<ChatMessageFromServer['attachments']>[number]);
+
+            // For the first image, also embed directly into markdown so it always renders
+            if (index === 0) {
+              fullAssistantText += `\n\n![Generated image](${dataUrl})`;
+            }
           });
+
+          // Send final text once to the UI
+          onDelta(fullAssistantText);
         } catch (err: unknown) {
           console.error('streamMessage (image mode) error:', err);
           onError?.(err);
