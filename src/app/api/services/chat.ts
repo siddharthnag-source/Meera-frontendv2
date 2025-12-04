@@ -1,12 +1,10 @@
-import {
-  ChatMessageFromServer,
-  ChatMessageResponse,
-  SaveInteractionPayload,
-} from '@/types/chat';
+import { SaveInteractionPayload } from '@/types/chat';
 import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
 import { supabase } from '@/lib/supabaseClient';
 import { streamMeera } from '@/lib/streamMeera';
+
+/* ---------- Errors ---------- */
 
 export class SessionExpiredError extends Error {
   constructor(message: string) {
@@ -27,6 +25,8 @@ export class ApiError extends Error {
   }
 }
 
+/* ---------- Types ---------- */
+
 type DbMessageRow = {
   message_id: string;
   user_id: string;
@@ -43,19 +43,22 @@ type LLMHistoryMessage = {
   content: string;
 };
 
-const CONTEXT_WINDOW = 20; // keep context small to avoid token explosion
-const SUPABASE_PAGE_LIMIT = 20;
+/* ---------- Constants ---------- */
+
+const CONTEXT_WINDOW = 40;
+
+/* ---------- Env Vars ---------- */
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.warn('Missing Supabase env vars for chat streaming');
+  console.warn('Supabase env vars missing, streaming will fail.');
 }
 
-/* ---------- IMAGE DETECTION ---------- */
+/* ---------- Image helpers ---------- */
 
-const IMAGE_TRIGGER_WORDS = ['image', 'photo', 'picture', 'pic', 'img'];
+const IMAGE_TRIGGER_WORDS = ['image', 'photo', 'picture', 'img', 'pic'];
 
 function isImagePrompt(text: string): boolean {
   const lower = text.toLowerCase();
@@ -63,11 +66,8 @@ function isImagePrompt(text: string): boolean {
 }
 
 function base64ToBlobUrl(base64: string, mimeType: string): string {
-  const byteCharacters = atob(base64);
-  const byteNumbers = new Array(byteCharacters.length);
-  for (let i = 0; i < byteCharacters.length; i++) {
-    byteNumbers[i] = byteCharacters.charCodeAt(i);
-  }
+  const byteChars = atob(base64);
+  const byteNumbers = Array.from(byteChars, (c) => c.charCodeAt(0));
   const blob = new Blob([new Uint8Array(byteNumbers)], { type: mimeType });
   return URL.createObjectURL(blob);
 }
@@ -80,20 +80,23 @@ type MeeraImageResponse = {
 };
 
 /* -------------------------------------------------------------------------- */
-/*                                  SERVICE                                   */
+/*                             CHAT SERVICE                                   */
 /* -------------------------------------------------------------------------- */
 
 export const chatService = {
-  async getChatHistory(page = 1) {
-    const from = (page - 1) * 20;
-    const to = from + 19;
+  /* ---------- History ---------- */
+  async getChatHistory(page: number = 1) {
+    const pageSize = 20;
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
 
     try {
       const {
         data: { session },
+        error: sessionError,
       } = await supabase.auth.getSession();
 
-      if (!session?.user) {
+      if (sessionError || !session?.user) {
         return { message: 'unauthorized', data: [] };
       }
 
@@ -108,19 +111,16 @@ export const chatService = {
         .order('timestamp', { ascending: false })
         .range(from, to);
 
-      if (error) {
-        console.error('getChatHistory error:', error);
-        return { message: 'error', data: [] };
-      }
+      if (error) return { message: 'error', data: [] };
 
-      const rows = (data ?? []).reverse() as DbMessageRow[];
+      const rows = ((data ?? []) as DbMessageRow[]).slice().reverse();
 
       const mapped = rows.map((row) => ({
         message_id: row.message_id,
-        content_type: row.content_type,
+        content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
         content: row.content,
         timestamp: row.timestamp,
-        session_id: row.session_id ?? undefined,
+        session_id: row.session_id || undefined,
         is_call: row.is_call ?? false,
         attachments: [],
         failed: false,
@@ -128,109 +128,99 @@ export const chatService = {
       }));
 
       return { message: 'ok', data: mapped };
-    } catch (err) {
-      console.error('getChatHistory unexpected:', err);
+    } catch {
       return { message: 'error', data: [] };
     }
   },
 
+  /* ---------- sendMessage (unused) ---------- */
   async sendMessage() {
-    throw new Error('sendMessage is not supported. Use streamMessage.');
+    throw new Error('Use streamMessage instead.');
   },
 
-  async streamMessage({ message, sessionId = 'sess_1', onDelta, onDone, onError, signal }) {
+  /* ---------- Streaming Chat ---------- */
+  async streamMessage({
+    message,
+    sessionId = 'sess_1',
+    onDelta,
+    onDone,
+    onError,
+    signal,
+  }: {
+    message: string;
+    sessionId?: string;
+    onDelta: (delta: string) => void;
+    onDone?: (finalMsg: any) => void;
+    onError?: (err: unknown) => void;
+    signal?: AbortSignal;
+  }) {
     try {
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (!session?.user) {
-        throw new SessionExpiredError('Session expired');
-      }
+      if (!session?.user) throw new SessionExpiredError('Session expired');
 
       const userId = session.user.id;
 
-      /* -------------------------------------------------------------------------- */
-      /*                         FETCH LAST N HISTORY MESSAGES                      */
-      /* -------------------------------------------------------------------------- */
+      /* ---------- Load limited history (for context) ---------- */
 
-      let historyRows: Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp' | 'model'>[] =
-        [];
+      let historyRows: Pick<DbMessageRow, 'content_type' | 'content' | 'timestamp'>[] = [];
 
       try {
-        const { data: rows1 } = await supabase
+        const { data: page1 } = await supabase
           .from('messages')
-          .select('content_type, content, timestamp, model')
+          .select('content_type, content, timestamp')
           .eq('user_id', userId)
           .order('timestamp', { ascending: false })
           .limit(CONTEXT_WINDOW);
 
-        historyRows = rows1 ?? [];
-      } catch (err) {
-        console.error('history fetch error:', err);
+        historyRows = (page1 ?? []) as any[];
+      } catch (e) {
+        console.error('Failed to fetch history', e);
       }
 
-      const sortedHistory = historyRows.reverse();
-
-      /* -------------------------------------------------------------------------- */
-      /*                    FILTER OUT IMAGE RESPONSES FROM HISTORY                 */
-      /* -------------------------------------------------------------------------- */
+      const sortedHistory = historyRows.slice().reverse();
 
       const historyForModel: LLMHistoryMessage[] = sortedHistory
-        .filter((row) => {
-          if (!row.content) return false;
-
-          // remove any base64 / data:image
-          if (row.content.startsWith('data:image')) return false;
-
-          // remove image-mode assistant messages
-          if (row.model === 'gemini-2.5-flash-image') return false;
-
-          // remove huge content
-          if (row.content.length > 4000) return false;
-
-          return true;
-        })
+        .filter((row) => row.content?.trim())
         .map((row) => ({
           role: row.content_type === 'assistant' ? 'assistant' : 'user',
           content: row.content,
         }));
 
-      // append new user message to LLM context
       historyForModel.push({ role: 'user', content: message });
 
-      /* -------------------------------------------------------------------------- */
-      /*                        SAVE USER MESSAGE IMMEDIATELY                       */
-      /* -------------------------------------------------------------------------- */
+      /* ---------- Insert user message ---------- */
 
+      const userNow = new Date().toISOString();
       await supabase.from('messages').insert([
         {
           user_id: userId,
           session_id: sessionId,
           content_type: 'user',
           content: message,
-          timestamp: new Date().toISOString(),
+          timestamp: userNow,
           is_call: false,
-          model: null,
         },
       ]);
 
-      /* -------------------------------------------------------------------------- */
-      /*                               IMAGE MODE                                   */
-      /* -------------------------------------------------------------------------- */
+      const isImage = isImagePrompt(message);
 
-      const imageMode = isImagePrompt(message);
+      /* ---------------------------------------------------------------------- */
+      /*                             IMAGE MODE                                 */
+      /* ---------------------------------------------------------------------- */
 
-      if (imageMode) {
-        let fullAssistantText = '';
-        const attachments = [];
+      if (isImage) {
+        let finalText = '';
+        const attachments: any[] = [];
 
         try {
           const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              apikey: SUPABASE_ANON_KEY,
+              apikey: SUPABASE_ANON_KEY!,
             },
             body: JSON.stringify({
               message,
@@ -242,15 +232,13 @@ export const chatService = {
             signal,
           });
 
+          if (!res.ok) throw new Error(`Image call failed: ${res.status}`);
+
           const json = (await res.json()) as MeeraImageResponse;
 
-          fullAssistantText = json.reply?.trim() ?? 'Here is your image.';
+          finalText = json.reply?.trim() || 'Here is your image.';
 
-          const imgs = json.images ?? [];
-
-          imgs.forEach((img, idx) => {
-            if (!img.data) return;
-
+          (json.images ?? []).forEach((img, index) => {
             const mime = img.mimeType || 'image/png';
             const blobUrl = base64ToBlobUrl(img.data, mime);
             const dataUrl = `data:${mime};base64,${img.data}`;
@@ -258,104 +246,134 @@ export const chatService = {
             attachments.push({
               type: 'image',
               url: blobUrl,
-              name: `generated-image-${idx + 1}.png`,
+              name: `generated-${index + 1}.png`,
             });
 
-            if (idx === 0) {
-              fullAssistantText += `\n\n![Generated image](${dataUrl})`;
+            if (index === 0) {
+              finalText += `\n\n![Generated image](${dataUrl})`;
             }
           });
 
-          onDelta(fullAssistantText);
-
-          const { data: inserted } = await supabase
-            .from('messages')
-            .insert([
-              {
-                user_id: userId,
-                session_id: sessionId,
-                content_type: 'assistant',
-                content: fullAssistantText,
-                timestamp: new Date().toISOString(),
-                is_call: false,
-                model: 'text-image-response',
-              },
-            ])
-            .select();
-
-          const row = inserted?.[0];
-
-          onDone?.({
-            message_id: row?.message_id ?? crypto.randomUUID(),
-            content_type: 'assistant',
-            content: fullAssistantText,
-            timestamp: row?.timestamp ?? new Date().toISOString(),
-            attachments,
-            is_call: false,
-            failed: false,
-            finish_reason: null,
-          });
-
-          return;
+          onDelta(finalText);
         } catch (err) {
-          console.error('image mode error:', err);
+          console.error(err);
           onError?.(err);
-          return;
+          throw err;
         }
+
+        const now = new Date().toISOString();
+
+        const { data: saved } = await supabase
+          .from('messages')
+          .insert([
+            {
+              user_id: userId,
+              session_id: sessionId,
+              content_type: 'assistant',
+              content: finalText,
+              timestamp: now,
+              is_call: false,
+            },
+          ])
+          .select('message_id, content, timestamp');
+
+        const row = saved?.[0];
+
+        const msg = row
+          ? {
+              message_id: row.message_id,
+              content_type: 'assistant',
+              content: row.content,
+              timestamp: row.timestamp,
+              attachments,
+              is_call: false,
+              failed: false,
+              finish_reason: null,
+            }
+          : {
+              message_id: crypto.randomUUID(),
+              content_type: 'assistant',
+              content: finalText,
+              timestamp: now,
+              attachments,
+              is_call: false,
+              failed: false,
+              finish_reason: null,
+            };
+
+        onDone?.(msg);
+        return;
       }
 
-      /* -------------------------------------------------------------------------- */
-      /*                                TEXT MODE                                   */
-      /* -------------------------------------------------------------------------- */
+      /* ---------------------------------------------------------------------- */
+      /*                             TEXT MODE (SSE)                            */
+      /* ---------------------------------------------------------------------- */
 
-      let fullAssistantText = '';
+      let finalText = '';
 
       await streamMeera({
-        supabaseUrl: SUPABASE_URL,
-        supabaseAnonKey: SUPABASE_ANON_KEY,
+        supabaseUrl: SUPABASE_URL!,
+        supabaseAnonKey: SUPABASE_ANON_KEY!,
         messages: historyForModel,
         userId,
         sessionId,
         signal,
-        onAnswerDelta: (delta) => {
-          fullAssistantText += delta;
-          onDelta(delta);
+        onAnswerDelta: (d) => {
+          finalText += d;
+          onDelta(d);
         },
       });
 
-      const { data: insertedRows } = await supabase
+      const now = new Date().toISOString();
+
+      const { data: saved } = await supabase
         .from('messages')
         .insert([
           {
             user_id: userId,
             session_id: sessionId,
             content_type: 'assistant',
-            content: fullAssistantText,
-            timestamp: new Date().toISOString(),
+            content: finalText,
+            timestamp: now,
             is_call: false,
-            model: 'text',
           },
         ])
-        .select();
+        .select('message_id, content, timestamp');
 
-      const row = insertedRows?.[0];
+      const row = saved?.[0];
 
-      onDone?.({
-        message_id: row?.message_id ?? crypto.randomUUID(),
-        content_type: 'assistant',
-        content: fullAssistantText,
-        timestamp: row?.timestamp ?? new Date().toISOString(),
-        attachments: [],
-        is_call: false,
-        failed: false,
-        finish_reason: null,
-      });
+      const msg = row
+        ? {
+            message_id: row.message_id,
+            content_type: 'assistant',
+            content: row.content,
+            timestamp: row.timestamp,
+            attachments: [],
+            is_call: false,
+            failed: false,
+            finish_reason: null,
+          }
+        : {
+            message_id: crypto.randomUUID(),
+            content_type: 'assistant',
+            content: finalText,
+            timestamp: now,
+            attachments: [],
+            is_call: false,
+            failed: false,
+            finish_reason: null,
+          };
+
+      onDone?.(msg);
     } catch (err) {
       console.error('streamMessage error:', err);
       onError?.(err);
+      throw err;
     }
   },
 };
+
+/* ---------- Save Interaction ---------- */
 
 export const saveInteraction = (payload: SaveInteractionPayload) => {
   return api.post(API_ENDPOINTS.CALL.SAVE_INTERACTION, payload);
