@@ -67,15 +67,6 @@ type LegacyMessageRow = {
   is_call: boolean | null;
 };
 
-/* ---------- Image prompt helper ---------- */
-
-const IMAGE_TRIGGER_WORDS = ['image', 'photo', 'picture', 'img', 'pic'];
-
-function isImagePrompt(text: string): boolean {
-  const lower = text.toLowerCase();
-  return IMAGE_TRIGGER_WORDS.some((word) => lower.includes(word));
-}
-
 const MemoizedRenderedMessageItem = React.memo(
   RenderedMessageItem,
   (prevProps, nextProps) => {
@@ -199,7 +190,7 @@ export const Conversation: React.FC = () => {
   }, [inputValue, debouncedSetMessage]);
 
   const lastFailedMessageId = useMemo(() => {
-    for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
+    for (let i = chatMessages.length - 1; i >= 0; i--) {
       const msg = chatMessages[i];
       if (msg.content_type === 'user' && msg.failed) return msg.message_id;
     }
@@ -289,8 +280,7 @@ export const Conversation: React.FC = () => {
     [chatMessages, processMessagesForDisplay],
   );
 
-  const lastMessage =
-    chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
+  const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
   const canSubmit = useMemo(
     () => (message.trim() || currentAttachments.length > 0) && !isSending,
@@ -766,145 +756,14 @@ export const Conversation: React.FC = () => {
     scrollToBottom(true, true);
   }, [scrollToBottom]);
 
-  /* ---------- New: direct image submission path ---------- */
-
-  const handleImageSubmission = useCallback(() => {
-    const trimmed = message.trim();
-    if (!trimmed) return;
-
-    const nowIso = new Date().toISOString();
-    const userMessageId = crypto.randomUUID();
-    const assistantMessageId = crypto.randomUUID();
-
-    lastOptimisticMessageIdRef.current = userMessageId;
-
-    const userMessage: ChatMessageFromServer = {
-      message_id: userMessageId,
-      content_type: 'user',
-      content: trimmed,
-      timestamp: nowIso,
-      session_id: undefined,
-      is_call: false,
-      attachments: [],
-      failed: false,
-      finish_reason: null,
-    };
-
-    const assistantPlaceholder: ChatMessageFromServer = {
-      message_id: assistantMessageId,
-      content_type: 'assistant',
-      content: '',
-      timestamp: nowIso,
-      session_id: undefined,
-      is_call: false,
-      attachments: [],
-      failed: false,
-      finish_reason: null,
-      isGeneratingImage: true,
-    };
-
-    setChatMessages((prev) => [...prev, userMessage, assistantPlaceholder]);
-    setIsSending(true);
-    setIsAssistantTyping(true);
-    setCurrentThoughtText('');
-    clearAllInput();
-    justSentMessageRef.current = true;
-
-    chatService
-      .streamMessage({
-        message: trimmed,
-        onDelta: (delta) => {
-          setChatMessages((prev) => {
-            const updated = [...prev];
-            const idx = updated.findIndex(
-              (m) => m.message_id === assistantMessageId,
-            );
-            if (idx === -1) return updated;
-            updated[idx] = {
-              ...updated[idx],
-              content: (updated[idx].content || '') + delta,
-            };
-            return updated;
-          });
-        },
-        onDone: (assistantMessage) => {
-          setChatMessages((prev) => {
-            const updated = [...prev];
-            const idx = updated.findIndex(
-              (m) => m.message_id === assistantMessageId,
-            );
-            if (idx === -1) {
-              updated.push(assistantMessage);
-              return updated;
-            }
-            updated[idx] = {
-              ...updated[idx],
-              content: assistantMessage.content,
-              attachments: assistantMessage.attachments ?? [],
-              failed: assistantMessage.failed ?? false,
-              finish_reason: assistantMessage.finish_reason ?? null,
-              isGeneratingImage: false,
-            };
-            return updated;
-          });
-          setIsSending(false);
-          setIsAssistantTyping(false);
-          setCurrentThoughtText('');
-        },
-        onError: (err) => {
-          console.error('Image submission error:', err);
-          setChatMessages((prev) => {
-            const updated = [...prev];
-            const idx = updated.findIndex(
-              (m) => m.message_id === assistantMessageId,
-            );
-            if (idx === -1) return updated;
-            updated[idx] = {
-              ...updated[idx],
-              content:
-                'Sorry, I could not generate the image. Please try again in a moment.',
-              failed: true,
-              isGeneratingImage: false,
-            };
-            return updated;
-          });
-          setIsSending(false);
-          setIsAssistantTyping(false);
-        },
-      })
-      .catch((err) => {
-        console.error('Image submission outer error:', err);
-        setIsSending(false);
-        setIsAssistantTyping(false);
-      });
-  }, [
-    message,
-    setChatMessages,
-    setIsSending,
-    setIsAssistantTyping,
-    setCurrentThoughtText,
-    clearAllInput,
-  ]);
-
   // single place that actually triggers sending
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
       if (!canSubmit) return;
-
-      const trimmed = message.trim();
-
-      // If this looks like an image generation prompt and there are no file attachments,
-      // use the direct image path so we can attach the generated image.
-      if (trimmed && currentAttachments.length === 0 && isImagePrompt(trimmed)) {
-        handleImageSubmission();
-        return;
-      }
-
-      // Normal text / tool calls: use the existing streaming submission hook
       executeSubmission(message, currentAttachments);
     },
-    [canSubmit, message, currentAttachments, executeSubmission, handleImageSubmission],
+    [executeSubmission, message, currentAttachments, canSubmit],
   );
 
   return (
