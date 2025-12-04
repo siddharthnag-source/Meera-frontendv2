@@ -33,7 +33,15 @@ import { ChatMessageFromServer } from '@/types/chat';
 import Image from 'next/image';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FaFilePdf } from 'react-icons/fa';
-import { FiCheck, FiChevronDown, FiChevronUp, FiCopy, FiDownload, FiPaperclip, FiRefreshCw } from 'react-icons/fi';
+import {
+  FiCheck,
+  FiChevronDown,
+  FiChevronUp,
+  FiCopy,
+  FiDownload,
+  FiPaperclip,
+  FiRefreshCw,
+} from 'react-icons/fi';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
@@ -231,7 +239,9 @@ export const RenderedMessageItem: React.FC<{
         <div
           style={hasMinHeight && !isUser ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
           className={`flex flex-col md:pr-1 ${
-            message.attachments && message.attachments.length > 0 ? 'w-[85%] md:w-[55%]' : 'max-w-[99%] md:max-w-[99%]'
+            message.attachments && message.attachments.length > 0
+              ? 'w-[85%] md:w-[55%]'
+              : 'max-w-[99%] md:max-w-[99%]'
           }`}
         >
           <div className={bubbleClasses}>
@@ -249,7 +259,9 @@ export const RenderedMessageItem: React.FC<{
                   </div>
                 ) : message.content_type === 'assistant' ? (
                   message.failed && message.failedMessage ? (
-                    <div className="text-red-500 font-medium text-[15px]">{message.failedMessage}</div>
+                    <div className="text-red-500 font-medium text-[15px]">
+                      {message.failedMessage}
+                    </div>
                   ) : (
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
@@ -285,7 +297,13 @@ export const RenderedMessageItem: React.FC<{
                             children?: React.ReactNode;
                           },
                         ) {
-                          const { inline, className, children: markdownChildren, node, ...restProps } = props;
+                          const {
+                            inline,
+                            className,
+                            children: markdownChildren,
+                            node,
+                            ...restProps
+                          } = props;
 
                           if (inline === true) {
                             return renderStandardInlineCode({
@@ -296,13 +314,17 @@ export const RenderedMessageItem: React.FC<{
                           } else {
                             const match = /language-(\w+)/.exec(className || '');
                             const lang = match ? match[1] : '';
-                            const isMultiLine = String(markdownChildren || '').includes('\n');
+                            const isMultiLine =
+                              String(markdownChildren || '').includes('\n');
 
                             if (lang || isMultiLine) {
                               return (
                                 <CodeBlock
                                   language={lang}
-                                  code={String(markdownChildren || '').replace(/\n$/, '')}
+                                  code={String(markdownChildren || '').replace(
+                                    /\n$/,
+                                    '',
+                                  )}
                                   {...restProps}
                                 />
                               );
@@ -331,43 +353,72 @@ export const RenderedMessageItem: React.FC<{
               <div className={hasTextContent ? 'mt-3' : ''}>
                 {(() => {
                   const attachments = message.attachments ?? [];
-                  const images = attachments.filter((att) => att.type === 'image');
-                  const documents = attachments.filter((att) => att.type !== 'image');
+
+                  // Treat both uploaded images and generated images as "images"
+                  const images = attachments.filter(
+                    (att) =>
+                      att.type === 'image' || att.type === 'generated_image',
+                  );
+                  const documents = attachments.filter(
+                    (att) =>
+                      att.type !== 'image' && att.type !== 'generated_image',
+                  );
 
                   return (
                     <>
                       {images.length > 0 && (
-                        <div className={`grid gap-2 mb-3 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                          {images.map((att, index) => (
-                            <div key={`image-${index}`} className="relative">
-                              {att.url ? (
-                                <div
-                                  onClick={() => {
-                                    setCurrentImageUrl(att.url || '');
-                                    setImageModalOpen(true);
-                                  }}
-                                  className="block rounded-lg overflow-hidden border border-primary/20 shadow-sm text-center cursor-pointer"
-                                >
-                                  <Image
-                                    src={att.url}
-                                    alt={att.name || 'Attached image'}
-                                    width={200}
-                                    height={200}
-                                    className="w-full h-auto object-contain rounded-md"
-                                    loading="lazy"
-                                    sizes="(max-width: 768px) 100vw, 200px"
-                                  />
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-center h-24 rounded-lg border border-dashed border-red-400/50 bg-red-50/50">
-                                  <div className="text-center">
-                                    <FiPaperclip size={24} className="text-red-500 mx-auto mb-1" />
-                                    <p className="text-xs text-red-500">Error loading image</p>
+                        <div
+                          className={`grid gap-2 mb-3 ${
+                            images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+                          }`}
+                        >
+                          {images.map((att, index) => {
+                            const url =
+                              // uploaded image case
+                              (att as any).url ||
+                              // generated_image base64 → data URL
+                              ((att as any).data
+                                ? `data:${
+                                    (att as any).mimeType || 'image/png'
+                                  };base64,${(att as any).data}`
+                                : undefined);
+
+                            return (
+                              <div key={`image-${index}`} className="relative">
+                                {url ? (
+                                  <div
+                                    onClick={() => {
+                                      setCurrentImageUrl(url);
+                                      setImageModalOpen(true);
+                                    }}
+                                    className="block rounded-lg overflow-hidden border border-primary/20 shadow-sm text-center cursor-pointer"
+                                  >
+                                    <Image
+                                      src={url}
+                                      alt={att.name || 'Attached image'}
+                                      width={200}
+                                      height={200}
+                                      className="w-full h-auto object-contain rounded-md"
+                                      loading="lazy"
+                                      sizes="(max-width: 768px) 100vw, 200px"
+                                    />
                                   </div>
-                                </div>
-                              )}
-                            </div>
-                          ))}
+                                ) : (
+                                  <div className="flex items-center justify-center h-24 rounded-lg border border-dashed border-red-400/50 bg-red-50/50">
+                                    <div className="text-center">
+                                      <FiPaperclip
+                                        size={24}
+                                        className="text-red-500 mx-auto mb-1"
+                                      />
+                                      <p className="text-xs text-red-500">
+                                        Error loading image
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
 
@@ -375,42 +426,75 @@ export const RenderedMessageItem: React.FC<{
                         <div className="space-y-2">
                           {documents.map((att, index) => (
                             <div key={`doc-${index}`} className="relative">
-                              {att.type === 'pdf' && att.url ? (
+                              {att.type === 'pdf' && (att as any).url ? (
                                 <a
-                                  href={att.url}
+                                  href={(att as any).url}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="flex items-center p-2.5 rounded-lg border border-primary/20 bg-gray-100 hover:bg-gray-200 transition-colors"
                                 >
-                                  <FaFilePdf size={28} className="text-red-500 mr-2.5 flex-shrink-0" />
+                                  <FaFilePdf
+                                    size={28}
+                                    className="text-red-500 mr-2.5 flex-shrink-0"
+                                  />
                                   <div className="flex-1 overflow-hidden">
-                                    <p className="text-sm text-primary font-medium truncate" title={att.name}>
-                                      {truncateFileName(att.name || 'document.pdf', 25)}
+                                    <p
+                                      className="text-sm text-primary font-medium truncate"
+                                      title={att.name}
+                                    >
+                                      {truncateFileName(
+                                        att.name || 'document.pdf',
+                                        25,
+                                      )}
                                     </p>
-                                    {att.size && <p className="text-xs text-primary/60">PDF Document</p>}
+                                    {att.size && (
+                                      <p className="text-xs text-primary/60">
+                                        PDF Document
+                                      </p>
+                                    )}
                                   </div>
                                 </a>
-                              ) : att.url ? (
+                              ) : (att as any).url ? (
                                 <a
-                                  href={att.url}
+                                  href={(att as any).url}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="flex items-center p-2.5 rounded-lg border border-primary/20 bg-gray-100 hover:bg-gray-200 transition-colors"
                                 >
-                                  <FiPaperclip size={24} className="text-primary/70 mr-2.5 flex-shrink-0" />
-                                  <p className="text-sm text-primary font-medium truncate" title={att.name}>
-                                    {truncateFileName(att.name || 'attachment', 25)}
+                                  <FiPaperclip
+                                    size={24}
+                                    className="text-primary/70 mr-2.5 flex-shrink-0"
+                                  />
+                                  <p
+                                    className="text-sm text-primary font-medium truncate"
+                                    title={att.name}
+                                  >
+                                    {truncateFileName(
+                                      att.name || 'attachment',
+                                      25,
+                                    )}
                                   </p>
                                 </a>
                               ) : (
                                 <div className="flex items-center p-2.5 rounded-lg border border-dashed border-red-400/50 bg-red-50/50">
-                                  <FiPaperclip size={24} className="text-red-500 mr-2.5 flex-shrink-0" />
+                                  <FiPaperclip
+                                    size={24}
+                                    className="text-red-500 mr-2.5 flex-shrink-0"
+                                  />
                                   <div className="flex-1 overflow-hidden">
-                                    <p className="text-sm text-red-700 font-medium truncate" title={att.name}>
-                                      {truncateFileName(att.name || 'Attachment error', 25)}
+                                    <p
+                                      className="text-sm text-red-700 font-medium truncate"
+                                      title={att.name}
+                                    >
+                                      {truncateFileName(
+                                        att.name || 'Attachment error',
+                                        25,
+                                      )}
                                     </p>
                                     <p className="text-xs text-red-500">
-                                      {att.type === 'error' ? 'Error loading attachment' : 'Cannot display attachment'}
+                                      {att.type === 'error'
+                                        ? 'Error loading attachment'
+                                        : 'Cannot display attachment'}
                                     </p>
                                   </div>
                                 </div>
@@ -427,7 +511,11 @@ export const RenderedMessageItem: React.FC<{
 
             {/* Orchestrating / searching / thinking / thoughts row */}
             {showThinkingRow && (
-              <div className={`${onlyThinking ? '' : 'mt-1'} flex w-full items-center justify-center`}>
+              <div
+                className={`${
+                  onlyThinking ? '' : 'mt-1'
+                } flex w-full items-center justify-center`}
+              >
                 <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
               </div>
             )}
@@ -441,9 +529,9 @@ export const RenderedMessageItem: React.FC<{
 
             {isStreaming && message.content && !message.isGeneratingImage && (
               <div className="flex items-center space-x-1 mt-2">
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" />
               </div>
             )}
 
@@ -460,26 +548,38 @@ export const RenderedMessageItem: React.FC<{
                       {isCopied ? (
                         <FiCheck size={14} className="text-primary" />
                       ) : (
-                        <FiCopy size={14} className="text-primary/60 hover:text-primary/80" />
+                        <FiCopy
+                          size={14}
+                          className="text-primary/60 hover:text-primary/80"
+                        />
                       )}
                     </button>
                   )}
                   {!isUser &&
                     message.attachments &&
-                    message.attachments.some((att) => att.type === 'image' || att.type === 'pdf') && (
+                    message.attachments.some(
+                      (att) =>
+                        att.type === 'image' ||
+                        att.type === 'generated_image' ||
+                        att.type === 'pdf',
+                    ) && (
                       <button
                         onClick={() => {
                           const firstAttachment = message.attachments?.find(
-                            (att) => att.type === 'image' || att.type === 'pdf',
+                            (att) =>
+                              att.type === 'image' || att.type === 'pdf',
                           );
-                          if (firstAttachment?.url) {
-                            downloadFile(firstAttachment.url);
+                          if ((firstAttachment as any)?.url) {
+                            downloadFile((firstAttachment as any).url);
                           }
                         }}
                         className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                         title="Download attachment"
                       >
-                        <FiDownload size={14} className="text-primary/60 hover:text-primary/80" />
+                        <FiDownload
+                          size={14}
+                          className="text-primary/60 hover:text-primary/80"
+                        />
                       </button>
                     )}
                   {isUser && message.failed && isLastFailedMessage && (
@@ -488,7 +588,10 @@ export const RenderedMessageItem: React.FC<{
                       className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                       title="Retry sending"
                     >
-                      <FiRefreshCw size={14} className="text-background/60 hover:text-background/90" />
+                      <FiRefreshCw
+                        size={14}
+                        className="text-background/60 hover:text-background/90"
+                      />
                     </button>
                   )}
                   {isUser && showExpandButton && !isExpanded && (
@@ -511,44 +614,24 @@ export const RenderedMessageItem: React.FC<{
                   )}
                 </div>
 
-                <p className={`text-xs whitespace-nowrap ${isUser ? 'text-background/60' : 'text-primary/60'}`}>
+                <p
+                  className={`text-xs whitespace-nowrap ${
+                    isUser ? 'text-background/60' : 'text-primary/60'
+                  }`}
+                >
                   {(() => {
-                    if (isUser) {
-                      const timestamp = message.timestamp;
-                      if (!timestamp) return '';
-
-                      try {
-                        const match = timestamp.match(/(\d{2}):(\d{2}):/);
-                        if (match) {
-                          const hours = parseInt(match[1], 10);
-                          const minutes = match[2];
-                          const ampm = hours >= 12 ? 'PM' : 'AM';
-                          const formattedHours = hours % 12 || 12;
-                          return `${formattedHours}:${minutes} ${ampm}`;
-                        }
-                        return '';
-                      } catch {
-                        return '';
-                      }
-                    }
-
-                    if (message.content_type === 'assistant' && isStreaming) {
-                      return '';
-                    }
-
                     const timestamp = message.timestamp;
                     if (!timestamp) return '';
 
                     try {
                       const match = timestamp.match(/(\d{2}):(\d{2}):/);
-                      if (match) {
-                        const hours = parseInt(match[1], 10);
-                        const minutes = match[2];
-                        const ampm = hours >= 12 ? 'PM' : 'AM';
-                        const formattedHours = hours % 12 || 12;
-                        return `${formattedHours}:${minutes} ${ampm}`;
-                      }
-                      return '';
+                      if (!match) return '';
+
+                      const hours = parseInt(match[1], 10);
+                      const minutes = match[2];
+                      const ampm = hours >= 12 ? 'PM' : 'AM';
+                      const formattedHours = hours % 12 || 12;
+                      return `${formattedHours}:${minutes} ${ampm}`;
                     } catch {
                       return '';
                     }
@@ -560,7 +643,11 @@ export const RenderedMessageItem: React.FC<{
         </div>
 
         {imageModalOpen && (
-          <ImageModal isOpen={imageModalOpen} onClose={() => setImageModalOpen(false)} imageUrl={currentImageUrl} />
+          <ImageModal
+            isOpen={imageModalOpen}
+            onClose={() => setImageModalOpen(false)}
+            imageUrl={currentImageUrl}
+          />
         )}
       </div>
     );
