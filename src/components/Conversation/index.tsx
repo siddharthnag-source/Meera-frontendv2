@@ -404,12 +404,15 @@ export const Conversation: React.FC = () => {
           if (abortController.signal.aborted) return;
 
           if (response.data && response.data.length > 0) {
-            const messages = response.data
-              .map((msg: ChatMessageFromServer) => ({
-                ...msg,
-                attachments: msg.attachments || [],
-              }))
-              .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const rawMessages = response.data as ChatMessageFromServer[];
+
+  const messages = rawMessages
+    .map((msg) => ({
+      ...msg,
+      attachments: msg.attachments ?? [],
+    }))
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
 
             if (isInitial && !hasLoadedLegacyHistory) {
               setChatMessages(messages);
