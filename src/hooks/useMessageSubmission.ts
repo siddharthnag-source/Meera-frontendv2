@@ -7,6 +7,8 @@ import { supabase } from '@/lib/supabaseClient';
 import {
   ChatAttachmentInputState,
   ChatMessageFromServer,
+  ChatAttachmentFromServer,
+  GeneratedImage,
 } from '@/types/chat';
 import React, {
   MutableRefObject,
@@ -33,6 +35,18 @@ interface UseMessageSubmissionProps {
 
 const ATTACHMENTS_BUCKET = 'attachments';
 
+// ---------- IMAGE TRIGGERS (client-side) ----------
+
+const IMAGE_TRIGGERS = ['image', 'photo', 'picture', 'img', 'pic'];
+
+function isImageRequest(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return IMAGE_TRIGGERS.some((t) =>
+    new RegExp('\\b' + t + '\\b', 'i').test(lower),
+  );
+}
+
 type UploadedMeta = {
   storagePath: string;
   publicUrl: string;
@@ -42,7 +56,10 @@ type UploadedMeta = {
   type: 'image' | 'document';
 };
 
-async function uploadAttachmentToStorage(file: File, type: 'image' | 'document'): Promise<UploadedMeta> {
+async function uploadAttachmentToStorage(
+  file: File,
+  type: 'image' | 'document',
+): Promise<UploadedMeta> {
   const ext = file.name.includes('.') ? file.name.split('.').pop() || '' : '';
   const randomSuffix = Math.random().toString(36).slice(2);
   const path = `${Date.now()}-${randomSuffix}${ext ? '.' + ext : ''}`;
@@ -179,8 +196,8 @@ export const useMessageSubmission = ({
       }
 
       // Attach storagePath/publicUrl back onto attachments for optimistic UI
-      const attachmentsWithStorage: ChatAttachmentInputState[] = attachments.map(
-        (att, index) => {
+      const attachmentsWithStorage: ChatAttachmentInputState[] =
+        attachments.map((att, index) => {
           const meta = uploaded[index];
           if (!meta) return att;
           return {
@@ -188,8 +205,7 @@ export const useMessageSubmission = ({
             storagePath: meta.storagePath,
             publicUrl: meta.publicUrl,
           };
-        },
-      );
+        });
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
@@ -260,7 +276,84 @@ export const useMessageSubmission = ({
       const assistantId =
         messageRelationshipMapRef.current.get(optimisticId);
 
+      const wantsImage = isImageRequest(trimmedMessage);
+
       try {
+        // ---------- IMAGE MODE (non-streaming, JSON) ----------
+        if (wantsImage) {
+          const { data: imgResult, error: funcError } =
+            await supabase.functions.invoke('chat', {
+              body: {
+                message: payloadMessage,
+                stream: false, // important: non-stream for images
+              },
+            });
+
+          if (funcError || !imgResult) {
+            console.error('Supabase function error (image):', funcError);
+            throw funcError || new Error('No data returned from image function');
+          }
+
+          const rawImages: GeneratedImage[] = Array.isArray(imgResult.images)
+            ? imgResult.images
+            : [];
+
+          const imagesWithDataUrl: GeneratedImage[] = rawImages.map((img) => ({
+            mimeType: img.mimeType || 'image/png',
+            data: img.data,
+            dataUrl:
+              img.dataUrl ||
+              (img.data
+                ? `data:${img.mimeType || 'image/png'};base64,${img.data}`
+                : undefined),
+          }));
+
+          const imageAttachments: ChatAttachmentFromServer[] =
+            imagesWithDataUrl.map((img, index) => ({
+              name: `generated-image-${Date.now()}-${index}.png`,
+              type: img.mimeType || 'image/png',
+              url: img.dataUrl || '',
+            }));
+
+          const assistantContent =
+            imgResult.reply || 'Here is an image for you.';
+
+          if (assistantId) {
+            setChatMessages((prev) =>
+              prev.map((msg) =>
+                msg.message_id === assistantId
+                  ? {
+                      ...msg,
+                      content: assistantContent,
+                      attachments: imageAttachments,
+                      failed: false,
+                      try_number: tryNumber,
+                      isGeneratingImage: false,
+                      generatedImages: imagesWithDataUrl,
+                    }
+                  : msg,
+              ),
+            );
+          } else {
+            // Fallback: no placeholder found, append a new assistant message
+            const fallbackAssistant: ChatMessageFromServer = {
+              message_id: `assistant-${Date.now()}`,
+              content: assistantContent,
+              content_type: 'assistant',
+              timestamp: createLocalTimestamp(),
+              attachments: imageAttachments,
+              try_number: tryNumber,
+              failed: false,
+              isGeneratingImage: false,
+              generatedImages: imagesWithDataUrl,
+            };
+            setChatMessages((prev) => [...prev, fallbackAssistant]);
+          }
+
+          return;
+        }
+
+        // ---------- TEXT MODE (streaming) ----------
         let fullAssistantText = '';
 
         await chatService.streamMessage({
