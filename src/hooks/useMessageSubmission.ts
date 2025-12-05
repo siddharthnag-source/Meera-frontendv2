@@ -44,7 +44,7 @@ type UploadedMeta = {
   type: 'image' | 'document';
 };
 
-// ---------- image prompt detection (mirror of Edge Function triggers) ----------
+// ---------- image prompt detection ----------
 const IMAGE_TRIGGERS = ['image', 'photo', 'picture', 'img', 'pic'];
 
 function isImagePrompt(text: string): boolean {
@@ -281,25 +281,24 @@ export const useMessageSubmission = ({
       try {
         // ----- IMAGE MODE: non-stream call, expects JSON with attachments + images -----
         if (wantsImage) {
+          type ChatImageResponse = {
+            response?: string;
+            reply?: string;
+            images?: GeneratedImage[];
+            attachments?: ChatAttachmentFromServer[];
+            model?: string;
+            thoughts?: string;
+          };
+
           const raw = await chatService.sendMessage({
             message: payloadMessage,
           });
 
-          // tolerant to shapes: either { data: {...} } or direct
-          const payload =
-            (raw && (raw.data || raw)) as {
-              response?: string;
-              reply?: string;
-              images?: GeneratedImage[];
-              attachments?: ChatAttachmentFromServer[];
-              model?: string;
-              thoughts?: string;
-            };
+          const payload = (raw && (raw.data || raw)) as ChatImageResponse;
 
           const replyText = payload.response ?? payload.reply ?? '';
           const responseImages = payload.images ?? [];
-          const responseAttachments =
-            (payload as any).attachments ?? [];
+          const responseAttachments = payload.attachments ?? [];
           const responseThoughts = payload.thoughts ?? '';
 
           const generatedImages: GeneratedImage[] = responseImages.map(
@@ -322,7 +321,7 @@ export const useMessageSubmission = ({
                       try_number: tryNumber,
                       isGeneratingImage: false,
                       generatedImages,
-                      attachments: responseAttachments || [],
+                      attachments: responseAttachments,
                       thoughts: responseThoughts,
                     } as ChatMessageFromServer)
                   : msg,
