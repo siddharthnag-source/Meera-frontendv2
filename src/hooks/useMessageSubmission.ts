@@ -7,6 +7,8 @@ import { supabase } from '@/lib/supabaseClient';
 import {
   ChatAttachmentInputState,
   ChatMessageFromServer,
+  ChatAttachmentFromServer,
+  GeneratedImage,
 } from '@/types/chat';
 import React, {
   MutableRefObject,
@@ -18,7 +20,7 @@ interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean; // still passed from Conversation, but we don't need it here
+  isSearchActive: boolean;
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setJustSentMessage: (justSent: boolean) => void;
@@ -42,7 +44,20 @@ type UploadedMeta = {
   type: 'image' | 'document';
 };
 
-async function uploadAttachmentToStorage(file: File, type: 'image' | 'document'): Promise<UploadedMeta> {
+// ---------- image prompt detection (mirror of Edge Function triggers) ----------
+const IMAGE_TRIGGERS = ['image', 'photo', 'picture', 'img', 'pic'];
+
+function isImagePrompt(text: string): boolean {
+  const lower = text.toLowerCase();
+  return IMAGE_TRIGGERS.some((t) =>
+    new RegExp(`\\b${t}\\b`, 'i').test(lower),
+  );
+}
+
+async function uploadAttachmentToStorage(
+  file: File,
+  type: 'image' | 'document',
+): Promise<UploadedMeta> {
   const ext = file.name.includes('.') ? file.name.split('.').pop() || '' : '';
   const randomSuffix = Math.random().toString(36).slice(2);
   const path = `${Date.now()}-${randomSuffix}${ext ? '.' + ext : ''}`;
@@ -83,7 +98,6 @@ export const useMessageSubmission = ({
   message,
   currentAttachments,
   chatMessages,
-  // isSearchActive, // not needed inside this hook right now
   isSending,
   setIsSending,
   setJustSentMessage,
@@ -159,6 +173,8 @@ export const useMessageSubmission = ({
 
       if (!hasText && !hasAttachments) return;
 
+      const wantsImage = isImagePrompt(trimmedMessage);
+
       // STEP 1: upload all attachments to Supabase Storage
       let uploaded: UploadedMeta[] = [];
       if (hasAttachments) {
@@ -210,6 +226,8 @@ export const useMessageSubmission = ({
           attachments: [],
           try_number: tryNumber,
           failed: false,
+          isGeneratingImage: wantsImage,
+          generatedImages: [],
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
@@ -261,6 +279,62 @@ export const useMessageSubmission = ({
         messageRelationshipMapRef.current.get(optimisticId);
 
       try {
+        // ----- IMAGE MODE: non-stream call, expects JSON with attachments + images -----
+        if (wantsImage) {
+          const raw = await chatService.sendMessage({
+            message: payloadMessage,
+          });
+
+          // tolerant to shapes: either { data: {...} } or direct
+          const payload =
+            (raw && (raw.data || raw)) as {
+              response?: string;
+              reply?: string;
+              images?: GeneratedImage[];
+              attachments?: ChatAttachmentFromServer[];
+              model?: string;
+              thoughts?: string;
+            };
+
+          const replyText = payload.response ?? payload.reply ?? '';
+          const responseImages = payload.images ?? [];
+          const responseAttachments =
+            (payload as any).attachments ?? [];
+          const responseThoughts = payload.thoughts ?? '';
+
+          const generatedImages: GeneratedImage[] = responseImages.map(
+            (img) => ({
+              ...img,
+              dataUrl:
+                img.dataUrl ||
+                `data:${img.mimeType || 'image/png'};base64,${img.data}`,
+            }),
+          );
+
+          if (assistantId) {
+            setChatMessages((prev) =>
+              prev.map((msg) =>
+                msg.message_id === assistantId
+                  ? ({
+                      ...msg,
+                      content: replyText,
+                      failed: false,
+                      try_number: tryNumber,
+                      isGeneratingImage: false,
+                      generatedImages,
+                      attachments: responseAttachments || [],
+                      thoughts: responseThoughts,
+                    } as ChatMessageFromServer)
+                  : msg,
+              ),
+            );
+          }
+
+          setCurrentThoughtText(responseThoughts || '');
+          return;
+        }
+
+        // ----- TEXT MODE: streaming SSE as before -----
         let fullAssistantText = '';
 
         await chatService.streamMessage({
