@@ -20,7 +20,7 @@ interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean;
+  isSearchActive: boolean; // still passed but unused
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setJustSentMessage: (justSent: boolean) => void;
@@ -44,7 +44,8 @@ type UploadedMeta = {
   type: 'image' | 'document';
 };
 
-// ---------- image prompt detection ----------
+/** ---------- image-prompt detection ---------- **/
+
 const IMAGE_TRIGGERS = ['image', 'photo', 'picture', 'img', 'pic'];
 
 function isImagePrompt(text: string): boolean {
@@ -53,6 +54,8 @@ function isImagePrompt(text: string): boolean {
     new RegExp(`\\b${t}\\b`, 'i').test(lower),
   );
 }
+
+/** ---------- upload helper ---------- **/
 
 async function uploadAttachmentToStorage(
   file: File,
@@ -175,7 +178,7 @@ export const useMessageSubmission = ({
 
       const wantsImage = isImagePrompt(trimmedMessage);
 
-      // STEP 1: upload all attachments to Supabase Storage
+      /** STEP 1: upload attachments to Supabase Storage */
       let uploaded: UploadedMeta[] = [];
       if (hasAttachments) {
         try {
@@ -194,7 +197,7 @@ export const useMessageSubmission = ({
         }
       }
 
-      // Attach storagePath/publicUrl back onto attachments for optimistic UI
+      // attach storagePath/publicUrl back onto attachments for optimistic UI
       const attachmentsWithStorage: ChatAttachmentInputState[] = attachments.map(
         (att, index) => {
           const meta = uploaded[index];
@@ -209,7 +212,7 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // STEP 2: create optimistic user + assistant placeholders
+      /** STEP 2: optimistic user + assistant placeholders */
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(
           optimisticId,
@@ -240,7 +243,7 @@ export const useMessageSubmission = ({
 
         setTimeout(() => scrollToBottom(true, true), 150);
       } else {
-        // Retry: clear failed state on the user message
+        // retry: clear failed state on the user message
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId
@@ -256,7 +259,7 @@ export const useMessageSubmission = ({
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
 
-      // STEP 3: build a payload message that includes public URLs
+      /** STEP 3: build payload message (+ public URLs inline) */
       let payloadMessage = trimmedMessage;
 
       if (uploaded.length > 0) {
@@ -279,66 +282,92 @@ export const useMessageSubmission = ({
         messageRelationshipMapRef.current.get(optimisticId);
 
       try {
-        // ----- IMAGE MODE: non-stream call, expects JSON with attachments + images -----
+        /** ---------- IMAGE MODE: try non-stream API first ---------- */
         if (wantsImage) {
-          type ChatImageResponse = {
-            response?: string;
-            reply?: string;
-            images?: GeneratedImage[];
-            attachments?: ChatAttachmentFromServer[];
-            model?: string;
-            thoughts?: string;
-          };
+          let imageModeSucceeded = false;
 
-          // Cast chatService so TS knows sendMessage accepts a payload
-          const raw = await (
-            chatService as unknown as {
-              sendMessage: (payload: { message: string }) => Promise<unknown>;
-            }
-          ).sendMessage({ message: payloadMessage });
+          try {
+            type ChatImageResponse = {
+              response?: string;
+              reply?: string;
+              images?: GeneratedImage[];
+              attachments?: ChatAttachmentFromServer[];
+              model?: string;
+              thoughts?: string;
+            };
 
-          const payload = (raw && (raw as { data?: unknown })?.data) as
-            | ChatImageResponse
-            | undefined;
+            const raw = await (
+              chatService as unknown as {
+                sendMessage: (payload: { message: string }) => Promise<unknown>;
+              }
+            ).sendMessage({ message: payloadMessage });
 
-          const replyText = payload?.response ?? payload?.reply ?? '';
-          const responseImages = payload?.images ?? [];
-          const responseAttachments = payload?.attachments ?? [];
-          const responseThoughts = payload?.thoughts ?? '';
+            const payload = (raw && (raw as { data?: unknown })?.data) as
+              | ChatImageResponse
+              | undefined;
 
-          const generatedImages: GeneratedImage[] = responseImages.map(
-            (img) => ({
-              ...img,
-              dataUrl:
-                img.dataUrl ||
-                `data:${img.mimeType || 'image/png'};base64,${img.data}`,
-            }),
-          );
+            const replyText = payload?.response ?? payload?.reply ?? '';
+            const responseImages = payload?.images ?? [];
+            const responseAttachments = payload?.attachments ?? [];
+            const responseThoughts = payload?.thoughts ?? '';
 
-          if (assistantId) {
-            setChatMessages((prev) =>
-              prev.map((msg) =>
-                msg.message_id === assistantId
-                  ? ({
-                      ...msg,
-                      content: replyText,
-                      failed: false,
-                      try_number: tryNumber,
-                      isGeneratingImage: false,
-                      generatedImages,
-                      attachments: responseAttachments,
-                      thoughts: responseThoughts,
-                    } as ChatMessageFromServer)
-                  : msg,
-              ),
+            const generatedImages: GeneratedImage[] = responseImages.map(
+              (img) => ({
+                ...img,
+                dataUrl:
+                  img.dataUrl ||
+                  `data:${img.mimeType || 'image/png'};base64,${img.data}`,
+              }),
             );
+
+            if (assistantId) {
+              setChatMessages((prev) =>
+                prev.map((msg) =>
+                  msg.message_id === assistantId
+                    ? ({
+                        ...msg,
+                        content: replyText,
+                        failed: false,
+                        try_number: tryNumber,
+                        isGeneratingImage: false,
+                        generatedImages,
+                        attachments: responseAttachments,
+                        thoughts: responseThoughts,
+                      } as ChatMessageFromServer)
+                    : msg,
+                ),
+              );
+            }
+
+            setCurrentThoughtText(responseThoughts || '');
+            imageModeSucceeded = true;
+          } catch (err) {
+            console.error(
+              'Image mode sendMessage failed, falling back to streamMessage',
+              err,
+            );
+
+            // stop the skeleton if we are going to fall back
+            if (assistantId) {
+              setChatMessages((prev) =>
+                prev.map((msg) =>
+                  msg.message_id === assistantId
+                    ? { ...msg, isGeneratingImage: false }
+                    : msg,
+                ),
+              );
+            }
           }
 
-          setCurrentThoughtText(responseThoughts || '');
-          return;
+          if (imageModeSucceeded) {
+            // all good, we handled the response in image mode
+            return;
+          }
+          // otherwise fall through to streaming text mode
         }
 
-        // ----- TEXT MODE: streaming SSE as before -----
+        /** ---------- TEXT / FALLBACK MODE: streaming SSE ---------- */
+
         let fullAssistantText = '';
 
         await chatService.streamMessage({
@@ -355,6 +384,7 @@ export const useMessageSubmission = ({
                       content: (msg.content || '') + delta,
                       failed: false,
                       try_number: tryNumber,
+                      isGeneratingImage: false,
                     }
                   : msg,
               ),
@@ -371,6 +401,7 @@ export const useMessageSubmission = ({
                       content: msg.content || fullAssistantText,
                       failed: false,
                       try_number: tryNumber,
+                      isGeneratingImage: false,
                     }
                   : msg,
               ),
@@ -393,12 +424,13 @@ export const useMessageSubmission = ({
         setChatMessages((prev) =>
           prev.map((msg) => {
             if (msg.message_id === optimisticId)
-              return { ...msg, failed: true };
+              return { ...msg, failed: true, isGeneratingImage: false };
             if (assistantId && msg.message_id === assistantId) {
               return {
                 ...msg,
                 failed: true,
                 failedMessage: 'Failed to respond, try again',
+                isGeneratingImage: false,
               };
             }
             return msg;
