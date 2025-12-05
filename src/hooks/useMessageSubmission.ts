@@ -20,7 +20,7 @@ interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean; // still passed from Conversation, but we don't need it here
+  isSearchActive: boolean;
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setJustSentMessage: (justSent: boolean) => void;
@@ -35,18 +35,6 @@ interface UseMessageSubmissionProps {
 
 const ATTACHMENTS_BUCKET = 'attachments';
 
-// ---------- IMAGE TRIGGERS (client-side) ----------
-
-const IMAGE_TRIGGERS = ['image', 'photo', 'picture', 'img', 'pic'];
-
-function isImageRequest(text: string | null | undefined): boolean {
-  if (!text) return false;
-  const lower = text.toLowerCase();
-  return IMAGE_TRIGGERS.some((t) =>
-    new RegExp('\\b' + t + '\\b', 'i').test(lower),
-  );
-}
-
 type UploadedMeta = {
   storagePath: string;
   publicUrl: string;
@@ -56,6 +44,9 @@ type UploadedMeta = {
   type: 'image' | 'document';
 };
 
+/**
+ * Upload a file to Supabase Storage and return metadata (including public URL).
+ */
 async function uploadAttachmentToStorage(
   file: File,
   type: 'image' | 'document',
@@ -94,6 +85,19 @@ async function uploadAttachmentToStorage(
     size: file.size,
     type,
   };
+}
+
+/**
+ * Convert a base64 string into a File so we can upload it to Storage.
+ */
+function base64ToFile(base64Data: string, fileName: string, mimeType: string): File {
+  const byteString = atob(base64Data);
+  const len = byteString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = byteString.charCodeAt(i);
+  }
+  return new File([bytes], fileName, { type: mimeType });
 }
 
 export const useMessageSubmission = ({
@@ -141,7 +145,7 @@ export const useMessageSubmission = ({
           name: att.file.name,
           type:
             att.file.type === 'application/pdf'
-              ? 'document'
+              ? 'pdf'
               : att.type === 'image'
               ? 'image'
               : 'file',
@@ -176,11 +180,11 @@ export const useMessageSubmission = ({
 
       if (!hasText && !hasAttachments) return;
 
-      // STEP 1: upload all attachments to Supabase Storage
-      let uploaded: UploadedMeta[] = [];
+      // STEP 1: upload user attachments (if any) to Storage
+      let uploadedUserAttachments: UploadedMeta[] = [];
       if (hasAttachments) {
         try {
-          uploaded = await Promise.all(
+          uploadedUserAttachments = await Promise.all(
             attachments.map((att) =>
               uploadAttachmentToStorage(att.file, att.type),
             ),
@@ -195,10 +199,10 @@ export const useMessageSubmission = ({
         }
       }
 
-      // Attach storagePath/publicUrl back onto attachments for optimistic UI
+      // enrich attachment state with storage info for optimistic UI
       const attachmentsWithStorage: ChatAttachmentInputState[] =
         attachments.map((att, index) => {
-          const meta = uploaded[index];
+          const meta = uploadedUserAttachments[index];
           if (!meta) return att;
           return {
             ...att,
@@ -209,7 +213,7 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // STEP 2: create optimistic user + assistant placeholders
+      // STEP 2: optimistic user + assistant placeholder messages
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(
           optimisticId,
@@ -226,6 +230,7 @@ export const useMessageSubmission = ({
           attachments: [],
           try_number: tryNumber,
           failed: false,
+          isGeneratingImage: false,
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
@@ -238,7 +243,7 @@ export const useMessageSubmission = ({
 
         setTimeout(() => scrollToBottom(true, true), 150);
       } else {
-        // Retry: clear failed state on the user message
+        // Retry: clear failed state for the user message
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId
@@ -254,11 +259,11 @@ export const useMessageSubmission = ({
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
 
-      // STEP 3: build a payload message that includes public URLs
+      // STEP 3: build payload text (includes public URLs for user attachments)
       let payloadMessage = trimmedMessage;
 
-      if (uploaded.length > 0) {
-        const attachmentsTextLines = uploaded.map(
+      if (uploadedUserAttachments.length > 0) {
+        const attachmentsTextLines = uploadedUserAttachments.map(
           (meta) =>
             `- ${meta.name} (${meta.mimeType}, ${meta.size} bytes): ${meta.publicUrl}`,
         );
@@ -276,89 +281,12 @@ export const useMessageSubmission = ({
       const assistantId =
         messageRelationshipMapRef.current.get(optimisticId);
 
-      const wantsImage = isImageRequest(trimmedMessage);
-
       try {
-        // ---------- IMAGE MODE (non-streaming, JSON) ----------
-        if (wantsImage) {
-          const { data: imgResult, error: funcError } =
-            await supabase.functions.invoke('chat', {
-              body: {
-                message: payloadMessage,
-                stream: false, // important: non-stream for images
-              },
-            });
-
-          if (funcError || !imgResult) {
-            console.error('Supabase function error (image):', funcError);
-            throw funcError || new Error('No data returned from image function');
-          }
-
-          const rawImages: GeneratedImage[] = Array.isArray(imgResult.images)
-            ? imgResult.images
-            : [];
-
-          const imagesWithDataUrl: GeneratedImage[] = rawImages.map((img) => ({
-            mimeType: img.mimeType || 'image/png',
-            data: img.data,
-            dataUrl:
-              img.dataUrl ||
-              (img.data
-                ? `data:${img.mimeType || 'image/png'};base64,${img.data}`
-                : undefined),
-          }));
-
-          const imageAttachments: ChatAttachmentFromServer[] =
-            imagesWithDataUrl.map((img, index) => ({
-              name: `generated-image-${Date.now()}-${index}.png`,
-              type: img.mimeType || 'image/png',
-              url: img.dataUrl || '',
-            }));
-
-          const assistantContent =
-            imgResult.reply || 'Here is an image for you.';
-
-          if (assistantId) {
-            setChatMessages((prev) =>
-              prev.map((msg) =>
-                msg.message_id === assistantId
-                  ? {
-                      ...msg,
-                      content: assistantContent,
-                      attachments: imageAttachments,
-                      failed: false,
-                      try_number: tryNumber,
-                      isGeneratingImage: false,
-                      generatedImages: imagesWithDataUrl,
-                    }
-                  : msg,
-              ),
-            );
-          } else {
-            // Fallback: no placeholder found, append a new assistant message
-            const fallbackAssistant: ChatMessageFromServer = {
-              message_id: `assistant-${Date.now()}`,
-              content: assistantContent,
-              content_type: 'assistant',
-              timestamp: createLocalTimestamp(),
-              attachments: imageAttachments,
-              try_number: tryNumber,
-              failed: false,
-              isGeneratingImage: false,
-              generatedImages: imagesWithDataUrl,
-            };
-            setChatMessages((prev) => [...prev, fallbackAssistant]);
-          }
-
-          return;
-        }
-
-        // ---------- TEXT MODE (streaming) ----------
         let fullAssistantText = '';
 
         await chatService.streamMessage({
           message: payloadMessage,
-          onDelta: (delta) => {
+          onDelta: (delta: string) => {
             fullAssistantText += delta;
             if (!assistantId) return;
 
@@ -391,8 +319,71 @@ export const useMessageSubmission = ({
               ),
             );
           },
-          onError: (err) => {
+          onError: (err: unknown) => {
             throw err;
+          },
+
+          /**
+           * NEW: when Gemini returns images (for "generate image of ..." prompts),
+           * upload them to Supabase Storage and persist as message attachments.
+           */
+          onImages: async (images: GeneratedImage[]) => {
+            if (!assistantId || !images || images.length === 0) return;
+
+            try {
+              // 1) Convert base64 → File
+              const files: File[] = images.map((img, index) => {
+                const mimeType = img.mimeType || 'image/png';
+                const base64 =
+                  img.data ||
+                  (img.dataUrl ? img.dataUrl.split(',')[1] || '' : '');
+                const ext = mimeType.split('/')[1] || 'png';
+                const fileName = `generated-${Date.now()}-${index}.${ext}`;
+                return base64ToFile(base64, fileName, mimeType);
+              });
+
+              // 2) Upload each file to Storage
+              const uploadedGenerated = await Promise.all(
+                files.map((file) => uploadAttachmentToStorage(file, 'image')),
+              );
+
+              // 3) Build attachment objects with public URLs
+              const imageAttachments: ChatAttachmentFromServer[] =
+                uploadedGenerated.map((meta) => ({
+                  name: meta.name,
+                  type: 'image',
+                  url: meta.publicUrl,
+                  size: meta.size,
+                }));
+
+              // 4) Update in-memory assistant message so the image shows immediately
+              setChatMessages((prev) =>
+                prev.map((msg) =>
+                  msg.message_id === assistantId
+                    ? {
+                        ...msg,
+                        attachments: imageAttachments,
+                        isGeneratingImage: false,
+                      }
+                    : msg,
+                ),
+              );
+
+              // 5) Persist attachments into the messages table (so they survive refresh)
+              try {
+                await supabase
+                  .from('messages')
+                  .update({ attachments: imageAttachments })
+                  .eq('message_id', assistantId);
+              } catch (dbErr) {
+                console.error(
+                  'Failed to persist generated image attachments to messages table',
+                  dbErr,
+                );
+              }
+            } catch (uploadErr) {
+              console.error('Error handling generated images', uploadErr);
+            }
           },
         });
 
