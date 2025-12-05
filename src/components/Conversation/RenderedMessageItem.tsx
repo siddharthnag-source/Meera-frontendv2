@@ -28,7 +28,7 @@ import {
 } from '@/components/MessageRenderDesign/MarkdownComponents';
 import { ImageModal } from '@/components/ui/ImageModal';
 import { truncateFileName } from '@/lib/stringUtils';
-import { ChatMessageFromServer } from '@/types/chat';
+import { ChatMessageFromServer, GeneratedImage } from '@/types/chat';
 import Image from 'next/image';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FaFilePdf } from 'react-icons/fa';
@@ -141,9 +141,27 @@ export const RenderedMessageItem: React.FC<{
     const bgColor = isUser ? 'bg-primary' : 'bg-card';
     const textColor = isUser ? 'text-background' : 'text-primary';
 
+    // Inline generated images (from chat response, not just attachments)
+    const inlineGeneratedImages: GeneratedImage[] = useMemo(
+      () =>
+        (message.generatedImages || []).map((img) => ({
+          ...img,
+          dataUrl: img.dataUrl || `data:${img.mimeType || 'image/png'};base64,${img.data}`,
+        })),
+      [message.generatedImages],
+    );
+
     const hasTextContent =
       !!message.content || (message.content_type === 'assistant' && !!message.failed);
-    const hasAttachments = !!(message.attachments && message.attachments.length > 0);
+
+    const hasServerAttachments =
+      !!message.attachments && message.attachments.length > 0;
+
+    const hasAnyImages =
+      inlineGeneratedImages.length > 0 ||
+      (message.attachments || []).some((att) => isImageAttachment(att));
+
+    const hasAttachments = hasServerAttachments || inlineGeneratedImages.length > 0;
     const hasMainContent = hasTextContent || hasAttachments;
 
     /* Phase progression: Orchestrating -> Searching memories -> Thinking */
@@ -252,9 +270,7 @@ export const RenderedMessageItem: React.FC<{
         <div
           style={hasMinHeight && !isUser ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
           className={`flex flex-col md:pr-1 ${
-            message.attachments && message.attachments.length > 0
-              ? 'w-[85%] md:w-[55%]'
-              : 'max-w-[99%] md:max-w-[99%]'
+            hasAnyImages ? 'w-[85%] md:w-[55%]' : 'max-w-[99%] md:max-w-[99%]'
           }`}
         >
           <div className={bubbleClasses}>
@@ -356,8 +372,8 @@ export const RenderedMessageItem: React.FC<{
               </>
             )}
 
-            {/* Attachments */}
-            {hasAttachments && (
+            {/* Attachments + generated images */}
+            {(hasAttachments || inlineGeneratedImages.length > 0) && (
               <div className={hasTextContent ? 'mt-3' : ''}>
                 {(() => {
                   const attachments = message.attachments ?? [];
@@ -369,7 +385,38 @@ export const RenderedMessageItem: React.FC<{
 
                   return (
                     <>
-                      {/* IMAGES: show inline in the bubble */}
+                      {/* GENERATED IMAGES (base64/dataUrl) */}
+                      {inlineGeneratedImages.length > 0 && (
+                        <div
+                          className={`grid gap-2 mb-3 ${
+                            inlineGeneratedImages.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+                          }`}
+                        >
+                          {inlineGeneratedImages.map((img, index) => (
+                            <div key={`gen-${index}`} className="relative">
+                              <div
+                                onClick={() => {
+                                  setCurrentImageUrl(img.dataUrl || '');
+                                  setImageModalOpen(true);
+                                }}
+                                className="block rounded-lg overflow-hidden border border-primary/20 shadow-sm text-center cursor-pointer bg-background"
+                              >
+                                <Image
+                                  src={img.dataUrl || ''}
+                                  alt="Generated image"
+                                  width={200}
+                                  height={200}
+                                  className="w-full h-auto object-contain rounded-md"
+                                  loading="lazy"
+                                  sizes="(max-width: 768px) 100vw, 200px"
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* IMAGE ATTACHMENTS FROM SERVER */}
                       {imageAttachments.length > 0 && (
                         <div
                           className={`grid gap-2 mb-3 ${
@@ -384,7 +431,7 @@ export const RenderedMessageItem: React.FC<{
                                     setCurrentImageUrl(att.url || '');
                                     setImageModalOpen(true);
                                   }}
-                                  className="block rounded-lg overflow-hidden border border-primary/20 shadow-sm text-center cursor-pointer"
+                                  className="block rounded-lg overflow-hidden border border-primary/20 shadow-sm text-center cursor-pointer bg-background"
                                 >
                                   <Image
                                     src={att.url}
