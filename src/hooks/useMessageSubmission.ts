@@ -290,16 +290,21 @@ export const useMessageSubmission = ({
             thoughts?: string;
           };
 
-          const raw = await chatService.sendMessage({
-            message: payloadMessage,
-          });
+          // Cast chatService so TS knows sendMessage accepts a payload
+          const raw = await (
+            chatService as unknown as {
+              sendMessage: (payload: { message: string }) => Promise<unknown>;
+            }
+          ).sendMessage({ message: payloadMessage });
 
-          const payload = (raw && (raw.data || raw)) as ChatImageResponse;
+          const payload = (raw && (raw as { data?: unknown })?.data) as
+            | ChatImageResponse
+            | undefined;
 
-          const replyText = payload.response ?? payload.reply ?? '';
-          const responseImages = payload.images ?? [];
-          const responseAttachments = payload.attachments ?? [];
-          const responseThoughts = payload.thoughts ?? '';
+          const replyText = payload?.response ?? payload?.reply ?? '';
+          const responseImages = payload?.images ?? [];
+          const responseAttachments = payload?.attachments ?? [];
+          const responseThoughts = payload?.thoughts ?? '';
 
           const generatedImages: GeneratedImage[] = responseImages.map(
             (img) => ({
