@@ -26,7 +26,10 @@ import React, {
 import { FiArrowUp, FiGlobe, FiMenu } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
-import { AttachmentInputArea, AttachmentInputAreaRef } from './AttachmentInputArea';
+import {
+  AttachmentInputArea,
+  AttachmentInputAreaRef,
+} from './AttachmentInputArea';
 import { AttachmentPreview } from './AttachmentPreview';
 import { CallSessionItem } from './CallSessionItem';
 import { RenderedMessageItem } from './RenderedMessageItem';
@@ -70,6 +73,13 @@ type LegacyMessageRow = {
 const MemoizedRenderedMessageItem = React.memo(
   RenderedMessageItem,
   (prevProps, nextProps) => {
+    const prevAttachments = prevProps.message.attachments ?? [];
+    const nextAttachments = nextProps.message.attachments ?? [];
+
+    const attachmentsEqual =
+      prevAttachments.length === nextAttachments.length &&
+      JSON.stringify(prevAttachments) === JSON.stringify(nextAttachments);
+
     return (
       prevProps.message.message_id === nextProps.message.message_id &&
       prevProps.message.content === nextProps.message.content &&
@@ -79,7 +89,8 @@ const MemoizedRenderedMessageItem = React.memo(
       prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
       prevProps.thoughtText === nextProps.thoughtText &&
       prevProps.hasMinHeight === nextProps.hasMinHeight &&
-      prevProps.dynamicMinHeight === nextProps.dynamicMinHeight
+      prevProps.dynamicMinHeight === nextProps.dynamicMinHeight &&
+      attachmentsEqual
     );
   },
 );
@@ -280,7 +291,8 @@ export const Conversation: React.FC = () => {
     [chatMessages, processMessagesForDisplay],
   );
 
-  const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
+  const lastMessage =
+    chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
   const canSubmit = useMemo(
     () => (message.trim() || currentAttachments.length > 0) && !isSending,
@@ -337,7 +349,9 @@ export const Conversation: React.FC = () => {
 
         const { data, error } = await supabase
           .from('messages')
-          .select('message_id,user_id,content_type,content,timestamp,session_id,is_call')
+          .select(
+            'message_id,user_id,content_type,content,timestamp,session_id,is_call',
+          )
           .eq('user_id', legacyUserId)
           .order('timestamp', { ascending: true });
 
@@ -385,7 +399,8 @@ export const Conversation: React.FC = () => {
       if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
-      if (fetchState.abortController && !isInitial) fetchState.abortController.abort();
+      if (fetchState.abortController && !isInitial)
+        fetchState.abortController.abort();
       const abortController = new AbortController();
 
       const loadPromise = (async () => {
@@ -404,15 +419,14 @@ export const Conversation: React.FC = () => {
           if (abortController.signal.aborted) return;
 
           if (response.data && response.data.length > 0) {
-  const rawMessages = response.data as ChatMessageFromServer[];
+            const rawMessages = response.data as ChatMessageFromServer[];
 
-  const messages = rawMessages
-    .map((msg) => ({
-      ...msg,
-      attachments: msg.attachments ?? [],
-    }))
-    .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-
+            const messages = rawMessages
+              .map((msg) => ({
+                ...msg,
+                attachments: msg.attachments ?? [],
+              }))
+              .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
             if (isInitial && !hasLoadedLegacyHistory) {
               setChatMessages(messages);
@@ -426,7 +440,9 @@ export const Conversation: React.FC = () => {
 
               setChatMessages((prev) => {
                 const existingIds = new Set(prev.map((m) => m.message_id));
-                const newMessages = messages.filter((m) => !existingIds.has(m.message_id));
+                const newMessages = messages.filter(
+                  (m) => !existingIds.has(m.message_id),
+                );
                 return [...newMessages, ...prev];
               });
             }
@@ -690,7 +706,11 @@ export const Conversation: React.FC = () => {
   );
 
   useLayoutEffect(() => {
-    if (!fetchState.isLoading && previousScrollHeight.current > 0 && mainScrollRef.current) {
+    if (
+      !fetchState.isLoading &&
+      previousScrollHeight.current > 0 &&
+      mainScrollRef.current
+    ) {
       const scrollContainer = mainScrollRef.current;
       const heightDifference =
         scrollContainer.scrollHeight - previousScrollHeight.current;
