@@ -60,6 +60,13 @@ interface FetchState {
   abortController: AbortController | null;
 }
 
+type LegacyAttachmentRow = {
+  name?: string | null;
+  type?: string | null;
+  url?: string | null;
+  size?: number | null;
+};
+
 type LegacyMessageRow = {
   message_id: string;
   user_id: string;
@@ -68,6 +75,7 @@ type LegacyMessageRow = {
   timestamp: string;
   session_id: string | null;
   is_call: boolean | null;
+  attachments?: LegacyAttachmentRow[] | null;
 };
 
 const MemoizedRenderedMessageItem = React.memo(
@@ -350,7 +358,7 @@ export const Conversation: React.FC = () => {
         const { data, error } = await supabase
           .from('messages')
           .select(
-            'message_id,user_id,content_type,content,timestamp,session_id,is_call',
+            'message_id,user_id,content_type,content,timestamp,session_id,is_call,attachments',
           )
           .eq('user_id', legacyUserId)
           .order('timestamp', { ascending: true });
@@ -362,18 +370,34 @@ export const Conversation: React.FC = () => {
         }
 
         const mapped: ChatMessageFromServer[] = (data as LegacyMessageRow[]).map(
-          (row) => ({
-            message_id: row.message_id,
-            user_id: row.user_id,
-            content_type: row.content_type,
-            content: row.content,
-            timestamp: row.timestamp,
-            session_id: row.session_id ?? undefined,
-            is_call: row.is_call ?? false,
-            attachments: [],
-            failed: false,
-            finish_reason: null,
-          }),
+          (row) => {
+            const rawAttachments = row.attachments;
+            const normalizedAttachments = Array.isArray(rawAttachments)
+              ? rawAttachments
+                  .filter((att): att is LegacyAttachmentRow => !!att)
+                  .map((att) => ({
+                    name: att.name ?? undefined,
+                    type: att.type ?? undefined,
+                    url: att.url ?? undefined,
+                    size: att.size ?? undefined,
+                  }))
+              : [];
+
+            return {
+              message_id: row.message_id,
+              // user_id is fine to keep; ChatMessageFromServer can ignore extra keys
+              // @ts-expect-error: user_id may not be declared on ChatMessageFromServer
+              user_id: row.user_id,
+              content_type: row.content_type,
+              content: row.content,
+              timestamp: row.timestamp,
+              session_id: row.session_id ?? undefined,
+              is_call: row.is_call ?? false,
+              attachments: normalizedAttachments,
+              failed: false,
+              finish_reason: null,
+            } as ChatMessageFromServer;
+          },
         );
 
         setChatMessages(mapped);
