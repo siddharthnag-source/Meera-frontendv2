@@ -27,7 +27,6 @@ import {
   renderStandardInlineCode,
 } from '@/components/MessageRenderDesign/MarkdownComponents';
 import { ImageModal } from '@/components/ui/ImageModal';
-import { downloadFile } from '@/lib/downloadFile';
 import { truncateFileName } from '@/lib/stringUtils';
 import { ChatMessageFromServer } from '@/types/chat';
 import Image from 'next/image';
@@ -92,6 +91,20 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
     </span>
   );
 };
+
+/* ---------------- Helpers for attachment classification ---------------- */
+
+function isImageAttachment(att: { type?: string | null }) {
+  const t = (att.type || '').toLowerCase();
+  return t === 'image' || t.startsWith('image/');
+}
+
+function isPdfAttachment(att: { type?: string | null; name?: string | null }) {
+  const t = (att.type || '').toLowerCase();
+  if (t === 'pdf' || t === 'application/pdf' || t === 'document') return true;
+  const n = (att.name || '').toLowerCase();
+  return n.endsWith('.pdf');
+}
 
 /* ---------------- Main component ---------------- */
 
@@ -348,18 +361,22 @@ export const RenderedMessageItem: React.FC<{
               <div className={hasTextContent ? 'mt-3' : ''}>
                 {(() => {
                   const attachments = message.attachments ?? [];
-                  const images = attachments.filter((att) => att.type === 'image');
-                  const documents = attachments.filter((att) => att.type !== 'image');
+
+                  const imageAttachments = attachments.filter((att) => isImageAttachment(att));
+                  const documentAttachments = attachments.filter(
+                    (att) => !isImageAttachment(att),
+                  );
 
                   return (
                     <>
-                      {images.length > 0 && (
+                      {/* IMAGES: show inline in the bubble */}
+                      {imageAttachments.length > 0 && (
                         <div
                           className={`grid gap-2 mb-3 ${
-                            images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+                            imageAttachments.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
                           }`}
                         >
-                          {images.map((att, index) => (
+                          {imageAttachments.map((att, index) => (
                             <div key={`image-${index}`} className="relative">
                               {att.url ? (
                                 <div
@@ -395,11 +412,12 @@ export const RenderedMessageItem: React.FC<{
                         </div>
                       )}
 
-                      {documents.length > 0 && (
+                      {/* DOCUMENTS / OTHER FILES */}
+                      {documentAttachments.length > 0 && (
                         <div className="space-y-2">
-                          {documents.map((att, index) => (
+                          {documentAttachments.map((att, index) => (
                             <div key={`doc-${index}`} className="relative">
-                              {att.type === 'pdf' && att.url ? (
+                              {isPdfAttachment(att) && att.url ? (
                                 <a
                                   href={att.url}
                                   target="_blank"
@@ -516,17 +534,16 @@ export const RenderedMessageItem: React.FC<{
                   {!isUser &&
                     message.attachments &&
                     message.attachments.some(
-                      (att) => att.type === 'image' || att.type === 'pdf',
+                      (att) => isImageAttachment(att) || isPdfAttachment(att),
                     ) && (
-                      <button
-                        onClick={() => {
-                          const firstAttachment = message.attachments?.find(
-                            (att) => att.type === 'image' || att.type === 'pdf',
-                          );
-                          if (firstAttachment?.url) {
-                            downloadFile(firstAttachment.url);
-                          }
-                        }}
+                      <a
+                        href={
+                          message.attachments.find(
+                            (att) => isImageAttachment(att) || isPdfAttachment(att),
+                          )?.url || '#'
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                         title="Download attachment"
                       >
@@ -534,7 +551,7 @@ export const RenderedMessageItem: React.FC<{
                           size={14}
                           className="text-primary/60 hover:text-primary/80"
                         />
-                      </button>
+                      </a>
                     )}
                   {isUser && message.failed && isLastFailedMessage && (
                     <button
