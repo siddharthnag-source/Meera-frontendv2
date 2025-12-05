@@ -33,8 +33,18 @@ export interface ChatProps {
   isOpen: boolean;
 }
 
+// Gemini image response from the Edge Function
+export interface GeneratedImage {
+  mimeType: string;
+  data: string;
+  dataUrl?: string; // we will set this either in Edge Function or frontend
+}
+
 export interface ChatMessageResponseData {
   response: string;
+  images?: GeneratedImage[];
+  model?: string;
+  thoughts?: string;
 }
 
 export interface ChatMessageResponse {
@@ -44,7 +54,7 @@ export interface ChatMessageResponse {
 
 export type ChatAttachmentFromServer = {
   name: string;
-  type: string;
+  type: string; // for images we will use 'image'
   url: string;
   size?: number;
   file?: File;
