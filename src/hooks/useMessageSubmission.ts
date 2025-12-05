@@ -7,8 +7,6 @@ import { supabase } from '@/lib/supabaseClient';
 import {
   ChatAttachmentInputState,
   ChatMessageFromServer,
-  ChatAttachmentFromServer,
-  GeneratedImage,
 } from '@/types/chat';
 import React, {
   MutableRefObject,
@@ -20,7 +18,7 @@ interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean;
+  isSearchActive: boolean; // still passed from Conversation, but we don't need it here
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setJustSentMessage: (justSent: boolean) => void;
@@ -44,13 +42,7 @@ type UploadedMeta = {
   type: 'image' | 'document';
 };
 
-/**
- * Upload a file to Supabase Storage and return metadata (including public URL).
- */
-async function uploadAttachmentToStorage(
-  file: File,
-  type: 'image' | 'document',
-): Promise<UploadedMeta> {
+async function uploadAttachmentToStorage(file: File, type: 'image' | 'document'): Promise<UploadedMeta> {
   const ext = file.name.includes('.') ? file.name.split('.').pop() || '' : '';
   const randomSuffix = Math.random().toString(36).slice(2);
   const path = `${Date.now()}-${randomSuffix}${ext ? '.' + ext : ''}`;
@@ -85,19 +77,6 @@ async function uploadAttachmentToStorage(
     size: file.size,
     type,
   };
-}
-
-/**
- * Convert a base64 string into a File so we can upload it to Storage.
- */
-function base64ToFile(base64Data: string, fileName: string, mimeType: string): File {
-  const byteString = atob(base64Data);
-  const len = byteString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = byteString.charCodeAt(i);
-  }
-  return new File([bytes], fileName, { type: mimeType });
 }
 
 export const useMessageSubmission = ({
@@ -145,7 +124,7 @@ export const useMessageSubmission = ({
           name: att.file.name,
           type:
             att.file.type === 'application/pdf'
-              ? 'pdf'
+              ? 'document'
               : att.type === 'image'
               ? 'image'
               : 'file',
@@ -180,11 +159,11 @@ export const useMessageSubmission = ({
 
       if (!hasText && !hasAttachments) return;
 
-      // STEP 1: upload user attachments (if any) to Storage
-      let uploadedUserAttachments: UploadedMeta[] = [];
+      // STEP 1: upload all attachments to Supabase Storage
+      let uploaded: UploadedMeta[] = [];
       if (hasAttachments) {
         try {
-          uploadedUserAttachments = await Promise.all(
+          uploaded = await Promise.all(
             attachments.map((att) =>
               uploadAttachmentToStorage(att.file, att.type),
             ),
@@ -199,21 +178,22 @@ export const useMessageSubmission = ({
         }
       }
 
-      // enrich attachment state with storage info for optimistic UI
-      const attachmentsWithStorage: ChatAttachmentInputState[] =
-        attachments.map((att, index) => {
-          const meta = uploadedUserAttachments[index];
+      // Attach storagePath/publicUrl back onto attachments for optimistic UI
+      const attachmentsWithStorage: ChatAttachmentInputState[] = attachments.map(
+        (att, index) => {
+          const meta = uploaded[index];
           if (!meta) return att;
           return {
             ...att,
             storagePath: meta.storagePath,
             publicUrl: meta.publicUrl,
           };
-        });
+        },
+      );
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // STEP 2: optimistic user + assistant placeholder messages
+      // STEP 2: create optimistic user + assistant placeholders
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(
           optimisticId,
@@ -230,7 +210,6 @@ export const useMessageSubmission = ({
           attachments: [],
           try_number: tryNumber,
           failed: false,
-          isGeneratingImage: false,
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
@@ -243,7 +222,7 @@ export const useMessageSubmission = ({
 
         setTimeout(() => scrollToBottom(true, true), 150);
       } else {
-        // Retry: clear failed state for the user message
+        // Retry: clear failed state on the user message
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId
@@ -259,11 +238,11 @@ export const useMessageSubmission = ({
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
 
-      // STEP 3: build payload text (includes public URLs for user attachments)
+      // STEP 3: build a payload message that includes public URLs
       let payloadMessage = trimmedMessage;
 
-      if (uploadedUserAttachments.length > 0) {
-        const attachmentsTextLines = uploadedUserAttachments.map(
+      if (uploaded.length > 0) {
+        const attachmentsTextLines = uploaded.map(
           (meta) =>
             `- ${meta.name} (${meta.mimeType}, ${meta.size} bytes): ${meta.publicUrl}`,
         );
@@ -286,7 +265,7 @@ export const useMessageSubmission = ({
 
         await chatService.streamMessage({
           message: payloadMessage,
-          onDelta: (delta: string) => {
+          onDelta: (delta) => {
             fullAssistantText += delta;
             if (!assistantId) return;
 
@@ -319,71 +298,8 @@ export const useMessageSubmission = ({
               ),
             );
           },
-          onError: (err: unknown) => {
+          onError: (err) => {
             throw err;
-          },
-
-          /**
-           * NEW: when Gemini returns images (for "generate image of ..." prompts),
-           * upload them to Supabase Storage and persist as message attachments.
-           */
-          onImages: async (images: GeneratedImage[]) => {
-            if (!assistantId || !images || images.length === 0) return;
-
-            try {
-              // 1) Convert base64 → File
-              const files: File[] = images.map((img, index) => {
-                const mimeType = img.mimeType || 'image/png';
-                const base64 =
-                  img.data ||
-                  (img.dataUrl ? img.dataUrl.split(',')[1] || '' : '');
-                const ext = mimeType.split('/')[1] || 'png';
-                const fileName = `generated-${Date.now()}-${index}.${ext}`;
-                return base64ToFile(base64, fileName, mimeType);
-              });
-
-              // 2) Upload each file to Storage
-              const uploadedGenerated = await Promise.all(
-                files.map((file) => uploadAttachmentToStorage(file, 'image')),
-              );
-
-              // 3) Build attachment objects with public URLs
-              const imageAttachments: ChatAttachmentFromServer[] =
-                uploadedGenerated.map((meta) => ({
-                  name: meta.name,
-                  type: 'image',
-                  url: meta.publicUrl,
-                  size: meta.size,
-                }));
-
-              // 4) Update in-memory assistant message so the image shows immediately
-              setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.message_id === assistantId
-                    ? {
-                        ...msg,
-                        attachments: imageAttachments,
-                        isGeneratingImage: false,
-                      }
-                    : msg,
-                ),
-              );
-
-              // 5) Persist attachments into the messages table (so they survive refresh)
-              try {
-                await supabase
-                  .from('messages')
-                  .update({ attachments: imageAttachments })
-                  .eq('message_id', assistantId);
-              } catch (dbErr) {
-                console.error(
-                  'Failed to persist generated image attachments to messages table',
-                  dbErr,
-                );
-              }
-            } catch (uploadErr) {
-              console.error('Error handling generated images', uploadErr);
-            }
           },
         });
 
