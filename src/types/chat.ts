@@ -75,7 +75,7 @@ export interface ChatMessageFromServer {
   failedMessage?: string;
   isGeneratingImage?: boolean;
 
-  // NEW: keep raw generated images (used by UI only, never sent back to model)
+  // keep raw generated images (used by UI only, never sent back to model)
   generatedImages?: GeneratedImage[];
 }
 
