@@ -33,11 +33,12 @@ export interface ChatProps {
   isOpen: boolean;
 }
 
-// Gemini image response from the Edge Function
+// Gemini image response from the Edge Function / chat service
 export interface GeneratedImage {
   mimeType: string;
   data: string;
-  dataUrl?: string; // we will set this either in Edge Function or frontend
+  // Will be set either in Edge Function (preferred) or in frontend before rendering
+  dataUrl?: string;
 }
 
 export interface ChatMessageResponseData {
@@ -73,6 +74,9 @@ export interface ChatMessageFromServer {
   try_number?: number;
   failedMessage?: string;
   isGeneratingImage?: boolean;
+
+  // NEW: keep raw generated images (used by UI only, never sent back to model)
+  generatedImages?: GeneratedImage[];
 }
 
 // UPDATED: added `storagePath` for Supabase Storage integration
