@@ -3,7 +3,7 @@ type LLMHistoryMessage = {
   content: string;
 };
 
-// ---------- Gemini Types ----------
+// ---------- Gemini ----------
 type GeminiPart = {
   text?: string;
   thought?: boolean;
@@ -15,24 +15,14 @@ type GeminiCandidate = {
   };
 };
 
-type GeminiSseChunk = {
-  candidates?: GeminiCandidate[];
-};
-
-// ---------- OpenRouter Types ----------
+// ---------- OpenRouter ----------
 type ORDelta = {
-  content?: string; // streamed token
+  content?: string;
 };
 
 type ORChoice = {
   delta?: ORDelta;
 };
-
-type OpenRouterChunk = {
-  choices?: ORChoice[];
-};
-
-// ----------------------------------------------------
 
 export async function streamMeera({
   supabaseUrl,
@@ -78,6 +68,7 @@ export async function streamMeera({
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
+
     let buffer = "";
 
     while (true) {
@@ -90,7 +81,6 @@ export async function streamMeera({
       buffer = events.pop() || "";
 
       for (const evt of events) {
-        // Skip colon-only heartbeats like: ": OPENROUTER PROCESSING"
         if (evt.startsWith(":")) continue;
 
         const dataLine = evt.split("\n").find(l => l.startsWith("data:"));
@@ -99,26 +89,28 @@ export async function streamMeera({
         const dataStr = dataLine.replace("data:", "").trim();
         if (!dataStr || dataStr === "[DONE]") continue;
 
-        let json: any;
+        let parsed: unknown;
         try {
-          json = JSON.parse(dataStr);
+          parsed = JSON.parse(dataStr);
         } catch {
           continue;
         }
 
-        // ---------- 1) OPENROUTER FORMAT ----------
-        const orChoices: OpenRouterChunk["choices"] = json?.choices;
-        if (orChoices && orChoices.length > 0) {
-          const delta = orChoices[0]?.delta;
+        const json = parsed as Record<string, unknown>;
+
+        // -------- OPENROUTER FORMAT --------
+        const choices = json["choices"] as ORChoice[] | undefined;
+        if (choices && choices.length > 0) {
+          const delta = choices[0]?.delta;
           if (delta?.content) {
             onAnswerDelta(delta.content);
           }
         }
 
-        // ---------- 2) GEMINI FORMAT ----------
-        const gemCandidates: GeminiCandidate[] | undefined = json?.candidates;
-        if (gemCandidates && gemCandidates.length > 0) {
-          const parts = gemCandidates[0]?.content?.parts ?? [];
+        // -------- GEMINI FORMAT --------
+        const candidates = json["candidates"] as GeminiCandidate[] | undefined;
+        if (candidates && candidates.length > 0) {
+          const parts = candidates[0]?.content?.parts ?? [];
           for (const p of parts) {
             if (p.thought) continue;
             if (p.text) onAnswerDelta(p.text);
