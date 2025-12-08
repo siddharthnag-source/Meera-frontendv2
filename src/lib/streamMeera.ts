@@ -3,6 +3,7 @@ type LLMHistoryMessage = {
   content: string;
 };
 
+// ---------- Gemini Types ----------
 type GeminiPart = {
   text?: string;
   thought?: boolean;
@@ -17,6 +18,21 @@ type GeminiCandidate = {
 type GeminiSseChunk = {
   candidates?: GeminiCandidate[];
 };
+
+// ---------- OpenRouter Types ----------
+type ORDelta = {
+  content?: string; // streamed token
+};
+
+type ORChoice = {
+  delta?: ORDelta;
+};
+
+type OpenRouterChunk = {
+  choices?: ORChoice[];
+};
+
+// ----------------------------------------------------
 
 export async function streamMeera({
   supabaseUrl,
@@ -62,9 +78,7 @@ export async function streamMeera({
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = '';
-
-    let lastAnswer = '';
+    let buffer = "";
 
     while (true) {
       const { value, done } = await reader.read();
@@ -73,39 +87,49 @@ export async function streamMeera({
       buffer += decoder.decode(value, { stream: true });
 
       const events = buffer.split(/\r?\n\r?\n/);
-      buffer = events.pop() || '';
+      buffer = events.pop() || "";
 
       for (const evt of events) {
-        const dataLine = evt.split('\n').find((l) => l.startsWith('data:'));
+        // Skip colon-only heartbeats like: ": OPENROUTER PROCESSING"
+        if (evt.startsWith(":")) continue;
+
+        const dataLine = evt.split("\n").find(l => l.startsWith("data:"));
         if (!dataLine) continue;
 
-        const dataStr = dataLine.replace('data:', '').trim();
-        if (!dataStr) continue;
+        const dataStr = dataLine.replace("data:", "").trim();
+        if (!dataStr || dataStr === "[DONE]") continue;
 
-        const json = JSON.parse(dataStr) as GeminiSseChunk;
-        const parts = json?.candidates?.[0]?.content?.parts ?? [];
+        let json: any;
+        try {
+          json = JSON.parse(dataStr);
+        } catch {
+          continue;
+        }
 
-        for (const p of parts) {
-          const text = p?.text ?? '';
-          if (!text) continue;
+        // ---------- 1) OPENROUTER FORMAT ----------
+        const orChoices: OpenRouterChunk["choices"] = json?.choices;
+        if (orChoices && orChoices.length > 0) {
+          const delta = orChoices[0]?.delta;
+          if (delta?.content) {
+            onAnswerDelta(delta.content);
+          }
+        }
 
-          // skip thought tokens
-          if (p?.thought) continue;
-
-          // Gemini sometimes re-sends the full answer; diff it
-          const delta = text.startsWith(lastAnswer)
-            ? text.slice(lastAnswer.length)
-            : text;
-
-          lastAnswer = text;
-          if (delta) onAnswerDelta(delta);
+        // ---------- 2) GEMINI FORMAT ----------
+        const gemCandidates: GeminiCandidate[] | undefined = json?.candidates;
+        if (gemCandidates && gemCandidates.length > 0) {
+          const parts = gemCandidates[0]?.content?.parts ?? [];
+          for (const p of parts) {
+            if (p.thought) continue;
+            if (p.text) onAnswerDelta(p.text);
+          }
         }
       }
     }
 
     onDone?.();
-  } catch (e: unknown) {
-    console.error('streamMeera error:', e);
+  } catch (e) {
+    console.error("streamMeera error:", e);
     onError?.(e);
   }
 }
