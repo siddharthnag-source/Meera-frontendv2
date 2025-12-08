@@ -61,7 +61,7 @@ type AssistantMsg = {
 };
 
 /* ---------- Constants ---------- */
-const CONTEXT_WINDOW = 40;
+const CONTEXT_WINDOW = 100;
 
 /* ---------- Env Vars ---------- */
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
