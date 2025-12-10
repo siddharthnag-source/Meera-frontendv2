@@ -156,7 +156,7 @@ export const Conversation: React.FC = () => {
   const lastOptimisticMessageIdRef = useRef<string | null>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
-  const justSentMessageRef = useRef(false);
+  const lastMessageIdRef = useRef<string | null>(null);
   const spacerRef = useRef<HTMLDivElement>(null);
 
   const headerRef = useRef<HTMLElement>(null);
@@ -297,11 +297,7 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  /**
-   * Scroll helper:
-   * - Used freely for initial loads and explicit "scroll to bottom" actions.
-   * - For auto scroll on send, useMessageSubmission receives a guarded version.
-   */
+  // Generic scroll helper – used for initial load & manual "scroll to bottom"
   const scrollToBottom = useCallback(() => {
     const scrollContainer = mainScrollRef.current;
     if (!scrollContainer) return;
@@ -655,16 +651,8 @@ export const Conversation: React.FC = () => {
     [handleTextareaResize],
   );
 
-  /**
-   * Only allow auto scroll from the hook when it was triggered
-   * as part of a user send. Assistant updates alone will not set
-   * justSentMessageRef, so they will not scroll.
-   */
-  const scrollToBottomForHook = useCallback(() => {
-    if (!justSentMessageRef.current) return;
-    scrollToBottom();
-    justSentMessageRef.current = false;
-  }, [scrollToBottom]);
+  // Prevent hook from controlling scroll at all
+  const noop = useCallback(() => {}, []);
 
   const {
     executeSubmission,
@@ -677,15 +665,13 @@ export const Conversation: React.FC = () => {
     isSearchActive,
     isSending,
     setIsSending,
-    setJustSentMessage: () => {
-      justSentMessageRef.current = true;
-    },
+    setJustSentMessage: noop,
     setCurrentThoughtText,
     lastOptimisticMessageIdRef,
     setChatMessages,
     setIsAssistantTyping,
     clearAllInput,
-    scrollToBottom: scrollToBottomForHook,
+    scrollToBottom: noop,
     onMessageSent: () => {
       setTimeout(() => calculateMinHeight(), 200);
     },
@@ -710,6 +696,7 @@ export const Conversation: React.FC = () => {
     [loadChatHistory],
   );
 
+  // Preserve scroll position when loading older messages
   useLayoutEffect(() => {
     if (
       !fetchState.isLoading &&
@@ -729,6 +716,7 @@ export const Conversation: React.FC = () => {
     }
   }, [fetchState.isLoading, chatMessages.length]);
 
+  // Initial load
   useEffect(() => {
     if (!initialLoadDone.current) {
       loadChatHistory(1, true);
@@ -737,6 +725,27 @@ export const Conversation: React.FC = () => {
       initialLoadDone.current = true;
     }
   }, [loadChatHistory]);
+
+  // Auto-scroll only when a *new user* message is appended
+  useEffect(() => {
+    if (chatMessages.length === 0) return;
+
+    const last = chatMessages[chatMessages.length - 1];
+
+    // No change in last message → no scroll
+    if (last.message_id === lastMessageIdRef.current) return;
+
+    // Remember last message
+    lastMessageIdRef.current = last.message_id;
+
+    // Only scroll when the new last message is a *user* message
+    if (last.content_type !== 'user') return;
+
+    const scrollContainer = mainScrollRef.current;
+    if (!scrollContainer) return;
+
+    scrollContainer.scrollTop = scrollContainer.scrollHeight;
+  }, [chatMessages]);
 
   useEffect(() => {
     handleResize();
