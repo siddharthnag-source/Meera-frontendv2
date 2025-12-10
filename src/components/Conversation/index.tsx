@@ -119,6 +119,7 @@ const MemoizedAttachmentPreview = React.memo(
 );
 
 export const Conversation: React.FC = () => {
+  // text state: inputValue (what user types) + message (debounced version used for sending)
   const [message, setMessage] = useState('');
   const [inputValue, setInputValue] = useState('');
 
@@ -156,6 +157,7 @@ export const Conversation: React.FC = () => {
   const lastOptimisticMessageIdRef = useRef<string | null>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
+  const justSentMessageRef = useRef(false);
   const spacerRef = useRef<HTMLDivElement>(null);
 
   const headerRef = useRef<HTMLElement>(null);
@@ -175,9 +177,6 @@ export const Conversation: React.FC = () => {
   const lastScrollTopRef = useRef(0);
   const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
 
-  // When user scrolls away from bottom, we "pin" their scrollTop here
-  const userPinnedScrollTopRef = useRef<number | null>(null);
-
   const { data: sessionData, status: sessionStatus } = useSession();
   const {
     data: subscriptionData,
@@ -191,6 +190,7 @@ export const Conversation: React.FC = () => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
+  // keep message in sync with inputValue with a tiny debounce
   const debouncedSetMessage = useMemo(
     () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
     [],
@@ -299,12 +299,22 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  // Generic scroll helper – used for initial load & manual "scroll to bottom"
-  const scrollToBottom = useCallback(() => {
-    const scrollContainer = mainScrollRef.current;
-    if (!scrollContainer) return;
-    scrollContainer.scrollTop = scrollContainer.scrollHeight;
-  }, []);
+  // Auto-scroll only when forced (send and initial loads)
+  const scrollToBottom = useCallback(
+    (smooth: boolean = true, force: boolean = false) => {
+      const el = mainScrollRef.current;
+      if (!el) return;
+      if (!force) return;
+
+      requestAnimationFrame(() => {
+        el.scrollTo({
+          top: el.scrollHeight,
+          behavior: smooth ? 'smooth' : 'auto',
+        });
+      });
+    },
+    [],
+  );
 
   // Legacy user id by email
   useEffect(() => {
@@ -369,9 +379,7 @@ export const Conversation: React.FC = () => {
         setHasLoadedLegacyHistory(true);
 
         requestAnimationFrame(() => {
-          setTimeout(() => {
-            scrollToBottom();
-          }, 50);
+          setTimeout(() => scrollToBottom(false, true), 50);
         });
       } catch (err) {
         console.error('Error loading legacy messages', err);
@@ -422,9 +430,7 @@ export const Conversation: React.FC = () => {
             if (isInitial && !hasLoadedLegacyHistory) {
               setChatMessages(messages);
               requestAnimationFrame(() => {
-                setTimeout(() => {
-                  scrollToBottom();
-                }, 50);
+                setTimeout(() => scrollToBottom(false, true), 50);
               });
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
@@ -448,6 +454,7 @@ export const Conversation: React.FC = () => {
               abortController: null,
             }));
           } else {
+            // Empty history is a valid state, not an error
             setFetchState((prev) => ({
               ...prev,
               isLoading: false,
@@ -536,18 +543,9 @@ export const Conversation: React.FC = () => {
       const isNotAtBottom = distanceFromBottom > 100;
       setShowScrollToBottom(direction === 'up' && isNotAtBottom);
 
-      // Track if user is near top for pagination
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       setIsUserNearTop(scrollTop < SCROLL_THRESHOLD);
 
-      // Pin user scroll position only if they are away from bottom
-      if (distanceFromBottom > 100) {
-        userPinnedScrollTopRef.current = scrollTop;
-      } else {
-        userPinnedScrollTopRef.current = null;
-      }
-
-      // Load older messages if user is scrolling up near the top
       if (
         isScrollingUp.current &&
         scrollTop < SCROLL_THRESHOLD &&
@@ -662,9 +660,6 @@ export const Conversation: React.FC = () => {
     [handleTextareaResize],
   );
 
-  // Prevent hook from controlling scroll at all
-  const noop = useCallback(() => {}, []);
-
   const {
     executeSubmission,
     handleRetryMessage,
@@ -676,13 +671,15 @@ export const Conversation: React.FC = () => {
     isSearchActive,
     isSending,
     setIsSending,
-    setJustSentMessage: noop,
+    setJustSentMessage: () => {
+      justSentMessageRef.current = true;
+    },
     setCurrentThoughtText,
     lastOptimisticMessageIdRef,
     setChatMessages,
     setIsAssistantTyping,
     clearAllInput,
-    scrollToBottom: noop,
+    scrollToBottom,
     onMessageSent: () => {
       setTimeout(() => calculateMinHeight(), 200);
     },
@@ -707,7 +704,6 @@ export const Conversation: React.FC = () => {
     [loadChatHistory],
   );
 
-  // Preserve scroll position when loading older messages
   useLayoutEffect(() => {
     if (
       !fetchState.isLoading &&
@@ -727,24 +723,6 @@ export const Conversation: React.FC = () => {
     }
   }, [fetchState.isLoading, chatMessages.length]);
 
-  // If user is pinned away from bottom, enforce their scrollTop on assistant updates
-  useLayoutEffect(() => {
-    if (!mainScrollRef.current) return;
-    if (chatMessages.length === 0) return;
-
-    const last = chatMessages[chatMessages.length - 1];
-
-    // Do not interfere for user messages; those are handled explicitly on send
-    if (last.content_type === 'user') return;
-
-    const pinnedTop = userPinnedScrollTopRef.current;
-    if (pinnedTop == null) return;
-
-    const scrollContainer = mainScrollRef.current;
-    scrollContainer.scrollTop = pinnedTop;
-  }, [chatMessages]);
-
-  // Initial load
   useEffect(() => {
     if (!initialLoadDone.current) {
       loadChatHistory(1, true);
@@ -753,6 +731,14 @@ export const Conversation: React.FC = () => {
       initialLoadDone.current = true;
     }
   }, [loadChatHistory]);
+
+  // ONLY scroll on send. No scrollIntoView shifting.
+  useEffect(() => {
+    if (justSentMessageRef.current) {
+      scrollToBottom(true, true);
+      justSentMessageRef.current = false;
+    }
+  }, [chatMessages, scrollToBottom]);
 
   useEffect(() => {
     handleResize();
@@ -769,7 +755,7 @@ export const Conversation: React.FC = () => {
         (att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl),
       );
     };
-  }, [currentAttachments]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -789,27 +775,17 @@ export const Conversation: React.FC = () => {
   }, [fetchState.abortController, currentAttachments]);
 
   const handleScrollToBottomClick = useCallback(() => {
-    userPinnedScrollTopRef.current = null;
-    scrollToBottom();
+    scrollToBottom(true, true);
   }, [scrollToBottom]);
 
+  // single place that actually triggers sending
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
       if (!canSubmit) return;
-
-      // Send the message
       executeSubmission(message, currentAttachments);
-
-      // When user sends, we consider them "following" the bottom
-      userPinnedScrollTopRef.current = null;
-
-      // Scroll to bottom AFTER React has rendered the new user message
-      requestAnimationFrame(() => {
-        scrollToBottom();
-      });
     },
-    [executeSubmission, message, currentAttachments, canSubmit, scrollToBottom],
+    [executeSubmission, message, currentAttachments, canSubmit],
   );
 
   return (
@@ -876,6 +852,7 @@ export const Conversation: React.FC = () => {
             </div>
           )}
 
+          {/* For an empty, non-error initial state, render nothing in the middle */}
           {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
             <div className="h-[calc(100vh-10rem)]" />
           )}
@@ -1033,7 +1010,7 @@ export const Conversation: React.FC = () => {
             {showScrollToBottom && (
               <button
                 onClick={handleScrollToBottomClick}
-                className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm"
+                className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
                 title="Scroll to bottom"
               >
                 <MdKeyboardArrowDown size={20} />
