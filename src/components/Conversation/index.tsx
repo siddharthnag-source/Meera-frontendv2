@@ -208,19 +208,20 @@ export const Conversation: React.FC = () => {
     return null;
   }, [chatMessages]);
 
-  const calculateMinHeight = useCallback(() => {
-    const viewportHeight = window.innerHeight;
-    const headerHeight = headerRef.current?.offsetHeight || 80;
-    const footerHeight = (footerRef.current?.offsetHeight || 0) - 45;
-    const userMessageHeight = latestUserMessageRef.current?.offsetHeight || 0;
+const calculateMinHeight = useCallback(() => {
+  const viewportHeight = window.innerHeight;
+  const headerHeight = headerRef.current?.offsetHeight || 80;
+  const footerHeight = footerRef.current?.offsetHeight || 0;
 
-    const calculatedMinHeight = Math.max(
-      0,
-      viewportHeight - headerHeight - footerHeight - userMessageHeight - 100,
-    );
+  // Base usable height of the chat area
+  const baseHeight = viewportHeight - headerHeight - footerHeight;
 
-    setDynamicMinHeight(calculatedMinHeight);
-  }, []);
+  // Make the assistant image bubble big: either 520px or ~95% of usable height,
+  // whichever is larger.
+  const calculatedMinHeight = Math.max(520, baseHeight * 0.95);
+
+  setDynamicMinHeight(calculatedMinHeight);
+}, []);
 
   const processMessagesForDisplay = useCallback(
     (messages: ChatMessageFromServer[]): [string, ChatDisplayItem[]][] => {
