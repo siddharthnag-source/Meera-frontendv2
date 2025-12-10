@@ -299,14 +299,10 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  // Completely disabled auto-scroll: this is a no-op
-  const scrollToBottom = useCallback(
-    (smooth: boolean = true, force: boolean = false) => {
-      // intentionally do nothing to keep scroll position fixed
-      return;
-    },
-    [],
-  );
+  const handleScrollToBottomClick = useCallback(() => {
+    scrollToBottom();
+  }, [scrollToBottom]);
+
 
   // Legacy user id by email
   useEffect(() => {
