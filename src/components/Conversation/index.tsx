@@ -299,7 +299,7 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  // Auto-scroll only when forced (send and initial loads)
+  // Auto-scroll only when explicitly forced (we now only use this on initial loads / button)
   const scrollToBottom = useCallback(
     (smooth: boolean = true, force: boolean = false) => {
       const el = mainScrollRef.current;
@@ -732,13 +732,8 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // ONLY scroll on send. No scrollIntoView shifting.
-  useEffect(() => {
-    if (justSentMessageRef.current) {
-      scrollToBottom(true, true);
-      justSentMessageRef.current = false;
-    }
-  }, [chatMessages, scrollToBottom]);
+  // NOTE: we removed the effect that auto-scrolled on every new message.
+  // This means the view will stay where the user leaves it during replies.
 
   useEffect(() => {
     handleResize();
