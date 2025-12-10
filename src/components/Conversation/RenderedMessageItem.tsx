@@ -406,7 +406,7 @@ export const RenderedMessageItem: React.FC<{
                                   alt="Generated image"
                                   width={200}
                                   height={200}
-                                  className="w-full h-auto object-contain rounded-md"
+                                  className="w-full h-auto max-h-[55vh] object-contain rounded-2xl"
                                   loading="lazy"
                                   sizes="(max-width: 768px) 100vw, 200px"
                                 />
@@ -438,7 +438,7 @@ export const RenderedMessageItem: React.FC<{
                                     alt={att.name || 'Attached image'}
                                     width={200}
                                     height={200}
-                                    className="w-full h-auto object-contain rounded-md"
+                                    className="w-full h-auto max-h-[55vh] object-contain rounded-2xl"
                                     loading="lazy"
                                     sizes="(max-width: 768px) 100vw, 200px"
                                   />
