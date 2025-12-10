@@ -270,7 +270,7 @@ export const RenderedMessageItem: React.FC<{
         <div
           style={hasMinHeight && !isUser ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
           className={`flex flex-col md:pr-1 ${
-            hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'
+            hasAnyImages ? 'w-[90%] md:w-[60%]' : 'max-w-[99%] md:max-w-[99%]'
           }`}
         >
           <div className={bubbleClasses}>
