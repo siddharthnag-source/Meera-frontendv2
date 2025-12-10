@@ -36,7 +36,7 @@
     "highlight.js": "^11.11.1",
     "jwt-decode": "^4.0.0",
     "livekit-client": "^2.11.2",
-    "next": "15.2.4",
+    "next": "15.2.6",
     "next-auth": "^4.24.11",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -59,7 +59,7 @@
     "@types/react-dom": "^18.3.7",
     "@u3u/prettier-config": "^5.2.0",
     "eslint": "^9",
-    "eslint-config-next": "15.2.4",
+    "eslint-config-next": "15.2.6",
     "prettier": "^3.5.3",
     "tailwindcss": "^4",
     "typescript": "^5.8.3"
