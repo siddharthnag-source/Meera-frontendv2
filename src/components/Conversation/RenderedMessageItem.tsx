@@ -406,7 +406,7 @@ export const RenderedMessageItem: React.FC<{
                                   alt="Generated image"
                                   width={200}
                                   height={200}
-                                  className="w-full h-auto max-h-[40vh] object-contain rounded-md"
+                                  className="w-full h-auto max-h-[55vh] object-contain rounded-md"
                                   loading="lazy"
                                   sizes="(max-width: 768px) 100vw, 200px"
                                 />
