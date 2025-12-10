@@ -270,7 +270,7 @@ export const RenderedMessageItem: React.FC<{
         <div
           style={hasMinHeight && !isUser ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
           className={`flex flex-col md:pr-1 ${
-            hasAnyImages ? 'w-[85%] md:w-[55%]' : 'max-w-[99%] md:max-w-[99%]'
+            hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'
           }`}
         >
           <div className={bubbleClasses}>
@@ -406,7 +406,7 @@ export const RenderedMessageItem: React.FC<{
                                   alt="Generated image"
                                   width={200}
                                   height={200}
-                                  className="w-full h-auto max-h-[55vh] object-contain rounded-2xl"
+                                  className="w-full h-auto max-h-[40vh] object-contain rounded-md"
                                   loading="lazy"
                                   sizes="(max-width: 768px) 100vw, 200px"
                                 />
@@ -438,7 +438,7 @@ export const RenderedMessageItem: React.FC<{
                                     alt={att.name || 'Attached image'}
                                     width={200}
                                     height={200}
-                                    className="w-full h-auto max-h-[55vh] object-contain rounded-2xl"
+                                    className="w-full h-auto max-h-[40vh] object-contain rounded-md"
                                     loading="lazy"
                                     sizes="(max-width: 768px) 100vw, 200px"
                                   />
