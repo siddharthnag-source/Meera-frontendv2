@@ -119,7 +119,6 @@ const MemoizedAttachmentPreview = React.memo(
 );
 
 export const Conversation: React.FC = () => {
-  // text state: inputValue (what user types) + message (debounced version used for sending)
   const [message, setMessage] = useState('');
   const [inputValue, setInputValue] = useState('');
 
@@ -190,7 +189,6 @@ export const Conversation: React.FC = () => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
-  // keep message in sync with inputValue with a tiny debounce
   const debouncedSetMessage = useMemo(
     () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
     [],
@@ -299,22 +297,16 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  // Auto-scroll only when forced (send and initial loads)
-  const scrollToBottom = useCallback(
-    (smooth: boolean = true, force: boolean = false) => {
-      const el = mainScrollRef.current;
-      if (!el) return;
-      if (!force) return;
-
-      requestAnimationFrame(() => {
-        el.scrollTo({
-          top: el.scrollHeight,
-          behavior: smooth ? 'smooth' : 'auto',
-        });
-      });
-    },
-    [],
-  );
+  /**
+   * Scroll helper:
+   * - Used freely for initial loads and explicit "scroll to bottom" actions.
+   * - For auto scroll on send, useMessageSubmission receives a guarded version.
+   */
+  const scrollToBottom = useCallback(() => {
+    const scrollContainer = mainScrollRef.current;
+    if (!scrollContainer) return;
+    scrollContainer.scrollTop = scrollContainer.scrollHeight;
+  }, []);
 
   // Legacy user id by email
   useEffect(() => {
@@ -379,7 +371,9 @@ export const Conversation: React.FC = () => {
         setHasLoadedLegacyHistory(true);
 
         requestAnimationFrame(() => {
-          setTimeout(() => scrollToBottom(false, true), 50);
+          setTimeout(() => {
+            scrollToBottom();
+          }, 50);
         });
       } catch (err) {
         console.error('Error loading legacy messages', err);
@@ -430,7 +424,9 @@ export const Conversation: React.FC = () => {
             if (isInitial && !hasLoadedLegacyHistory) {
               setChatMessages(messages);
               requestAnimationFrame(() => {
-                setTimeout(() => scrollToBottom(false, true), 50);
+                setTimeout(() => {
+                  scrollToBottom();
+                }, 50);
               });
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
@@ -454,7 +450,6 @@ export const Conversation: React.FC = () => {
               abortController: null,
             }));
           } else {
-            // Empty history is a valid state, not an error
             setFetchState((prev) => ({
               ...prev,
               isLoading: false,
@@ -660,6 +655,17 @@ export const Conversation: React.FC = () => {
     [handleTextareaResize],
   );
 
+  /**
+   * Only allow auto scroll from the hook when it was triggered
+   * as part of a user send. Assistant updates alone will not set
+   * justSentMessageRef, so they will not scroll.
+   */
+  const scrollToBottomForHook = useCallback(() => {
+    if (!justSentMessageRef.current) return;
+    scrollToBottom();
+    justSentMessageRef.current = false;
+  }, [scrollToBottom]);
+
   const {
     executeSubmission,
     handleRetryMessage,
@@ -679,7 +685,7 @@ export const Conversation: React.FC = () => {
     setChatMessages,
     setIsAssistantTyping,
     clearAllInput,
-    scrollToBottom,
+    scrollToBottom: scrollToBottomForHook,
     onMessageSent: () => {
       setTimeout(() => calculateMinHeight(), 200);
     },
@@ -732,14 +738,6 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // ONLY scroll on send. No scrollIntoView shifting.
-  useEffect(() => {
-    if (justSentMessageRef.current) {
-      scrollToBottom(true, true);
-      justSentMessageRef.current = false;
-    }
-  }, [chatMessages, scrollToBottom]);
-
   useEffect(() => {
     handleResize();
     window.addEventListener('resize', debouncedHandleResize);
@@ -755,7 +753,7 @@ export const Conversation: React.FC = () => {
         (att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl),
       );
     };
-  }, []);
+  }, [currentAttachments]);
 
   useEffect(() => {
     return () => {
@@ -775,10 +773,9 @@ export const Conversation: React.FC = () => {
   }, [fetchState.abortController, currentAttachments]);
 
   const handleScrollToBottomClick = useCallback(() => {
-    scrollToBottom(true, true);
+    scrollToBottom();
   }, [scrollToBottom]);
 
-  // single place that actually triggers sending
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
@@ -852,7 +849,6 @@ export const Conversation: React.FC = () => {
             </div>
           )}
 
-          {/* For an empty, non-error initial state, render nothing in the middle */}
           {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
             <div className="h-[calc(100vh-10rem)]" />
           )}
