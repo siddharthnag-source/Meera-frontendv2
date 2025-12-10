@@ -299,19 +299,11 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  // Auto-scroll only when explicitly forced (we now only use this on initial loads / button)
+  // Completely disabled auto-scroll: this is a no-op
   const scrollToBottom = useCallback(
     (smooth: boolean = true, force: boolean = false) => {
-      const el = mainScrollRef.current;
-      if (!el) return;
-      if (!force) return;
-
-      requestAnimationFrame(() => {
-        el.scrollTo({
-          top: el.scrollHeight,
-          behavior: smooth ? 'smooth' : 'auto',
-        });
-      });
+      // intentionally do nothing to keep scroll position fixed
+      return;
     },
     [],
   );
@@ -377,10 +369,6 @@ export const Conversation: React.FC = () => {
 
         setChatMessages(mapped);
         setHasLoadedLegacyHistory(true);
-
-        requestAnimationFrame(() => {
-          setTimeout(() => scrollToBottom(false, true), 50);
-        });
       } catch (err) {
         console.error('Error loading legacy messages', err);
       } finally {
@@ -389,7 +377,7 @@ export const Conversation: React.FC = () => {
     };
 
     loadLegacyHistory();
-  }, [legacyUserId, hasLoadedLegacyHistory, scrollToBottom]);
+  }, [legacyUserId, hasLoadedLegacyHistory]);
 
   const loadChatHistory = useCallback(
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
@@ -429,9 +417,6 @@ export const Conversation: React.FC = () => {
 
             if (isInitial && !hasLoadedLegacyHistory) {
               setChatMessages(messages);
-              requestAnimationFrame(() => {
-                setTimeout(() => scrollToBottom(false, true), 50);
-              });
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
               if (scrollContainer)
@@ -516,7 +501,6 @@ export const Conversation: React.FC = () => {
       fetchState.isLoading,
       fetchState.abortController,
       showToast,
-      scrollToBottom,
       hasLoadedLegacyHistory,
     ],
   );
@@ -679,7 +663,7 @@ export const Conversation: React.FC = () => {
     setChatMessages,
     setIsAssistantTyping,
     clearAllInput,
-    scrollToBottom,
+    scrollToBottom, // now a no-op
     onMessageSent: () => {
       setTimeout(() => calculateMinHeight(), 200);
     },
@@ -732,8 +716,7 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // NOTE: we removed the effect that auto-scrolled on every new message.
-  // This means the view will stay where the user leaves it during replies.
+  // No auto-scroll effect here anymore.
 
   useEffect(() => {
     handleResize();
@@ -770,7 +753,7 @@ export const Conversation: React.FC = () => {
   }, [fetchState.abortController, currentAttachments]);
 
   const handleScrollToBottomClick = useCallback(() => {
-    scrollToBottom(true, true);
+    scrollToBottom(true, true); // still a no-op
   }, [scrollToBottom]);
 
   // single place that actually triggers sending
