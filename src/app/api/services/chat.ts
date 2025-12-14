@@ -50,6 +50,7 @@ type DbMessageRow = {
   message_type?: string | null;
   image_url?: string | null;
   attachments?: ImageAttachment[] | null;
+  system_prompt?: string | null;
 };
 
 type LLMHistoryMessage = {
@@ -69,11 +70,11 @@ type AssistantMsg = {
 };
 
 type MeeraImageResponse = {
+  assistantMessageId?: string;
   reply?: string;
   thoughts?: string;
   images?: { mimeType?: string; data: string; dataUrl?: string }[];
   model?: string;
-  // Supabase Storage URLs from the Edge Function
   attachments?: ImageAttachment[];
 };
 
@@ -145,7 +146,6 @@ export const chatService = {
         session_id: row.session_id || undefined,
         is_call: row.is_call ?? false,
         attachments: (row.attachments as ImageAttachment[] | null) ?? [],
-        // keep these so UI can use them if needed
         message_type: row.message_type ?? 'text',
         image_url: row.image_url ?? undefined,
         failed: false,
@@ -188,6 +188,10 @@ export const chatService = {
       if (!session?.user) throw new SessionExpiredError('Session expired');
       const userId = session.user.id;
 
+      // Deterministic IDs for this interaction (fixes system_prompt + attachment updates)
+      const userMessageId = crypto.randomUUID();
+      const assistantMessageId = crypto.randomUUID();
+
       /* ---------- Fetch context history ---------- */
       let historyRows: DbMessageRow[] = [];
 
@@ -215,18 +219,35 @@ export const chatService = {
 
       historyForModel.push({ role: 'user', content: message });
 
-      /* ---------- Save user message ---------- */
+      const isImage = isImagePrompt(message);
+
+      /* ---------- Save user message WITH message_id ---------- */
       await supabase.from('messages').insert([
         {
+          message_id: userMessageId,
           user_id: userId,
           session_id: sessionId,
           content_type: 'user',
           content: message,
           timestamp: new Date().toISOString(),
+          message_type: 'text',
+          is_call: false,
         },
       ]);
 
-      const isImage = isImagePrompt(message);
+      /* ---------- Create assistant placeholder WITH message_id ---------- */
+      await supabase.from('messages').insert([
+        {
+          message_id: assistantMessageId,
+          user_id: userId,
+          session_id: sessionId,
+          content_type: 'assistant',
+          content: '',
+          timestamp: new Date().toISOString(),
+          message_type: isImage ? 'image' : 'text',
+          is_call: false,
+        },
+      ]);
 
       /* ---------------------------------------------------------------------- */
       /*                               IMAGE MODE                               */
@@ -236,39 +257,7 @@ export const chatService = {
         let finalText = '';
         let liveAttachments: ImageAttachment[] = [];
 
-        // 1) Create assistant placeholder row so Edge Function can attach images
-        let assistantMessageId: string | null = null;
-        const placeholderTimestamp = new Date().toISOString();
-
         try {
-          const { data: placeholderRows, error: placeholderError } =
-            await supabase
-              .from('messages')
-              .insert([
-                {
-                  user_id: userId,
-                  session_id: sessionId,
-                  content_type: 'assistant',
-                  content: '',
-                  timestamp: placeholderTimestamp,
-                },
-              ])
-              .select(
-                'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
-              );
-
-          if (placeholderError) {
-            console.error('Assistant placeholder insert error', placeholderError);
-          } else if (placeholderRows && placeholderRows.length > 0) {
-            const row = (placeholderRows as DbMessageRow[])[0];
-            assistantMessageId = row.message_id;
-          }
-        } catch (e) {
-          console.error('Assistant placeholder insert exception', e);
-        }
-
-        try {
-          // 2) Call Edge Function (non-stream) with messageId of placeholder
           const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
             method: 'POST',
             headers: {
@@ -280,25 +269,27 @@ export const chatService = {
               messages: historyForModel,
               userId,
               sessionId,
-              messageId: assistantMessageId, // <- crucial for DB attachments
               stream: false,
+
+              // NEW: send both IDs
+              userMessageId,
+              assistantMessageId,
+
+              // Back-compat (optional)
+              messageId: assistantMessageId,
             }),
             signal,
           });
 
-          if (!res.ok) {
-            throw new Error(`Image call failed: ${res.status}`);
-          }
+          if (!res.ok) throw new Error(`Image call failed: ${res.status}`);
 
           const json = (await res.json()) as MeeraImageResponse;
 
           finalText = json.reply?.trim() || 'Here is your image.';
 
-          // Prefer URLs from Storage (Edge Function attachments)
           if (json.attachments && json.attachments.length > 0) {
             liveAttachments = json.attachments;
           } else {
-            // Fallback to local blob URLs if upload failed for some reason
             (json.images ?? []).forEach((img, index) => {
               const mime = img.mimeType || 'image/png';
               const url = base64ToBlobUrl(img.data, mime);
@@ -313,62 +304,27 @@ export const chatService = {
           throw err;
         }
 
-        // 3) Update the same assistant row with content (attachments already set by Edge Function)
+        // Update assistant placeholder content (Edge has already updated system_prompt + attachments)
         const now = new Date().toISOString();
-        let finalRow: DbMessageRow | null = null;
+        const { data: updatedRows, error: updateError } = await supabase
+          .from('messages')
+          .update({
+            content: finalText,
+            timestamp: now,
+          })
+          .eq('message_id', assistantMessageId)
+          .select(
+            'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
+          );
 
-        try {
-          if (assistantMessageId) {
-            const { data: updatedRows, error: updateError } = await supabase
-              .from('messages')
-              .update({
-                content: finalText,
-                timestamp: now,
-              })
-              .eq('message_id', assistantMessageId)
-              .select(
-                'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
-              );
+        if (updateError) console.error('Assistant content update error', updateError);
 
-            if (updateError) {
-              console.error('Assistant content update error', updateError);
-            } else if (updatedRows && updatedRows.length > 0) {
-              finalRow = (updatedRows as DbMessageRow[])[0];
-            }
-          } else {
-            // Fallback: create a fresh assistant row (no attachment linkage)
-            const { data: savedFallback } = await supabase
-              .from('messages')
-              .insert([
-                {
-                  user_id: userId,
-                  session_id: sessionId,
-                  content_type: 'assistant',
-                  content: finalText,
-                  timestamp: now,
-                },
-              ])
-              .select(
-                'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
-              );
-
-            finalRow =
-              (savedFallback as DbMessageRow[] | null)?.[0] ?? null;
-          }
-        } catch (e) {
-          console.error('Assistant final save exception', e);
-        }
-
-        const dbAttachments =
-          (finalRow?.attachments as ImageAttachment[] | null) ?? [];
-        const attachmentsToUse =
-          dbAttachments.length > 0 ? dbAttachments : liveAttachments;
+        const finalRow = (updatedRows as DbMessageRow[] | null)?.[0] ?? null;
+        const dbAttachments = (finalRow?.attachments as ImageAttachment[] | null) ?? [];
+        const attachmentsToUse = dbAttachments.length > 0 ? dbAttachments : liveAttachments;
 
         const assistantMsg: AssistantMsg = {
-          message_id:
-            finalRow?.message_id ??
-            assistantMessageId ??
-            crypto.randomUUID(),
+          message_id: finalRow?.message_id ?? assistantMessageId,
           content_type: 'assistant',
           content: finalRow?.content ?? finalText,
           timestamp: finalRow?.timestamp ?? now,
@@ -394,6 +350,8 @@ export const chatService = {
         messages: historyForModel,
         userId,
         sessionId,
+        userMessageId,
+        assistantMessageId,
         signal,
         onAnswerDelta: (d) => {
           finalText += d;
@@ -403,25 +361,24 @@ export const chatService = {
 
       const now = new Date().toISOString();
 
-      const { data: saved } = await supabase
+      // Update assistant placeholder (do not insert a new assistant row)
+      const { data: saved, error: saveErr } = await supabase
         .from('messages')
-        .insert([
-          {
-            user_id: userId,
-            session_id: sessionId,
-            content_type: 'assistant',
-            content: finalText,
-            timestamp: now,
-          },
-        ])
+        .update({
+          content: finalText,
+          timestamp: now,
+        })
+        .eq('message_id', assistantMessageId)
         .select(
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
         );
 
+      if (saveErr) console.error('Assistant final update error', saveErr);
+
       const row = (saved as DbMessageRow[] | null)?.[0];
 
       const assistantMsg: AssistantMsg = {
-        message_id: row?.message_id ?? crypto.randomUUID(),
+        message_id: row?.message_id ?? assistantMessageId,
         content_type: 'assistant',
         content: row?.content ?? finalText,
         timestamp: row?.timestamp ?? now,
