@@ -926,15 +926,17 @@ export const Conversation: React.FC = () => {
                             }
                             className="message-item-wrapper w-full transform-gpu will-change-transform"
                           >
-                            <MemoizedRenderedMessageItem
-                              message={msg}
-                              isStreaming={isStreamingMessage}
-                              onRetry={handleRetryMessage}
-                              isLastFailedMessage={isLastFailedMessage}
-                              showTypingIndicator={shouldShowTypingIndicator}
-                              thoughtText={effectiveThoughtText}
-                              hasMinHeight={false}
-                            />
+                          <MemoizedRenderedMessageItem
+  message={msg}
+  isStreaming={isStreamingMessage}
+  onRetry={handleRetryMessage}
+  isLastFailedMessage={isLastFailedMessage}
+  showTypingIndicator={shouldShowTypingIndicator}
+  thoughtText={effectiveThoughtText}
+  hasMinHeight={false}
+  dynamicMinHeight={dynamicMinHeight}
+/>
+
                           </div>
                         );
                       })}
