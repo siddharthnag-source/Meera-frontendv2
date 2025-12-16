@@ -631,11 +631,7 @@ export const Conversation: React.FC = () => {
     [handleTextareaResize],
   );
 
-  const {
-    executeSubmission,
-    handleRetryMessage,
-    getMostRecentAssistantMessageId,
-  } = useMessageSubmission({
+const { executeSubmission, handleRetryMessage } = useMessageSubmission({
     message,
     currentAttachments,
     chatMessages,
