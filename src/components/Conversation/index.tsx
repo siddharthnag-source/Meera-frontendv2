@@ -727,7 +727,7 @@ export const Conversation: React.FC = () => {
     if (!initialLoadDone.current) {
       loadChatHistory(1, true);
       getSystemInfo();
-      inputRef.current?.focus({ preventScroll: true });
+      inputRef.current?.focus();
       initialLoadDone.current = true;
     }
   }, [loadChatHistory]);
@@ -831,7 +831,6 @@ export const Conversation: React.FC = () => {
       <main
         ref={mainScrollRef}
         className="overflow-y-auto w-full scroll-pt-2.5"
-        style={{ overflowAnchor: 'none' }}
         onScroll={handleScroll}
       >
         <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
@@ -853,6 +852,7 @@ export const Conversation: React.FC = () => {
             </div>
           )}
 
+          {/* For an empty, non-error initial state, render nothing in the middle */}
           {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
             <div className="h-[calc(100vh-10rem)]" />
           )}
@@ -931,7 +931,6 @@ export const Conversation: React.FC = () => {
                                 : null
                             }
                             className="message-item-wrapper w-full transform-gpu will-change-transform"
-                            style={{ overflowAnchor: 'none' }}
                           >
                             <MemoizedRenderedMessageItem
                               message={msg}
