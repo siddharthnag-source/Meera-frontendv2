@@ -88,8 +88,6 @@ const MemoizedRenderedMessageItem = React.memo(
       prevProps.message.failed === nextProps.message.failed &&
       prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
       prevProps.thoughtText === nextProps.thoughtText &&
-      prevProps.hasMinHeight === nextProps.hasMinHeight &&
-      prevProps.dynamicMinHeight === nextProps.dynamicMinHeight &&
       attachmentsEqual
     );
   },
@@ -119,7 +117,6 @@ const MemoizedAttachmentPreview = React.memo(
 );
 
 export const Conversation: React.FC = () => {
-  // text state: inputValue (what user types) + message (debounced version used for sending)
   const [message, setMessage] = useState('');
   const [inputValue, setInputValue] = useState('');
 
@@ -128,7 +125,6 @@ export const Conversation: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessageFromServer[]>([]);
   const [isSearchActive, setIsSearchActive] = useState(true);
   const [currentThoughtText, setCurrentThoughtText] = useState('');
-  const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const [showUserProfile, setShowUserProfile] = useState(false);
@@ -160,11 +156,6 @@ export const Conversation: React.FC = () => {
   const justSentMessageRef = useRef(false);
   const spacerRef = useRef<HTMLDivElement>(null);
 
-  const headerRef = useRef<HTMLElement>(null);
-  const footerRef = useRef<HTMLElement>(null);
-  const latestUserMessageRef = useRef<HTMLDivElement | null>(null);
-  const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null);
-
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
   const cleanupFunctions = useRef<Array<() => void>>([]);
   const chatMessagesRef = useRef<ChatMessageFromServer[]>(chatMessages);
@@ -190,7 +181,6 @@ export const Conversation: React.FC = () => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
-  // keep message in sync with inputValue with a tiny debounce
   const debouncedSetMessage = useMemo(
     () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
     [],
@@ -208,20 +198,6 @@ export const Conversation: React.FC = () => {
     return null;
   }, [chatMessages]);
 
-  const calculateMinHeight = useCallback(() => {
-    const viewportHeight = window.innerHeight;
-    const headerHeight = headerRef.current?.offsetHeight || 80;
-    const footerHeight = (footerRef.current?.offsetHeight || 0) - 45;
-    const userMessageHeight = latestUserMessageRef.current?.offsetHeight || 0;
-
-    const calculatedMinHeight = Math.max(
-      0,
-      viewportHeight - headerHeight - footerHeight - userMessageHeight - 100,
-    );
-
-    setDynamicMinHeight(calculatedMinHeight);
-  }, []);
-
   const processMessagesForDisplay = useCallback(
     (messages: ChatMessageFromServer[]): [string, ChatDisplayItem[]][] => {
       const grouped: Record<string, ChatDisplayItem[]> = {};
@@ -237,7 +213,11 @@ export const Conversation: React.FC = () => {
             if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
             callSessions[msg.session_id].push(msg);
           } else {
-            displayItems.push({ type: 'message', message: msg, id: msg.message_id });
+            displayItems.push({
+              type: 'message',
+              message: msg,
+              id: msg.message_id,
+            });
           }
         });
 
@@ -299,7 +279,6 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  // Auto-scroll only when forced (send and initial loads)
   const scrollToBottom = useCallback(
     (smooth: boolean = true, force: boolean = false) => {
       const el = mainScrollRef.current;
@@ -316,7 +295,6 @@ export const Conversation: React.FC = () => {
     [],
   );
 
-  // Legacy user id by email
   useEffect(() => {
     const email = sessionData?.user?.email;
     if (!email) return;
@@ -339,7 +317,6 @@ export const Conversation: React.FC = () => {
     findLegacyUser();
   }, [sessionData?.user?.email]);
 
-  // Load legacy messages
   useEffect(() => {
     if (!legacyUserId || hasLoadedLegacyHistory) return;
 
@@ -395,7 +372,8 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
+      if (requestCache.current.has(cacheKey))
+        return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
       if (fetchState.abortController && !isInitial)
@@ -454,7 +432,6 @@ export const Conversation: React.FC = () => {
               abortController: null,
             }));
           } else {
-            // Empty history is a valid state, not an error
             setFetchState((prev) => ({
               ...prev,
               isLoading: false,
@@ -553,12 +530,9 @@ export const Conversation: React.FC = () => {
         !fetchState.isLoading &&
         !isInitialLoading
       ) {
-        scrollTimeoutRef.current = setTimeout(
-          () => {
-            loadChatHistory(fetchState.currentPage + 1, false);
-          },
-          FETCH_DEBOUNCE_MS,
-        );
+        scrollTimeoutRef.current = setTimeout(() => {
+          loadChatHistory(fetchState.currentPage + 1, false);
+        }, FETCH_DEBOUNCE_MS);
       }
     },
     [
@@ -577,8 +551,7 @@ export const Conversation: React.FC = () => {
 
   const handleResize = useCallback(() => {
     setDynamicMaxHeight(window.innerHeight / DYNAMIC_MAX_HEIGHT_RATIO);
-    calculateMinHeight();
-  }, [calculateMinHeight]);
+  }, []);
 
   const debouncedHandleResize = useMemo(
     () => debounce(handleResize, RESIZE_DEBOUNCE_MS),
@@ -650,9 +623,7 @@ export const Conversation: React.FC = () => {
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
         setTimeout(
-          () =>
-            inputRef.current &&
-            handleTextareaResize(inputRef.current, false),
+          () => inputRef.current && handleTextareaResize(inputRef.current, false),
           10,
         );
       }
@@ -680,9 +651,6 @@ export const Conversation: React.FC = () => {
     setIsAssistantTyping,
     clearAllInput,
     scrollToBottom,
-    onMessageSent: () => {
-      setTimeout(() => calculateMinHeight(), 200);
-    },
   });
 
   const { isDraggingOver } = useDragAndDrop({
@@ -732,7 +700,6 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // ONLY scroll on send. No scrollIntoView shifting.
   useEffect(() => {
     if (justSentMessageRef.current) {
       scrollToBottom(true, true);
@@ -743,8 +710,7 @@ export const Conversation: React.FC = () => {
   useEffect(() => {
     handleResize();
     window.addEventListener('resize', debouncedHandleResize);
-    const cleanup = () =>
-      window.removeEventListener('resize', debouncedHandleResize);
+    const cleanup = () => window.removeEventListener('resize', debouncedHandleResize);
     cleanupFunctions.current.push(cleanup);
     return cleanup;
   }, [handleResize, debouncedHandleResize]);
@@ -778,7 +744,6 @@ export const Conversation: React.FC = () => {
     scrollToBottom(true, true);
   }, [scrollToBottom]);
 
-  // single place that actually triggers sending
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
@@ -798,10 +763,7 @@ export const Conversation: React.FC = () => {
         </div>
       )}
 
-      <header
-        ref={headerRef}
-        className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20"
-      >
+      <header className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20">
         <div className="w-full mx-auto flex items-center justify-between">
           <button
             onClick={() => setShowUserProfile(true)}
@@ -852,7 +814,6 @@ export const Conversation: React.FC = () => {
             </div>
           )}
 
-          {/* For an empty, non-error initial state, render nothing in the middle */}
           {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
             <div className="h-[calc(100vh-10rem)]" />
           )}
@@ -892,6 +853,7 @@ export const Conversation: React.FC = () => {
                         }
 
                         const msg = item.message;
+
                         const isStreamingMessage =
                           isSending &&
                           msg.content_type === 'assistant' &&
@@ -912,24 +874,10 @@ export const Conversation: React.FC = () => {
                           isAssistantTyping &&
                           (msg.content ?? '').length === 0;
 
-                        const isLatestUserMessage =
-                          msg.content_type === 'user' &&
-                          msg.message_id === lastOptimisticMessageIdRef.current;
-                        const isLatestAssistantMessage =
-                          msg.content_type === 'assistant' &&
-                          msg.message_id === getMostRecentAssistantMessageId();
-
                         return (
                           <div
                             id={`message-${msg.message_id}`}
                             key={msg.message_id}
-                            ref={
-                              isLatestUserMessage
-                                ? latestUserMessageRef
-                                : isLatestAssistantMessage
-                                ? latestAssistantMessageRef
-                                : null
-                            }
                             className="message-item-wrapper w-full transform-gpu will-change-transform"
                           >
                             <MemoizedRenderedMessageItem
@@ -939,8 +887,6 @@ export const Conversation: React.FC = () => {
                               isLastFailedMessage={isLastFailedMessage}
                               showTypingIndicator={shouldShowTypingIndicator}
                               thoughtText={effectiveThoughtText}
-                              hasMinHeight={isLatestAssistantMessage}
-                              dynamicMinHeight={dynamicMinHeight}
                             />
                           </div>
                         );
@@ -956,29 +902,20 @@ export const Conversation: React.FC = () => {
         </div>
       </main>
 
-      <footer
-        ref={footerRef}
-        className="w-full z-40 p-2 md:pr-[13px] bg-transparent"
-      >
+      <footer className="w-full z-40 p-2 md:pr-[13px] bg-transparent">
         <div className="relative">
           <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
             {!isSubscriptionLoading &&
               !isSubscriptionError &&
               subscriptionData?.plan_type === 'paid' &&
-              !(
-                new Date(subscriptionData?.subscription_end_date || 0) >=
-                new Date()
-              ) && (
+              !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
                 <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
                   <span className="text-sm">
                     Your subscription has expired.{' '}
                     <span
                       className="text-primary font-medium cursor-pointer underline"
                       onClick={() =>
-                        openModal(
-                          'subscription_has_ended_renew_here_toast_clicked',
-                          true,
-                        )
+                        openModal('subscription_has_ended_renew_here_toast_clicked', true)
                       }
                     >
                       Renew here
@@ -998,9 +935,7 @@ export const Conversation: React.FC = () => {
                   </span>
                   <span
                     className="text-primary font-medium cursor-pointer underline"
-                    onClick={() =>
-                      openModal('5000_tokens_left_toast_clicked', true)
-                    }
+                    onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
                   >
                     Add more
                   </span>
@@ -1063,9 +998,7 @@ export const Conversation: React.FC = () => {
                     if (form && typeof form.requestSubmit === 'function') {
                       form.requestSubmit();
                     } else {
-                      handleFormSubmit(
-                        e as unknown as React.FormEvent<HTMLFormElement>,
-                      );
+                      handleFormSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
                     }
                   }
                 }}
@@ -1120,10 +1053,7 @@ export const Conversation: React.FC = () => {
         </div>
       </footer>
 
-      <UserProfile
-        isOpen={showUserProfile}
-        onClose={() => setShowUserProfile(false)}
-      />
+      <UserProfile isOpen={showUserProfile} onClose={() => setShowUserProfile(false)} />
       <MeeraVoice
         isOpen={showMeeraVoice}
         onClose={(wasConnected) => {
