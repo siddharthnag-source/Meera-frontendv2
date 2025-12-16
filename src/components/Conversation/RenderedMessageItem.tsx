@@ -106,6 +106,42 @@ function isPdfAttachment(att: { type?: string | null; name?: string | null }) {
   return n.endsWith('.pdf');
 }
 
+/* ---------------- Stable image tile (prevents layout jump on load) ---------------- */
+
+const StableImageTile: React.FC<{
+  src: string;
+  alt: string;
+  maxVh: number;
+  onClick?: () => void;
+}> = ({ src, alt, maxVh, onClick }) => {
+  const [loaded, setLoaded] = useState(false);
+
+  return (
+    <div
+      onClick={onClick}
+      className="relative w-full block rounded-lg overflow-hidden border border-primary/20 shadow-sm cursor-pointer bg-background"
+      style={{
+        aspectRatio: '1 / 1',
+        maxHeight: `${maxVh}vh`,
+        overflowAnchor: 'none',
+      }}
+    >
+      {!loaded && <div className="absolute inset-0 animate-pulse bg-primary/5" />}
+
+      <Image
+        src={src}
+        alt={alt}
+        fill
+        unoptimized
+        className="object-contain"
+        loading="lazy"
+        sizes="(max-width: 768px) 100vw, 400px"
+        onLoadingComplete={() => setLoaded(true)}
+      />
+    </div>
+  );
+};
+
 /* ---------------- Main component ---------------- */
 
 export const RenderedMessageItem: React.FC<{
@@ -394,23 +430,15 @@ export const RenderedMessageItem: React.FC<{
                         >
                           {inlineGeneratedImages.map((img, index) => (
                             <div key={`gen-${index}`} className="relative">
-                              <div
+                              <StableImageTile
+                                src={img.dataUrl || ''}
+                                alt="Generated image"
+                                maxVh={90}
                                 onClick={() => {
                                   setCurrentImageUrl(img.dataUrl || '');
                                   setImageModalOpen(true);
                                 }}
-                                className="block rounded-lg overflow-hidden border border-primary/20 shadow-sm text-center cursor-pointer bg-background"
-                              >
-                                <Image
-                                  src={img.dataUrl || ''}
-                                  alt="Generated image"
-                                  width={200}
-                                  height={200}
-                                  className="w-full h-auto max-h-[90vh] object-contain rounded-md"
-                                  loading="lazy"
-                                  sizes="(max-width: 768px) 100vw, 200px"
-                                />
-                              </div>
+                              />
                             </div>
                           ))}
                         </div>
@@ -426,23 +454,15 @@ export const RenderedMessageItem: React.FC<{
                           {imageAttachments.map((att, index) => (
                             <div key={`image-${index}`} className="relative">
                               {att.url ? (
-                                <div
+                                <StableImageTile
+                                  src={att.url}
+                                  alt={att.name || 'Attached image'}
+                                  maxVh={40}
                                   onClick={() => {
                                     setCurrentImageUrl(att.url || '');
                                     setImageModalOpen(true);
                                   }}
-                                  className="block rounded-lg overflow-hidden border border-primary/20 shadow-sm text-center cursor-pointer bg-background"
-                                >
-                                  <Image
-                                    src={att.url}
-                                    alt={att.name || 'Attached image'}
-                                    width={200}
-                                    height={200}
-                                    className="w-full h-auto max-h-[40vh] object-contain rounded-md"
-                                    loading="lazy"
-                                    sizes="(max-width: 768px) 100vw, 200px"
-                                  />
-                                </div>
+                                />
                               ) : (
                                 <div className="flex items-center justify-center h-24 rounded-lg border border-dashed border-red-400/50 bg-red-50/50">
                                   <div className="text-center">
