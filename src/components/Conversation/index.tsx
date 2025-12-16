@@ -876,14 +876,16 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
                             key={msg.message_id}
                             className="message-item-wrapper w-full transform-gpu will-change-transform"
                           >
-                            <MemoizedRenderedMessageItem
-                              message={msg}
-                              isStreaming={isStreamingMessage}
-                              onRetry={handleRetryMessage}
-                              isLastFailedMessage={isLastFailedMessage}
-                              showTypingIndicator={shouldShowTypingIndicator}
-                              thoughtText={effectiveThoughtText}
-                            />
+                          <MemoizedRenderedMessageItem
+  message={msg}
+  isStreaming={isStreamingMessage}
+  onRetry={handleRetryMessage}
+  isLastFailedMessage={isLastFailedMessage}
+  showTypingIndicator={shouldShowTypingIndicator}
+  thoughtText={effectiveThoughtText}
+  hasMinHeight={false}
+/>
+
                           </div>
                         );
                       })}
