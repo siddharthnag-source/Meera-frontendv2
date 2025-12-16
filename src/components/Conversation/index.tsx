@@ -88,6 +88,8 @@ const MemoizedRenderedMessageItem = React.memo(
       prevProps.message.failed === nextProps.message.failed &&
       prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
       prevProps.thoughtText === nextProps.thoughtText &&
+      prevProps.hasMinHeight === nextProps.hasMinHeight &&
+      prevProps.dynamicMinHeight === nextProps.dynamicMinHeight &&
       attachmentsEqual
     );
   },
@@ -125,6 +127,7 @@ export const Conversation: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessageFromServer[]>([]);
   const [isSearchActive, setIsSearchActive] = useState(true);
   const [currentThoughtText, setCurrentThoughtText] = useState('');
+  const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const [showUserProfile, setShowUserProfile] = useState(false);
@@ -155,6 +158,11 @@ export const Conversation: React.FC = () => {
   const initialLoadDone = useRef(false);
   const justSentMessageRef = useRef(false);
   const spacerRef = useRef<HTMLDivElement>(null);
+
+  const headerRef = useRef<HTMLElement>(null);
+  const footerRef = useRef<HTMLElement>(null);
+  const latestUserMessageRef = useRef<HTMLDivElement | null>(null);
+  const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null);
 
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
   const cleanupFunctions = useRef<Array<() => void>>([]);
@@ -198,6 +206,20 @@ export const Conversation: React.FC = () => {
     return null;
   }, [chatMessages]);
 
+  const calculateMinHeight = useCallback(() => {
+    const viewportHeight = window.innerHeight;
+    const headerHeight = headerRef.current?.offsetHeight || 80;
+    const footerHeight = (footerRef.current?.offsetHeight || 0) - 45;
+    const userMessageHeight = latestUserMessageRef.current?.offsetHeight || 0;
+
+    const calculatedMinHeight = Math.max(
+      0,
+      viewportHeight - headerHeight - footerHeight - userMessageHeight - 100,
+    );
+
+    setDynamicMinHeight(calculatedMinHeight);
+  }, []);
+
   const processMessagesForDisplay = useCallback(
     (messages: ChatMessageFromServer[]): [string, ChatDisplayItem[]][] => {
       const grouped: Record<string, ChatDisplayItem[]> = {};
@@ -213,11 +235,7 @@ export const Conversation: React.FC = () => {
             if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
             callSessions[msg.session_id].push(msg);
           } else {
-            displayItems.push({
-              type: 'message',
-              message: msg,
-              id: msg.message_id,
-            });
+            displayItems.push({ type: 'message', message: msg, id: msg.message_id });
           }
         });
 
@@ -372,8 +390,7 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey))
-        return requestCache.current.get(cacheKey);
+      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
       if (fetchState.abortController && !isInitial)
@@ -530,9 +547,12 @@ export const Conversation: React.FC = () => {
         !fetchState.isLoading &&
         !isInitialLoading
       ) {
-        scrollTimeoutRef.current = setTimeout(() => {
-          loadChatHistory(fetchState.currentPage + 1, false);
-        }, FETCH_DEBOUNCE_MS);
+        scrollTimeoutRef.current = setTimeout(
+          () => {
+            loadChatHistory(fetchState.currentPage + 1, false);
+          },
+          FETCH_DEBOUNCE_MS,
+        );
       }
     },
     [
@@ -551,7 +571,8 @@ export const Conversation: React.FC = () => {
 
   const handleResize = useCallback(() => {
     setDynamicMaxHeight(window.innerHeight / DYNAMIC_MAX_HEIGHT_RATIO);
-  }, []);
+    calculateMinHeight();
+  }, [calculateMinHeight]);
 
   const debouncedHandleResize = useMemo(
     () => debounce(handleResize, RESIZE_DEBOUNCE_MS),
@@ -623,7 +644,9 @@ export const Conversation: React.FC = () => {
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
         setTimeout(
-          () => inputRef.current && handleTextareaResize(inputRef.current, false),
+          () =>
+            inputRef.current &&
+            handleTextareaResize(inputRef.current, false),
           10,
         );
       }
@@ -631,7 +654,11 @@ export const Conversation: React.FC = () => {
     [handleTextareaResize],
   );
 
-const { executeSubmission, handleRetryMessage } = useMessageSubmission({
+  const {
+    executeSubmission,
+    handleRetryMessage,
+    getMostRecentAssistantMessageId,
+  } = useMessageSubmission({
     message,
     currentAttachments,
     chatMessages,
@@ -647,6 +674,9 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
     setIsAssistantTyping,
     clearAllInput,
     scrollToBottom,
+    onMessageSent: () => {
+      setTimeout(() => calculateMinHeight(), 200);
+    },
   });
 
   const { isDraggingOver } = useDragAndDrop({
@@ -706,7 +736,8 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
   useEffect(() => {
     handleResize();
     window.addEventListener('resize', debouncedHandleResize);
-    const cleanup = () => window.removeEventListener('resize', debouncedHandleResize);
+    const cleanup = () =>
+      window.removeEventListener('resize', debouncedHandleResize);
     cleanupFunctions.current.push(cleanup);
     return cleanup;
   }, [handleResize, debouncedHandleResize]);
@@ -759,7 +790,10 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
         </div>
       )}
 
-      <header className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20">
+      <header
+        ref={headerRef}
+        className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20"
+      >
         <div className="w-full mx-auto flex items-center justify-between">
           <button
             onClick={() => setShowUserProfile(true)}
@@ -786,12 +820,14 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
         </div>
       </header>
 
+      {/* CHANGED: make main a flex column so inner content can bottom-anchor */}
       <main
         ref={mainScrollRef}
-        className="overflow-y-auto w-full scroll-pt-2.5"
+        className="overflow-y-auto w-full scroll-pt-2.5 flex flex-col"
         onScroll={handleScroll}
       >
-        <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
+        {/* CHANGED: flex-1 + flex-col so message area can justify-end */}
+        <div className="flex-1 px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto flex flex-col">
           {isInitialLoading && (
             <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -811,11 +847,12 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
           )}
 
           {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
-            <div className="h-[calc(100vh-10rem)]" />
+            <div className="flex-1" />
           )}
 
+          {/* CHANGED: flex-1 justify-end so messages sit at bottom when not overflowing */}
           {!isInitialLoading && chatMessages.length > 0 && (
-            <div className="flex flex-col space-y-0 w-full">
+            <div className="flex flex-col space-y-0 w-full flex-1 justify-end">
               {fetchState.isLoading && isUserNearTop && (
                 <div className="flex justify-center py-4 sticky top-0 z-10">
                   <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
@@ -849,7 +886,6 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
                         }
 
                         const msg = item.message;
-
                         const isStreamingMessage =
                           isSending &&
                           msg.content_type === 'assistant' &&
@@ -870,22 +906,35 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
                           isAssistantTyping &&
                           (msg.content ?? '').length === 0;
 
+                        const isLatestUserMessage =
+                          msg.content_type === 'user' &&
+                          msg.message_id === lastOptimisticMessageIdRef.current;
+                        const isLatestAssistantMessage =
+                          msg.content_type === 'assistant' &&
+                          msg.message_id === getMostRecentAssistantMessageId();
+
                         return (
                           <div
                             id={`message-${msg.message_id}`}
                             key={msg.message_id}
+                            ref={
+                              isLatestUserMessage
+                                ? latestUserMessageRef
+                                : isLatestAssistantMessage
+                                ? latestAssistantMessageRef
+                                : null
+                            }
                             className="message-item-wrapper w-full transform-gpu will-change-transform"
                           >
-                          <MemoizedRenderedMessageItem
-  message={msg}
-  isStreaming={isStreamingMessage}
-  onRetry={handleRetryMessage}
-  isLastFailedMessage={isLastFailedMessage}
-  showTypingIndicator={shouldShowTypingIndicator}
-  thoughtText={effectiveThoughtText}
-  hasMinHeight={false}
-/>
-
+                            <MemoizedRenderedMessageItem
+                              message={msg}
+                              isStreaming={isStreamingMessage}
+                              onRetry={handleRetryMessage}
+                              isLastFailedMessage={isLastFailedMessage}
+                              showTypingIndicator={shouldShowTypingIndicator}
+                              thoughtText={effectiveThoughtText}
+                              hasMinHeight={false}
+                            />
                           </div>
                         );
                       })}
@@ -900,20 +949,29 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
         </div>
       </main>
 
-      <footer className="w-full z-40 p-2 md:pr-[13px] bg-transparent">
+      <footer
+        ref={footerRef}
+        className="w-full z-40 p-2 md:pr-[13px] bg-transparent"
+      >
         <div className="relative">
           <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
             {!isSubscriptionLoading &&
               !isSubscriptionError &&
               subscriptionData?.plan_type === 'paid' &&
-              !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
+              !(
+                new Date(subscriptionData?.subscription_end_date || 0) >=
+                new Date()
+              ) && (
                 <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
                   <span className="text-sm">
                     Your subscription has expired.{' '}
                     <span
                       className="text-primary font-medium cursor-pointer underline"
                       onClick={() =>
-                        openModal('subscription_has_ended_renew_here_toast_clicked', true)
+                        openModal(
+                          'subscription_has_ended_renew_here_toast_clicked',
+                          true,
+                        )
                       }
                     >
                       Renew here
@@ -933,7 +991,9 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
                   </span>
                   <span
                     className="text-primary font-medium cursor-pointer underline"
-                    onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
+                    onClick={() =>
+                      openModal('5000_tokens_left_toast_clicked', true)
+                    }
                   >
                     Add more
                   </span>
@@ -996,7 +1056,9 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
                     if (form && typeof form.requestSubmit === 'function') {
                       form.requestSubmit();
                     } else {
-                      handleFormSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
+                      handleFormSubmit(
+                        e as unknown as React.FormEvent<HTMLFormElement>,
+                      );
                     }
                   }
                 }}
@@ -1051,7 +1113,10 @@ const { executeSubmission, handleRetryMessage } = useMessageSubmission({
         </div>
       </footer>
 
-      <UserProfile isOpen={showUserProfile} onClose={() => setShowUserProfile(false)} />
+      <UserProfile
+        isOpen={showUserProfile}
+        onClose={() => setShowUserProfile(false)}
+      />
       <MeeraVoice
         isOpen={showMeeraVoice}
         onClose={(wasConnected) => {
