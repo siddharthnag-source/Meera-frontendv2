@@ -4,21 +4,14 @@ import { chatService } from '@/app/api/services/chat';
 import { useToast } from '@/components/ui/ToastProvider';
 import { createLocalTimestamp } from '@/lib/dateUtils';
 import { supabase } from '@/lib/supabaseClient';
-import {
-  ChatAttachmentInputState,
-  ChatMessageFromServer,
-} from '@/types/chat';
-import React, {
-  MutableRefObject,
-  useCallback,
-  useRef,
-} from 'react';
+import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
+import React, { MutableRefObject, useCallback, useRef } from 'react';
 
 interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean; // still passed from Conversation, but not used here
+  isSearchActive: boolean;
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setJustSentMessage: (justSent: boolean) => void;
@@ -27,7 +20,6 @@ interface UseMessageSubmissionProps {
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
   setIsAssistantTyping: (isTyping: boolean) => void;
   clearAllInput: () => void;
-  scrollToBottom: (smooth?: boolean, force?: boolean) => void;
   onMessageSent?: () => void;
 }
 
@@ -52,10 +44,7 @@ async function uploadAttachmentToStorage(
 
   const { error: uploadError } = await supabase.storage
     .from(ATTACHMENTS_BUCKET)
-    .upload(path, file, {
-      cacheControl: '3600',
-      upsert: false,
-    });
+    .upload(path, file, { cacheControl: '3600', upsert: false });
 
   if (uploadError) {
     console.error('Supabase upload error', uploadError);
@@ -64,10 +53,7 @@ async function uploadAttachmentToStorage(
 
   const { data } = supabase.storage.from(ATTACHMENTS_BUCKET).getPublicUrl(path);
   const publicUrl = data?.publicUrl || '';
-
-  if (!publicUrl) {
-    throw new Error('Failed to obtain public URL from Supabase');
-  }
+  if (!publicUrl) throw new Error('Failed to obtain public URL from Supabase');
 
   return {
     storagePath: path,
@@ -83,7 +69,6 @@ export const useMessageSubmission = ({
   message,
   currentAttachments,
   chatMessages,
-  // isSearchActive, // not needed here
   isSending,
   setIsSending,
   setJustSentMessage,
@@ -92,7 +77,6 @@ export const useMessageSubmission = ({
   setChatMessages,
   setIsAssistantTyping,
   clearAllInput,
-  scrollToBottom,
   onMessageSent,
 }: UseMessageSubmissionProps) => {
   const { showToast } = useToast();
@@ -110,9 +94,7 @@ export const useMessageSubmission = ({
       let newTimestamp = new Date();
 
       if (lastMessage && new Date(lastMessage.timestamp) >= newTimestamp) {
-        newTimestamp = new Date(
-          new Date(lastMessage.timestamp).getTime() + 6,
-        );
+        newTimestamp = new Date(new Date(lastMessage.timestamp).getTime() + 6);
       }
 
       return {
@@ -144,32 +126,61 @@ export const useMessageSubmission = ({
   }, []);
 
   /**
-   * After a successful call to the Edge Function, pull the latest page of
-   * messages from the backend so our local assistant message gets the
-   * `attachments` field (including generated images).
+   * IMPORTANT: do NOT replace the whole chat array after streaming.
+   * That replacement is a common cause of scroll jumps when images appear.
+   *
+   * Instead, reconcile only the last optimistic user + assistant placeholder
+   * with the latest server user + assistant messages.
    */
-  const refreshLatestMessagesFromServer = useCallback(async () => {
-    try {
-      const res = await chatService.getChatHistory(1);
-      if (!res?.data || res.data.length === 0) return;
+  const refreshLatestMessagesFromServer = useCallback(
+    async (optimisticUserId: string, assistantPlaceholderId: string) => {
+      try {
+        const res = await chatService.getChatHistory(1);
+        if (!res?.data || res.data.length === 0) return;
 
-      const rawMessages = res.data as ChatMessageFromServer[];
+        const raw = res.data as ChatMessageFromServer[];
+        const serverMessages = raw
+          .map((m) => ({ ...m, attachments: m.attachments ?? [] }))
+          .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-      const messages = rawMessages
-        .map((msg) => ({
-          ...msg,
-          attachments: msg.attachments ?? [],
-        }))
-        .sort((a, b) =>
-          a.timestamp.localeCompare(b.timestamp),
-        );
+        const latestServerUser = [...serverMessages]
+          .reverse()
+          .find((m) => m.content_type === 'user' && !m.is_call);
 
-      setChatMessages(messages);
-    } catch (err) {
-      console.error('Failed to refresh messages after send:', err);
-      // Non-fatal: text is already shown, only images might be missing.
-    }
-  }, [setChatMessages]);
+        const latestServerAssistant = [...serverMessages]
+          .reverse()
+          .find((m) => m.content_type === 'assistant' && !m.is_call);
+
+        setChatMessages((prev) => {
+          let next = prev.map((m) => {
+            if (m.message_id === optimisticUserId && latestServerUser) return latestServerUser;
+            if (m.message_id === assistantPlaceholderId && latestServerAssistant)
+              return latestServerAssistant;
+            return m;
+          });
+
+          const seen = new Set<string>();
+          next = next.filter((m) => {
+            if (seen.has(m.message_id)) return false;
+            seen.add(m.message_id);
+            return true;
+          });
+
+          const have = new Set(next.map((m) => m.message_id));
+          const toAdd = serverMessages.filter((m) => !have.has(m.message_id));
+
+          if (toAdd.length > 0) {
+            next = [...next, ...toAdd].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+          }
+
+          return next;
+        });
+      } catch (err) {
+        console.error('Failed to refresh messages after send:', err);
+      }
+    },
+    [setChatMessages],
+  );
 
   const executeSubmission = useCallback(
     async (
@@ -184,17 +195,13 @@ export const useMessageSubmission = ({
       const trimmedMessage = messageText.trim();
       const hasText = trimmedMessage.length > 0;
       const hasAttachments = attachments.length > 0;
-
       if (!hasText && !hasAttachments) return;
 
-      // STEP 1: upload all attachments to Supabase Storage
       let uploaded: UploadedMeta[] = [];
       if (hasAttachments) {
         try {
           uploaded = await Promise.all(
-            attachments.map((att) =>
-              uploadAttachmentToStorage(att.file, att.type),
-            ),
+            attachments.map((att) => uploadAttachmentToStorage(att.file, att.type)),
           );
         } catch (uploadErr) {
           console.error('Upload failed', uploadErr);
@@ -206,22 +213,15 @@ export const useMessageSubmission = ({
         }
       }
 
-      // Attach storagePath/publicUrl back onto attachments for optimistic UI
-      const attachmentsWithStorage: ChatAttachmentInputState[] = attachments.map(
-        (att, index) => {
-          const meta = uploaded[index];
-          if (!meta) return att;
-          return {
-            ...att,
-            storagePath: meta.storagePath,
-            publicUrl: meta.publicUrl,
-          };
-        },
-      );
+      const attachmentsWithStorage: ChatAttachmentInputState[] = attachments.map((att, idx) => {
+        const meta = uploaded[idx];
+        if (!meta) return att;
+        return { ...att, storagePath: meta.storagePath, publicUrl: meta.publicUrl };
+      });
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // STEP 2: create optimistic user + assistant placeholders
+      // STEP 2: optimistic user + assistant placeholders
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(
           optimisticId,
@@ -247,15 +247,10 @@ export const useMessageSubmission = ({
 
         clearAllInput();
         onMessageSent?.();
-
-        setTimeout(() => scrollToBottom(true, true), 150);
       } else {
-        // Retry: clear failed state on the user message
         setChatMessages((prev) =>
-          prev.map((msg) =>
-            msg.message_id === optimisticId
-              ? { ...msg, failed: false, try_number: tryNumber }
-              : msg,
+          prev.map((m) =>
+            m.message_id === optimisticId ? { ...m, failed: false, try_number: tryNumber } : m,
           ),
         );
       }
@@ -266,27 +261,18 @@ export const useMessageSubmission = ({
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
 
-      // STEP 3: build payload text (plain prompt + list of public URLs if any)
+      // STEP 3: payload text
       let payloadMessage = trimmedMessage;
-
       if (uploaded.length > 0) {
-        const attachmentsTextLines = uploaded.map(
-          (meta) =>
-            `- ${meta.name} (${meta.mimeType}, ${meta.size} bytes): ${meta.publicUrl}`,
+        const lines = uploaded.map(
+          (meta) => `- ${meta.name} (${meta.mimeType}, ${meta.size} bytes): ${meta.publicUrl}`,
         );
-
-        payloadMessage = [
-          trimmedMessage,
-          '',
-          'Attached files (public URLs, please open and read them):',
-          ...attachmentsTextLines,
-        ]
+        payloadMessage = [trimmedMessage, '', 'Attached files (public URLs, please open and read them):', ...lines]
           .filter(Boolean)
           .join('\n');
       }
 
-      const assistantId =
-        messageRelationshipMapRef.current.get(optimisticId);
+      const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
       try {
         let fullAssistantText = '';
@@ -298,37 +284,38 @@ export const useMessageSubmission = ({
             if (!assistantId) return;
 
             setChatMessages((prev) =>
-              prev.map((msg) =>
-                msg.message_id === assistantId
+              prev.map((m) =>
+                m.message_id === assistantId
                   ? {
-                      ...msg,
-                      content: (msg.content || '') + delta,
+                      ...m,
+                      content: (m.content || '') + delta,
                       failed: false,
                       try_number: tryNumber,
                     }
-                  : msg,
+                  : m,
               ),
             );
           },
           onDone: async () => {
             if (assistantId) {
               setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.message_id === assistantId
+                prev.map((m) =>
+                  m.message_id === assistantId
                     ? {
-                        ...msg,
-                        content: msg.content || fullAssistantText,
+                        ...m,
+                        content: m.content || fullAssistantText,
                         failed: false,
                         try_number: tryNumber,
                       }
-                    : msg,
+                    : m,
                 ),
               );
             }
 
-            // IMPORTANT: pull fresh messages so the assistant row
-            // now includes `attachments` with Supabase Storage URLs.
-            await refreshLatestMessagesFromServer();
+            // Pull server attachments without replacing the whole chat array
+            if (assistantId) {
+              await refreshLatestMessagesFromServer(optimisticId, assistantId);
+            }
           },
           onError: (err) => {
             throw err;
@@ -339,23 +326,15 @@ export const useMessageSubmission = ({
       } catch (error) {
         console.error('Error sending message:', error);
 
-        showToast('Failed to respond, try again', {
-          type: 'error',
-          position: 'conversation',
-        });
+        showToast('Failed to respond, try again', { type: 'error', position: 'conversation' });
 
         setChatMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.message_id === optimisticId)
-              return { ...msg, failed: true };
-            if (assistantId && msg.message_id === assistantId) {
-              return {
-                ...msg,
-                failed: true,
-                failedMessage: 'Failed to respond, try again',
-              };
+          prev.map((m) => {
+            if (m.message_id === optimisticId) return { ...m, failed: true };
+            if (assistantId && m.message_id === assistantId) {
+              return { ...m, failed: true, failedMessage: 'Failed to respond, try again' };
             }
-            return msg;
+            return m;
           }),
         );
       } finally {
@@ -363,9 +342,8 @@ export const useMessageSubmission = ({
         setIsAssistantTyping(false);
         lastOptimisticMessageIdRef.current = null;
 
-        if (isFromManualRetry) {
-          setTimeout(() => scrollToBottom(true, true), 150);
-        }
+        // Manual retry: do not force scroll here, Conversation controls scroll
+        void isFromManualRetry;
       }
     },
     [
@@ -373,7 +351,6 @@ export const useMessageSubmission = ({
       createOptimisticMessage,
       setChatMessages,
       clearAllInput,
-      scrollToBottom,
       setIsSending,
       setJustSentMessage,
       setCurrentThoughtText,
@@ -393,30 +370,23 @@ export const useMessageSubmission = ({
       const nextTryNumber = currentTryNumber + 1;
       const failedMessageId = failedMessage.message_id;
 
-      const retryAttachments: ChatAttachmentInputState[] =
-        messageAttachments
-          .filter((att) => att.file)
-          .map((att) => {
-            const file = att.file as File;
-            const blob = file.slice(0, file.size, file.type);
-            const newFile = new File([blob], file.name, { type: file.type });
-            const isPdf = file.type === 'application/pdf';
+      const retryAttachments: ChatAttachmentInputState[] = messageAttachments
+        .filter((att) => att.file)
+        .map((att) => {
+          const file = att.file as File;
+          const blob = file.slice(0, file.size, file.type);
+          const newFile = new File([blob], file.name, { type: file.type });
+          const isPdf = file.type === 'application/pdf';
 
-            return {
-              file: newFile,
-              previewUrl: att.url,
-              type: isPdf ? 'document' : 'image',
-            };
-          });
+          return {
+            file: newFile,
+            previewUrl: att.url,
+            type: isPdf ? 'document' : 'image',
+          };
+        });
 
       if (messageContent || retryAttachments.length > 0) {
-        executeSubmission(
-          messageContent,
-          retryAttachments,
-          nextTryNumber,
-          failedMessageId,
-          true,
-        );
+        executeSubmission(messageContent, retryAttachments, nextTryNumber, failedMessageId, true);
       }
     },
     [executeSubmission],
