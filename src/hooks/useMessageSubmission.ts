@@ -4,14 +4,21 @@ import { chatService } from '@/app/api/services/chat';
 import { useToast } from '@/components/ui/ToastProvider';
 import { createLocalTimestamp } from '@/lib/dateUtils';
 import { supabase } from '@/lib/supabaseClient';
-import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
-import React, { MutableRefObject, useCallback, useRef } from 'react';
+import {
+  ChatAttachmentInputState,
+  ChatMessageFromServer,
+} from '@/types/chat';
+import React, {
+  MutableRefObject,
+  useCallback,
+  useRef,
+} from 'react';
 
 interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean; // passed from Conversation, not used here
+  isSearchActive: boolean; // still passed from Conversation, but not used here
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setJustSentMessage: (justSent: boolean) => void;
@@ -20,11 +27,7 @@ interface UseMessageSubmissionProps {
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
   setIsAssistantTyping: (isTyping: boolean) => void;
   clearAllInput: () => void;
-
-  // Keep this in props so Conversation can pass it (type-safe),
-  // but we intentionally do NOT call it on stream completion / reconciliation.
   scrollToBottom: (smooth?: boolean, force?: boolean) => void;
-
   onMessageSent?: () => void;
 }
 
@@ -76,23 +79,40 @@ async function uploadAttachmentToStorage(
   };
 }
 
-export const useMessageSubmission = (props: UseMessageSubmissionProps) => {
+export const useMessageSubmission = ({
+  message,
+  currentAttachments,
+  chatMessages,
+  // isSearchActive, // not needed here
+  isSending,
+  setIsSending,
+  setJustSentMessage,
+  setCurrentThoughtText,
+  lastOptimisticMessageIdRef,
+  setChatMessages,
+  setIsAssistantTyping,
+  clearAllInput,
+  scrollToBottom,
+  onMessageSent,
+}: UseMessageSubmissionProps) => {
   const { showToast } = useToast();
 
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
 
-  const createOptimisticUserMessage = useCallback(
+  const createOptimisticMessage = useCallback(
     (
       optimisticId: string,
       messageText: string,
       attachments: ChatAttachmentInputState[],
     ): ChatMessageFromServer => {
-      const lastMessage = props.chatMessages[props.chatMessages.length - 1];
+      const lastMessage = chatMessages[chatMessages.length - 1];
       let newTimestamp = new Date();
 
       if (lastMessage && new Date(lastMessage.timestamp) >= newTimestamp) {
-        newTimestamp = new Date(new Date(lastMessage.timestamp).getTime() + 6);
+        newTimestamp = new Date(
+          new Date(lastMessage.timestamp).getTime() + 6,
+        );
       }
 
       return {
@@ -113,109 +133,53 @@ export const useMessageSubmission = (props: UseMessageSubmissionProps) => {
           file: att.file,
         })),
         try_number: 1,
-        failed: false,
-        finish_reason: null,
       };
     },
-    [props.chatMessages],
+    [chatMessages],
   );
 
-  const createOptimisticAssistantPlaceholder = useCallback(
-    (assistantMessageId: string, tryNumber: number): ChatMessageFromServer => {
-      return {
-        message_id: assistantMessageId,
-        content: '',
-        content_type: 'assistant',
-        timestamp: createLocalTimestamp(),
-        attachments: [],
-        try_number: tryNumber,
-        failed: false,
-        finish_reason: null,
-      };
-    },
-    [],
-  );
-
-  const getMostRecentAssistantMessageId = useCallback(() => {
-    return mostRecentAssistantMessageIdRef.current;
+  const clearMessageRelationshipMap = useCallback(() => {
+    messageRelationshipMapRef.current.clear();
+    mostRecentAssistantMessageIdRef.current = null;
   }, []);
 
-  // Reconcile server images/attachments WITHOUT replacing the full chat array
-  // and WITHOUT triggering any scroll.
-  const reconcileWithServer = useCallback(
-    async (assistantPlaceholderId: string, fullAssistantText: string) => {
-      try {
-        const res = await chatService.getChatHistory(1);
-        if (!res?.data || res.data.length === 0) return;
+  /**
+   * After a successful call to the Edge Function, pull the latest page of
+   * messages from the backend so our local assistant message gets the
+   * `attachments` field (including generated images).
+   */
+  const refreshLatestMessagesFromServer = useCallback(async () => {
+    try {
+      const res = await chatService.getChatHistory(1);
+      if (!res?.data || res.data.length === 0) return;
 
-        const serverMessages = (res.data as ChatMessageFromServer[])
-          .map((m) => ({ ...m, attachments: m.attachments ?? [] }))
-          .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      const rawMessages = res.data as ChatMessageFromServer[];
 
-        const candidate = [...serverMessages]
-          .reverse()
-          .find((m) => m.content_type === 'assistant');
+      const messages = rawMessages
+        .map((msg) => ({
+          ...msg,
+          attachments: msg.attachments ?? [],
+        }))
+        .sort((a, b) =>
+          a.timestamp.localeCompare(b.timestamp),
+        );
 
-        if (!candidate) return;
-
-        const candidateHasMedia =
-          (candidate.attachments?.length ?? 0) > 0 ||
-          (((candidate as unknown as { generatedImages?: unknown[] })
-            .generatedImages?.length ?? 0) > 0);
-
-        const candidateHasText = !!(candidate.content || '').trim();
-
-        if (!candidateHasMedia && !candidateHasText) return;
-
-        props.setChatMessages((prev) => {
-          const withoutPlaceholder = prev.filter(
-            (m) => m.message_id !== assistantPlaceholderId,
-          );
-
-          const patchedCandidate: ChatMessageFromServer =
-            !candidateHasText && fullAssistantText.trim()
-              ? { ...candidate, content: fullAssistantText }
-              : candidate;
-
-          const alreadyExists = withoutPlaceholder.some(
-            (m) => m.message_id === patchedCandidate.message_id,
-          );
-
-          const merged = withoutPlaceholder.map((m) =>
-            m.message_id === patchedCandidate.message_id
-              ? {
-                  ...m,
-                  ...patchedCandidate,
-                  attachments:
-                    patchedCandidate.attachments ?? m.attachments ?? [],
-                }
-              : m,
-          );
-
-          const withInsert = alreadyExists
-            ? merged
-            : [...merged, patchedCandidate];
-
-          return withInsert.sort((a, b) =>
-            a.timestamp.localeCompare(b.timestamp),
-          );
-        });
-      } catch (err) {
-        console.error('Failed to reconcile latest server messages:', err);
-      }
-    },
-    [props],
-  );
+      setChatMessages(messages);
+    } catch (err) {
+      console.error('Failed to refresh messages after send:', err);
+      // Non-fatal: text is already shown, only images might be missing.
+    }
+  }, [setChatMessages]);
 
   const executeSubmission = useCallback(
     async (
       messageText: string,
       attachments: ChatAttachmentInputState[] = [],
       tryNumber: number = 1,
-      optimisticUserIdToUpdate?: string,
+      optimisticIdToUpdate?: string,
       isFromManualRetry: boolean = false,
     ) => {
-      if (props.isSending) return;
+      if (isSending) return;
 
       const trimmedMessage = messageText.trim();
       const hasText = trimmedMessage.length > 0;
@@ -223,7 +187,7 @@ export const useMessageSubmission = (props: UseMessageSubmissionProps) => {
 
       if (!hasText && !hasAttachments) return;
 
-      // STEP 1: upload attachments
+      // STEP 1: upload all attachments to Supabase Storage
       let uploaded: UploadedMeta[] = [];
       if (hasAttachments) {
         try {
@@ -242,6 +206,7 @@ export const useMessageSubmission = (props: UseMessageSubmissionProps) => {
         }
       }
 
+      // Attach storagePath/publicUrl back onto attachments for optimistic UI
       const attachmentsWithStorage: ChatAttachmentInputState[] = attachments.map(
         (att, index) => {
           const meta = uploaded[index];
@@ -254,66 +219,54 @@ export const useMessageSubmission = (props: UseMessageSubmissionProps) => {
         },
       );
 
-      const optimisticUserId =
-        optimisticUserIdToUpdate || `optimistic-${Date.now()}`;
-      const assistantPlaceholderId = `assistant-${Date.now()}`;
+      const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // STEP 2: optimistic UI
-      if (!optimisticUserIdToUpdate) {
-        const userMessage = createOptimisticUserMessage(
-          optimisticUserId,
+      // STEP 2: create optimistic user + assistant placeholders
+      if (!optimisticIdToUpdate) {
+        const userMessage = createOptimisticMessage(
+          optimisticId,
           trimmedMessage,
           attachmentsWithStorage,
         );
-        const assistantPlaceholder = createOptimisticAssistantPlaceholder(
-          assistantPlaceholderId,
-          tryNumber,
-        );
 
-        messageRelationshipMapRef.current.set(
-          optimisticUserId,
-          assistantPlaceholderId,
-        );
-        mostRecentAssistantMessageIdRef.current = assistantPlaceholderId;
+        const assistantMessageId = `assistant-${Date.now()}`;
+        const emptyAssistantMessage: ChatMessageFromServer = {
+          message_id: assistantMessageId,
+          content: '',
+          content_type: 'assistant',
+          timestamp: createLocalTimestamp(),
+          attachments: [],
+          try_number: tryNumber,
+          failed: false,
+        };
 
-        props.setChatMessages((prev) => [
-          ...prev,
-          userMessage,
-          assistantPlaceholder,
-        ]);
+        messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
+        mostRecentAssistantMessageIdRef.current = assistantMessageId;
 
-        props.clearAllInput();
-        props.onMessageSent?.();
+        setChatMessages((prev) => [...prev, userMessage, emptyAssistantMessage]);
 
-        // IMPORTANT: do NOT scroll here. Conversation handles single scroll on send.
+        clearAllInput();
+        onMessageSent?.();
+
+        setTimeout(() => scrollToBottom(true, true), 150);
       } else {
-        // Retry: clear failed, append a fresh assistant placeholder
-        messageRelationshipMapRef.current.set(
-          optimisticUserId,
-          assistantPlaceholderId,
+        // Retry: clear failed state on the user message
+        setChatMessages((prev) =>
+          prev.map((msg) =>
+            msg.message_id === optimisticId
+              ? { ...msg, failed: false, try_number: tryNumber }
+              : msg,
+          ),
         );
-        mostRecentAssistantMessageIdRef.current = assistantPlaceholderId;
-
-        props.setChatMessages((prev) => {
-          const cleared = prev.map((m) =>
-            m.message_id === optimisticUserId
-              ? { ...m, failed: false, try_number: tryNumber }
-              : m,
-          );
-          return [
-            ...cleared,
-            createOptimisticAssistantPlaceholder(assistantPlaceholderId, tryNumber),
-          ];
-        });
       }
 
-      props.setIsSending(true);
-      props.setJustSentMessage(true);
-      props.setCurrentThoughtText('');
-      props.lastOptimisticMessageIdRef.current = optimisticUserId;
-      props.setIsAssistantTyping(true);
+      setIsSending(true);
+      setJustSentMessage(true);
+      setCurrentThoughtText('');
+      lastOptimisticMessageIdRef.current = optimisticId;
+      setIsAssistantTyping(true);
 
-      // STEP 3: payload
+      // STEP 3: build payload text (plain prompt + list of public URLs if any)
       let payloadMessage = trimmedMessage;
 
       if (uploaded.length > 0) {
@@ -333,8 +286,7 @@ export const useMessageSubmission = (props: UseMessageSubmissionProps) => {
       }
 
       const assistantId =
-        messageRelationshipMapRef.current.get(optimisticUserId) ||
-        assistantPlaceholderId;
+        messageRelationshipMapRef.current.get(optimisticId);
 
       try {
         let fullAssistantText = '';
@@ -343,36 +295,40 @@ export const useMessageSubmission = (props: UseMessageSubmissionProps) => {
           message: payloadMessage,
           onDelta: (delta) => {
             fullAssistantText += delta;
+            if (!assistantId) return;
 
-            props.setChatMessages((prev) =>
-              prev.map((m) =>
-                m.message_id === assistantId
+            setChatMessages((prev) =>
+              prev.map((msg) =>
+                msg.message_id === assistantId
                   ? {
-                      ...m,
-                      content: (m.content || '') + delta,
+                      ...msg,
+                      content: (msg.content || '') + delta,
                       failed: false,
                       try_number: tryNumber,
                     }
-                  : m,
+                  : msg,
               ),
             );
           },
           onDone: async () => {
-            props.setChatMessages((prev) =>
-              prev.map((m) =>
-                m.message_id === assistantId
-                  ? {
-                      ...m,
-                      content: m.content || fullAssistantText,
-                      failed: false,
-                      try_number: tryNumber,
-                    }
-                  : m,
-              ),
-            );
+            if (assistantId) {
+              setChatMessages((prev) =>
+                prev.map((msg) =>
+                  msg.message_id === assistantId
+                    ? {
+                        ...msg,
+                        content: msg.content || fullAssistantText,
+                        failed: false,
+                        try_number: tryNumber,
+                      }
+                    : msg,
+                ),
+              );
+            }
 
-            // IMPORTANT: reconcile media WITHOUT replacing chat array, and NO forced scroll
-            await reconcileWithServer(assistantId, fullAssistantText);
+            // IMPORTANT: pull fresh messages so the assistant row
+            // now includes `attachments` with Supabase Storage URLs.
+            await refreshLatestMessagesFromServer();
           },
           onError: (err) => {
             throw err;
@@ -388,34 +344,44 @@ export const useMessageSubmission = (props: UseMessageSubmissionProps) => {
           position: 'conversation',
         });
 
-        props.setChatMessages((prev) =>
-          prev.map((m) => {
-            if (m.message_id === optimisticUserId) return { ...m, failed: true };
-            if (m.message_id === assistantId) {
+        setChatMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.message_id === optimisticId)
+              return { ...msg, failed: true };
+            if (assistantId && msg.message_id === assistantId) {
               return {
-                ...m,
+                ...msg,
                 failed: true,
                 failedMessage: 'Failed to respond, try again',
               };
             }
-            return m;
+            return msg;
           }),
         );
       } finally {
-        props.setIsSending(false);
-        props.setIsAssistantTyping(false);
-        props.lastOptimisticMessageIdRef.current = null;
+        setIsSending(false);
+        setIsAssistantTyping(false);
+        lastOptimisticMessageIdRef.current = null;
 
-        // No scroll here (even on retry). Keeping stable viewport is the goal.
-        void isFromManualRetry;
+        if (isFromManualRetry) {
+          setTimeout(() => scrollToBottom(true, true), 150);
+        }
       }
     },
     [
-      props,
+      isSending,
+      createOptimisticMessage,
+      setChatMessages,
+      clearAllInput,
+      scrollToBottom,
+      setIsSending,
+      setJustSentMessage,
+      setCurrentThoughtText,
+      lastOptimisticMessageIdRef,
+      setIsAssistantTyping,
       showToast,
-      createOptimisticUserMessage,
-      createOptimisticAssistantPlaceholder,
-      reconcileWithServer,
+      onMessageSent,
+      refreshLatestMessagesFromServer,
     ],
   );
 
@@ -427,20 +393,21 @@ export const useMessageSubmission = (props: UseMessageSubmissionProps) => {
       const nextTryNumber = currentTryNumber + 1;
       const failedMessageId = failedMessage.message_id;
 
-      const retryAttachments: ChatAttachmentInputState[] = messageAttachments
-        .filter((att) => att.file)
-        .map((att) => {
-          const file = att.file as File;
-          const blob = file.slice(0, file.size, file.type);
-          const newFile = new File([blob], file.name, { type: file.type });
-          const isPdf = file.type === 'application/pdf';
+      const retryAttachments: ChatAttachmentInputState[] =
+        messageAttachments
+          .filter((att) => att.file)
+          .map((att) => {
+            const file = att.file as File;
+            const blob = file.slice(0, file.size, file.type);
+            const newFile = new File([blob], file.name, { type: file.type });
+            const isPdf = file.type === 'application/pdf';
 
-          return {
-            file: newFile,
-            previewUrl: att.url,
-            type: isPdf ? 'document' : 'image',
-          };
-        });
+            return {
+              file: newFile,
+              previewUrl: att.url,
+              type: isPdf ? 'document' : 'image',
+            };
+          });
 
       if (messageContent || retryAttachments.length > 0) {
         executeSubmission(
@@ -458,14 +425,13 @@ export const useMessageSubmission = (props: UseMessageSubmissionProps) => {
   const handleSubmit = useCallback(
     (e: React.SyntheticEvent) => {
       e.preventDefault();
-      executeSubmission(props.message, props.currentAttachments);
+      executeSubmission(message, currentAttachments);
     },
-    [executeSubmission, props.message, props.currentAttachments],
+    [executeSubmission, message, currentAttachments],
   );
 
-  const clearMessageRelationshipMap = useCallback(() => {
-    messageRelationshipMapRef.current.clear();
-    mostRecentAssistantMessageIdRef.current = null;
+  const getMostRecentAssistantMessageId = useCallback(() => {
+    return mostRecentAssistantMessageIdRef.current;
   }, []);
 
   return {
