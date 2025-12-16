@@ -45,8 +45,6 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 
-/* ---------------- Thinking status text inside the pill ---------------- */
-
 type ThinkingPhase = 'idle' | 'orchestrating' | 'searching' | 'thinking' | 'thoughts';
 
 type ThinkingStatusTextProps = {
@@ -92,8 +90,6 @@ const ThinkingStatusText: React.FC<ThinkingStatusTextProps> = ({ phase, thoughtT
   );
 };
 
-/* ---------------- Helpers for attachment classification ---------------- */
-
 function isImageAttachment(att: { type?: string | null }) {
   const t = (att.type || '').toLowerCase();
   return t === 'image' || t.startsWith('image/');
@@ -106,8 +102,6 @@ function isPdfAttachment(att: { type?: string | null; name?: string | null }) {
   return n.endsWith('.pdf');
 }
 
-/* ---------------- Main component ---------------- */
-
 export const RenderedMessageItem: React.FC<{
   message: ChatMessageFromServer;
   isStreaming: boolean;
@@ -115,8 +109,6 @@ export const RenderedMessageItem: React.FC<{
   isLastFailedMessage?: boolean;
   showTypingIndicator?: boolean;
   thoughtText?: string;
-  hasMinHeight?: boolean;
-  dynamicMinHeight?: number;
 }> = React.memo(
   ({
     message,
@@ -125,8 +117,6 @@ export const RenderedMessageItem: React.FC<{
     isLastFailedMessage,
     showTypingIndicator,
     thoughtText,
-    hasMinHeight,
-    dynamicMinHeight,
   }) => {
     const [isCopied, setIsCopied] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
@@ -141,7 +131,6 @@ export const RenderedMessageItem: React.FC<{
     const bgColor = isUser ? 'bg-primary' : 'bg-card';
     const textColor = isUser ? 'text-background' : 'text-primary';
 
-    // Inline generated images (from chat response, not just attachments)
     const inlineGeneratedImages: GeneratedImage[] = useMemo(
       () =>
         (message.generatedImages || []).map((img) => ({
@@ -164,7 +153,6 @@ export const RenderedMessageItem: React.FC<{
     const hasAttachments = hasServerAttachments || inlineGeneratedImages.length > 0;
     const hasMainContent = hasTextContent || hasAttachments;
 
-    /* Phase progression: Orchestrating -> Searching memories -> Thinking */
     useEffect(() => {
       if (showTypingIndicator && !isUser) {
         setPhase('orchestrating');
@@ -193,14 +181,12 @@ export const RenderedMessageItem: React.FC<{
       }
     }, [showTypingIndicator, isUser, thoughtText]);
 
-    /* When model thoughts arrive, show them */
     useEffect(() => {
       if (!isUser && thoughtText && thoughtText.trim()) {
         setPhase('thoughts');
       }
     }, [thoughtText, isUser]);
 
-    /* Overflow handling for user bubble */
     useEffect(() => {
       const element = contentRef.current;
       if (isUser && element && !isExpanded) {
@@ -242,9 +228,7 @@ export const RenderedMessageItem: React.FC<{
     };
 
     const handleRetry = () => {
-      if (onRetry) {
-        onRetry(message);
-      }
+      if (onRetry) onRetry(message);
     };
 
     const showThinkingRow =
@@ -267,13 +251,12 @@ export const RenderedMessageItem: React.FC<{
 
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-3 group`}>
-<div
-  className={`flex flex-col md:pr-1 ${
-    hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'
-  }`}
->
+        <div
+          className={`flex flex-col md:pr-1 ${
+            hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'
+          }`}
+        >
           <div className={bubbleClasses}>
-            {/* Main content (only when there is content) */}
             {hasTextContent && (
               <>
                 {message.content_type === 'user' ? (
@@ -371,20 +354,16 @@ export const RenderedMessageItem: React.FC<{
               </>
             )}
 
-            {/* Attachments + generated images */}
             {(hasAttachments || inlineGeneratedImages.length > 0) && (
               <div className={hasTextContent ? 'mt-3' : ''}>
                 {(() => {
                   const attachments = message.attachments ?? [];
 
                   const imageAttachments = attachments.filter((att) => isImageAttachment(att));
-                  const documentAttachments = attachments.filter(
-                    (att) => !isImageAttachment(att),
-                  );
+                  const documentAttachments = attachments.filter((att) => !isImageAttachment(att));
 
                   return (
                     <>
-                      {/* GENERATED IMAGES (base64/dataUrl) */}
                       {inlineGeneratedImages.length > 0 && (
                         <div
                           className={`grid gap-2 mb-3 ${
@@ -415,7 +394,6 @@ export const RenderedMessageItem: React.FC<{
                         </div>
                       )}
 
-                      {/* IMAGE ATTACHMENTS FROM SERVER */}
                       {imageAttachments.length > 0 && (
                         <div
                           className={`grid gap-2 mb-3 ${
@@ -445,10 +423,7 @@ export const RenderedMessageItem: React.FC<{
                               ) : (
                                 <div className="flex items-center justify-center h-24 rounded-lg border border-dashed border-red-400/50 bg-red-50/50">
                                   <div className="text-center">
-                                    <FiPaperclip
-                                      size={24}
-                                      className="text-red-500 mx-auto mb-1"
-                                    />
+                                    <FiPaperclip size={24} className="text-red-500 mx-auto mb-1" />
                                     <p className="text-xs text-red-500">Error loading image</p>
                                   </div>
                                 </div>
@@ -458,7 +433,6 @@ export const RenderedMessageItem: React.FC<{
                         </div>
                       )}
 
-                      {/* DOCUMENTS / OTHER FILES */}
                       {documentAttachments.length > 0 && (
                         <div className="space-y-2">
                           {documentAttachments.map((att, index) => (
@@ -470,10 +444,7 @@ export const RenderedMessageItem: React.FC<{
                                   rel="noopener noreferrer"
                                   className="flex items-center p-2.5 rounded-lg border border-primary/20 bg-gray-100 hover:bg-gray-200 transition-colors"
                                 >
-                                  <FaFilePdf
-                                    size={28}
-                                    className="text-red-500 mr-2.5 flex-shrink-0"
-                                  />
+                                  <FaFilePdf size={28} className="text-red-500 mr-2.5 flex-shrink-0" />
                                   <div className="flex-1 overflow-hidden">
                                     <p
                                       className="text-sm text-primary font-medium truncate"
@@ -481,9 +452,7 @@ export const RenderedMessageItem: React.FC<{
                                     >
                                       {truncateFileName(att.name || 'document.pdf', 25)}
                                     </p>
-                                    {att.size && (
-                                      <p className="text-xs text-primary/60">PDF Document</p>
-                                    )}
+                                    {att.size && <p className="text-xs text-primary/60">PDF Document</p>}
                                   </div>
                                 </a>
                               ) : att.url ? (
@@ -493,28 +462,16 @@ export const RenderedMessageItem: React.FC<{
                                   rel="noopener noreferrer"
                                   className="flex items-center p-2.5 rounded-lg border border-primary/20 bg-gray-100 hover:bg-gray-200 transition-colors"
                                 >
-                                  <FiPaperclip
-                                    size={24}
-                                    className="text-primary/70 mr-2.5 flex-shrink-0"
-                                  />
-                                  <p
-                                    className="text-sm text-primary font-medium truncate"
-                                    title={att.name}
-                                  >
+                                  <FiPaperclip size={24} className="text-primary/70 mr-2.5 flex-shrink-0" />
+                                  <p className="text-sm text-primary font-medium truncate" title={att.name}>
                                     {truncateFileName(att.name || 'attachment', 25)}
                                   </p>
                                 </a>
                               ) : (
                                 <div className="flex items-center p-2.5 rounded-lg border border-dashed border-red-400/50 bg-red-50/50">
-                                  <FiPaperclip
-                                    size={24}
-                                    className="text-red-500 mr-2.5 flex-shrink-0"
-                                  />
+                                  <FiPaperclip size={24} className="text-red-500 mr-2.5 flex-shrink-0" />
                                   <div className="flex-1 overflow-hidden">
-                                    <p
-                                      className="text-sm text-red-700 font-medium truncate"
-                                      title={att.name}
-                                    >
+                                    <p className="text-sm text-red-700 font-medium truncate" title={att.name}>
                                       {truncateFileName(att.name || 'Attachment error', 25)}
                                     </p>
                                     <p className="text-xs text-red-500">
@@ -535,14 +492,12 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Orchestrating / searching / thinking / thoughts row */}
             {showThinkingRow && (
               <div className={`${onlyThinking ? '' : 'mt-1'} flex w-full items-center justify-center`}>
                 <ThinkingStatusText phase={phase} thoughtText={thoughtText} />
               </div>
             )}
 
-            {/* Image generation skeleton */}
             {message.isGeneratingImage && (
               <div className="mt-3">
                 <ImageSkeleton />
@@ -557,7 +512,6 @@ export const RenderedMessageItem: React.FC<{
               </div>
             )}
 
-            {/* Footer */}
             {!showTypingIndicator && (
               <div className="mt-1.5 flex items-center justify-between pt-1">
                 <div className="flex items-center space-x-1 pr-1">
@@ -570,18 +524,14 @@ export const RenderedMessageItem: React.FC<{
                       {isCopied ? (
                         <FiCheck size={14} className="text-primary" />
                       ) : (
-                        <FiCopy
-                          size={14}
-                          className="text-primary/60 hover:text-primary/80"
-                        />
+                        <FiCopy size={14} className="text-primary/60 hover:text-primary/80" />
                       )}
                     </button>
                   )}
+
                   {!isUser &&
                     message.attachments &&
-                    message.attachments.some(
-                      (att) => isImageAttachment(att) || isPdfAttachment(att),
-                    ) && (
+                    message.attachments.some((att) => isImageAttachment(att) || isPdfAttachment(att)) && (
                       <a
                         href={
                           message.attachments.find(
@@ -593,33 +543,30 @@ export const RenderedMessageItem: React.FC<{
                         className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                         title="Download attachment"
                       >
-                        <FiDownload
-                          size={14}
-                          className="text-primary/60 hover:text-primary/80"
-                        />
+                        <FiDownload size={14} className="text-primary/60 hover:text-primary/80" />
                       </a>
                     )}
+
                   {isUser && message.failed && isLastFailedMessage && (
                     <button
                       onClick={handleRetry}
                       className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                       title="Retry sending"
                     >
-                      <FiRefreshCw
-                        size={14}
-                        className="text-background/60 hover:text-background/90"
-                      />
+                      <FiRefreshCw size={14} className="text-background/60 hover:text-background/90" />
                     </button>
                   )}
+
                   {isUser && showExpandButton && !isExpanded && (
                     <button
                       onClick={() => setIsExpanded(true)}
-                      className="p-0.5 rounded text-xs text-background/60 hover:text-background/90 transition-colors focus:outline-none cursor-pointer "
+                      className="p-0.5 rounded text-xs text-background/60 hover:text-background/90 transition-colors focus:outline-none cursor-pointer"
                       title="Show more"
                     >
                       <FiChevronDown size={16} />
                     </button>
                   )}
+
                   {isUser && isExpanded && (
                     <button
                       onClick={() => setIsExpanded(false)}
@@ -631,17 +578,11 @@ export const RenderedMessageItem: React.FC<{
                   )}
                 </div>
 
-                <p
-                  className={`text-xs whitespace-nowrap ${
-                    isUser ? 'text-background/60' : 'text-primary/60'
-                  }`}
-                >
+                <p className={`text-xs whitespace-nowrap ${isUser ? 'text-background/60' : 'text-primary/60'}`}>
                   {(() => {
                     const timestamp = message.timestamp;
                     if (!timestamp) return '';
-                    if (message.content_type === 'assistant' && isStreaming) {
-                      return '';
-                    }
+                    if (message.content_type === 'assistant' && isStreaming) return '';
 
                     try {
                       const match = timestamp.match(/(\d{2}):(\d{2}):/);
