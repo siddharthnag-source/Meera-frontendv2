@@ -267,12 +267,11 @@ export const RenderedMessageItem: React.FC<{
 
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-3 group`}>
-        <div
-          style={hasMinHeight && !isUser ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
-          className={`flex flex-col md:pr-1 ${
-            hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'
-          }`}
-        >
+<div
+  className={`flex flex-col md:pr-1 ${
+    hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'
+  }`}
+>
           <div className={bubbleClasses}>
             {/* Main content (only when there is content) */}
             {hasTextContent && (
