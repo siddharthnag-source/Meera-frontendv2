@@ -164,13 +164,11 @@ export const Conversation: React.FC = () => {
   const latestUserMessageRef = useRef<HTMLDivElement | null>(null);
   const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null);
 
-  // Content wrapper for accurate measurements
+  // Needed so we can scroll even when content < viewport height
   const messagesContentRef = useRef<HTMLDivElement | null>(null);
-
-  // Top padding so scroll works even when content < viewport
   const [topPadPx, setTopPadPx] = useState(0);
 
-  // Jump flag
+  // Turn-jump control
   const pendingFocusJumpRef = useRef(false);
 
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
@@ -223,14 +221,6 @@ export const Conversation: React.FC = () => {
     return null;
   }, [chatMessages]);
 
-  const lastAssistantMessageId = useMemo(() => {
-    for (let i = chatMessages.length - 1; i >= 0; i--) {
-      const m = chatMessages[i];
-      if (m.content_type === 'assistant') return m.message_id;
-    }
-    return null;
-  }, [chatMessages]);
-
   const calculateMinHeight = useCallback(() => {
     const viewportHeight = window.innerHeight;
     const headerHeight = headerRef.current?.offsetHeight || 80;
@@ -260,11 +250,7 @@ export const Conversation: React.FC = () => {
             if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
             callSessions[msg.session_id].push(msg);
           } else {
-            displayItems.push({
-              type: 'message',
-              message: msg,
-              id: msg.message_id,
-            });
+            displayItems.push({ type: 'message', message: msg, id: msg.message_id });
           }
         });
 
@@ -354,7 +340,6 @@ export const Conversation: React.FC = () => {
     setTopPadPx((prev) => (prev === needed ? prev : needed));
   }, [computeNeededTopPad]);
 
-  // Hard "turn jump": on send, push previous content out of view by pinning the new user bubble near top.
   const scrollMessageToTop = useCallback(
     (messageId?: string | null) => {
       const scroller = mainScrollRef.current;
@@ -383,10 +368,9 @@ export const Conversation: React.FC = () => {
 
       const scRect = scroller.getBoundingClientRect();
       const msgRect = targetEl.getBoundingClientRect();
-      const marginTop = 12;
 
-      const targetTop =
-        scroller.scrollTop + (msgRect.top - scRect.top) - marginTop;
+      const marginTop = 12;
+      const targetTop = scroller.scrollTop + (msgRect.top - scRect.top) - marginTop;
 
       scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'auto' });
       return true;
@@ -498,8 +482,7 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey))
-        return requestCache.current.get(cacheKey);
+      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
       if (fetchState.abortController && !isInitial)
@@ -710,8 +693,7 @@ export const Conversation: React.FC = () => {
         const selectionEnd = textarea.selectionEnd;
         const currentScrollTop = textarea.scrollTop;
         const isScrolledToBottom =
-          textarea.scrollTop + textarea.clientHeight >=
-          textarea.scrollHeight - 1;
+          textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
         const isCursorAtEnd = cursorPosition === textarea.value.length;
 
         const shouldAutoScroll =
@@ -752,7 +734,9 @@ export const Conversation: React.FC = () => {
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
         setTimeout(
-          () => inputRef.current && handleTextareaResize(inputRef.current, false),
+          () =>
+            inputRef.current &&
+            handleTextareaResize(inputRef.current, false),
           10,
         );
       }
@@ -833,7 +817,15 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // Keep top padding correct as content changes
+  // IMPORTANT: remove any auto-scroll-to-bottom after sending.
+  // Only run the turn-jump after send.
+  useEffect(() => {
+    if (!justSentMessageRef.current) return;
+    justSentMessageRef.current = false;
+    runTurnJump();
+  }, [chatMessages.length, runTurnJump]);
+
+  // Keep padding correct when content changes
   useLayoutEffect(() => {
     syncTopPad();
   }, [chatMessages, syncTopPad]);
@@ -880,7 +872,6 @@ export const Conversation: React.FC = () => {
     (e: React.FormEvent) => {
       e.preventDefault();
       if (!canSubmit) return;
-
       executeSubmission(message, currentAttachments);
       runTurnJump();
     },
@@ -905,9 +896,7 @@ export const Conversation: React.FC = () => {
           <button
             onClick={() => setShowUserProfile(true)}
             className={`flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
-              sessionStatus === 'authenticated' && sessionData?.user?.image
-                ? ''
-                : 'p-2'
+              sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
             }`}
           >
             <FiMenu size={20} className="text-primary" />
@@ -1006,10 +995,8 @@ export const Conversation: React.FC = () => {
                           const isLastFailedMessage =
                             msg.message_id === lastFailedMessageId;
 
-                          const storedThoughts = (
-                            msg as unknown as { thoughts?: string }
-                          ).thoughts;
-
+                          const storedThoughts = (msg as unknown as { thoughts?: string })
+                            .thoughts;
                           const effectiveThoughtText =
                             currentThoughtText || storedThoughts || undefined;
 
@@ -1019,15 +1006,16 @@ export const Conversation: React.FC = () => {
                             isAssistantTyping &&
                             (msg.content ?? '').length === 0;
 
+                          const latestUserIdForRef =
+                            lastOptimisticMessageIdRef.current ?? lastUserMessageId;
+
                           const isLatestUserMessage =
                             msg.content_type === 'user' &&
-                            msg.message_id === lastUserMessageId;
+                            msg.message_id === latestUserIdForRef;
 
                           const isLatestAssistantMessage =
                             msg.content_type === 'assistant' &&
-                            msg.message_id ===
-                              (lastAssistantMessageId ??
-                                getMostRecentAssistantMessageId());
+                            msg.message_id === getMostRecentAssistantMessageId();
 
                           return (
                             <div
