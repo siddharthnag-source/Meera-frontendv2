@@ -119,6 +119,7 @@ const MemoizedAttachmentPreview = React.memo(
 );
 
 export const Conversation: React.FC = () => {
+  // text state: inputValue (what user types) + message (debounced version used for sending)
   const [message, setMessage] = useState('');
   const [inputValue, setInputValue] = useState('');
 
@@ -164,13 +165,6 @@ export const Conversation: React.FC = () => {
   const latestUserMessageRef = useRef<HTMLDivElement | null>(null);
   const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null);
 
-  // Needed so we can scroll even when content < viewport height
-  const messagesContentRef = useRef<HTMLDivElement | null>(null);
-  const [topPadPx, setTopPadPx] = useState(0);
-
-  // Turn-jump control
-  const pendingFocusJumpRef = useRef(false);
-
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
   const cleanupFunctions = useRef<Array<() => void>>([]);
   const chatMessagesRef = useRef<ChatMessageFromServer[]>(chatMessages);
@@ -196,6 +190,7 @@ export const Conversation: React.FC = () => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
+  // keep message in sync with inputValue with a tiny debounce
   const debouncedSetMessage = useMemo(
     () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
     [],
@@ -209,14 +204,6 @@ export const Conversation: React.FC = () => {
     for (let i = chatMessages.length - 1; i >= 0; i--) {
       const msg = chatMessages[i];
       if (msg.content_type === 'user' && msg.failed) return msg.message_id;
-    }
-    return null;
-  }, [chatMessages]);
-
-  const lastUserMessageId = useMemo(() => {
-    for (let i = chatMessages.length - 1; i >= 0; i--) {
-      const m = chatMessages[i];
-      if (m.content_type === 'user') return m.message_id;
     }
     return null;
   }, [chatMessages]);
@@ -312,6 +299,7 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
+  // Auto-scroll only when forced (send and initial loads)
   const scrollToBottom = useCallback(
     (smooth: boolean = true, force: boolean = false) => {
       const el = mainScrollRef.current;
@@ -328,83 +316,7 @@ export const Conversation: React.FC = () => {
     [],
   );
 
-  const computeNeededTopPad = useCallback(() => {
-    const scroller = mainScrollRef.current;
-    const content = messagesContentRef.current;
-    if (!scroller || !content) return 0;
-    return Math.max(0, scroller.clientHeight - content.scrollHeight + 1);
-  }, []);
-
-  const syncTopPad = useCallback(() => {
-    const needed = computeNeededTopPad();
-    setTopPadPx((prev) => (prev === needed ? prev : needed));
-  }, [computeNeededTopPad]);
-
-  const scrollMessageToTop = useCallback(
-    (messageId?: string | null) => {
-      const scroller = mainScrollRef.current;
-      const content = messagesContentRef.current;
-      if (!scroller || !content) return false;
-
-      const id =
-        messageId ??
-        lastOptimisticMessageIdRef.current ??
-        lastUserMessageId ??
-        null;
-
-      const el =
-        id ? (document.getElementById(`message-${id}`) as HTMLElement | null) : null;
-
-      const targetEl =
-        el ?? (latestUserMessageRef.current as unknown as HTMLElement | null);
-
-      if (!targetEl) return false;
-
-      const neededPad = Math.max(0, scroller.clientHeight - content.scrollHeight + 1);
-      if (neededPad !== topPadPx) {
-        setTopPadPx(neededPad);
-        return false;
-      }
-
-      const scRect = scroller.getBoundingClientRect();
-      const msgRect = targetEl.getBoundingClientRect();
-
-      const marginTop = 12;
-      const targetTop = scroller.scrollTop + (msgRect.top - scRect.top) - marginTop;
-
-      scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'auto' });
-      return true;
-    },
-    [topPadPx, lastUserMessageId],
-  );
-
-  const runTurnJump = useCallback(() => {
-    pendingFocusJumpRef.current = true;
-
-    let tries = 0;
-    const maxTries = 24;
-
-    const tick = () => {
-      if (!pendingFocusJumpRef.current) return;
-
-      const ok = scrollMessageToTop(lastOptimisticMessageIdRef.current);
-      if (ok) {
-        pendingFocusJumpRef.current = false;
-        return;
-      }
-
-      tries += 1;
-      if (tries >= maxTries) {
-        pendingFocusJumpRef.current = false;
-        return;
-      }
-
-      requestAnimationFrame(tick);
-    };
-
-    requestAnimationFrame(tick);
-  }, [scrollMessageToTop]);
-
+  // Legacy user id by email
   useEffect(() => {
     const email = sessionData?.user?.email;
     if (!email) return;
@@ -427,6 +339,7 @@ export const Conversation: React.FC = () => {
     findLegacyUser();
   }, [sessionData?.user?.email]);
 
+  // Load legacy messages
   useEffect(() => {
     if (!legacyUserId || hasLoadedLegacyHistory) return;
 
@@ -541,6 +454,7 @@ export const Conversation: React.FC = () => {
               abortController: null,
             }));
           } else {
+            // Empty history is a valid state, not an error
             setFetchState((prev) => ({
               ...prev,
               isLoading: false,
@@ -639,9 +553,12 @@ export const Conversation: React.FC = () => {
         !fetchState.isLoading &&
         !isInitialLoading
       ) {
-        scrollTimeoutRef.current = setTimeout(() => {
-          loadChatHistory(fetchState.currentPage + 1, false);
-        }, FETCH_DEBOUNCE_MS);
+        scrollTimeoutRef.current = setTimeout(
+          () => {
+            loadChatHistory(fetchState.currentPage + 1, false);
+          },
+          FETCH_DEBOUNCE_MS,
+        );
       }
     },
     [
@@ -661,8 +578,7 @@ export const Conversation: React.FC = () => {
   const handleResize = useCallback(() => {
     setDynamicMaxHeight(window.innerHeight / DYNAMIC_MAX_HEIGHT_RATIO);
     calculateMinHeight();
-    syncTopPad();
-  }, [calculateMinHeight, syncTopPad]);
+  }, [calculateMinHeight]);
 
   const debouncedHandleResize = useMemo(
     () => debounce(handleResize, RESIZE_DEBOUNCE_MS),
@@ -757,7 +673,6 @@ export const Conversation: React.FC = () => {
     setIsSending,
     setJustSentMessage: () => {
       justSentMessageRef.current = true;
-      runTurnJump();
     },
     setCurrentThoughtText,
     lastOptimisticMessageIdRef,
@@ -817,18 +732,13 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // IMPORTANT: remove any auto-scroll-to-bottom after sending.
-  // Only run the turn-jump after send.
+  // ONLY scroll on send. No scrollIntoView shifting.
   useEffect(() => {
-    if (!justSentMessageRef.current) return;
-    justSentMessageRef.current = false;
-    runTurnJump();
-  }, [chatMessages.length, runTurnJump]);
-
-  // Keep padding correct when content changes
-  useLayoutEffect(() => {
-    syncTopPad();
-  }, [chatMessages, syncTopPad]);
+    if (justSentMessageRef.current) {
+      scrollToBottom(true, true);
+      justSentMessageRef.current = false;
+    }
+  }, [chatMessages, scrollToBottom]);
 
   useEffect(() => {
     handleResize();
@@ -868,14 +778,14 @@ export const Conversation: React.FC = () => {
     scrollToBottom(true, true);
   }, [scrollToBottom]);
 
+  // single place that actually triggers sending
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
       if (!canSubmit) return;
       executeSubmission(message, currentAttachments);
-      runTurnJump();
     },
-    [executeSubmission, message, currentAttachments, canSubmit, runTurnJump],
+    [executeSubmission, message, currentAttachments, canSubmit],
   );
 
   return (
@@ -920,10 +830,10 @@ export const Conversation: React.FC = () => {
 
       <main
         ref={mainScrollRef}
-        className="overflow-y-auto w-full scroll-pt-2.5 flex flex-col"
+        className="overflow-y-auto w-full scroll-pt-2.5"
         onScroll={handleScroll}
       >
-        <div className="flex-1 px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto flex flex-col">
+        <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
           {isInitialLoading && (
             <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -942,112 +852,103 @@ export const Conversation: React.FC = () => {
             </div>
           )}
 
+          {/* For an empty, non-error initial state, render nothing in the middle */}
           {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
-            <div className="flex-1" />
+            <div className="h-[calc(100vh-10rem)]" />
           )}
 
           {!isInitialLoading && chatMessages.length > 0 && (
-            <div
-              className="flex flex-col space-y-0 w-full flex-1"
-              style={{ paddingTop: topPadPx }}
-            >
-              <div ref={messagesContentRef} className="w-full">
-                {fetchState.isLoading && isUserNearTop && (
-                  <div className="flex justify-center py-4 sticky top-0 z-10">
-                    <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
+            <div className="flex flex-col space-y-0 w-full">
+              {fetchState.isLoading && isUserNearTop && (
+                <div className="flex justify-center py-4 sticky top-0 z-10">
+                  <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
+                  </div>
+                </div>
+              )}
+
+              {messagesByDate.map(([dateKey, messages]) => {
+                const dateHeader = formatWhatsAppStyle(dateKey);
+
+                return (
+                  <div key={dateKey} className="date-group relative w_full">
+                    {dateHeader && (
+                      <div className="sticky pt-2 z-20 flex justify-center my-3 top-0">
+                        <div className="bg-background text-primary text-xs px-4 py-1.5 rounded-full shadow-sm border border-primary/10">
+                          {dateHeader}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="messages-container">
+                      {messages.map((item) => {
+                        if (item.type === 'call_session') {
+                          return (
+                            <MemoizedCallSessionItem
+                              key={item.id}
+                              messages={item.messages}
+                            />
+                          );
+                        }
+
+                        const msg = item.message;
+                        const isStreamingMessage =
+                          isSending &&
+                          msg.content_type === 'assistant' &&
+                          msg.message_id === lastMessage?.message_id &&
+                          msg.finish_reason == null;
+
+                        const isLastFailedMessage =
+                          msg.message_id === lastFailedMessageId;
+
+                        const storedThoughts = (msg as unknown as { thoughts?: string })
+                          .thoughts;
+                        const effectiveThoughtText =
+                          currentThoughtText || storedThoughts || undefined;
+
+                        const shouldShowTypingIndicator =
+                          msg.content_type === 'assistant' &&
+                          msg.message_id === lastMessage?.message_id &&
+                          isAssistantTyping &&
+                          (msg.content ?? '').length === 0;
+
+                        const isLatestUserMessage =
+                          msg.content_type === 'user' &&
+                          msg.message_id === lastOptimisticMessageIdRef.current;
+                        const isLatestAssistantMessage =
+                          msg.content_type === 'assistant' &&
+                          msg.message_id === getMostRecentAssistantMessageId();
+
+                        return (
+                          <div
+                            id={`message-${msg.message_id}`}
+                            key={msg.message_id}
+                            ref={
+                              isLatestUserMessage
+                                ? latestUserMessageRef
+                                : isLatestAssistantMessage
+                                ? latestAssistantMessageRef
+                                : null
+                            }
+                            className="message-item-wrapper w-full transform-gpu will-change-transform"
+                          >
+                            <MemoizedRenderedMessageItem
+                              message={msg}
+                              isStreaming={isStreamingMessage}
+                              onRetry={handleRetryMessage}
+                              isLastFailedMessage={isLastFailedMessage}
+                              showTypingIndicator={shouldShowTypingIndicator}
+                              thoughtText={effectiveThoughtText}
+                              hasMinHeight={isLatestAssistantMessage}
+                              dynamicMinHeight={dynamicMinHeight}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                )}
-
-                {messagesByDate.map(([dateKey, messages]) => {
-                  const dateHeader = formatWhatsAppStyle(dateKey);
-
-                  return (
-                    <div key={dateKey} className="date-group relative w_full">
-                      {dateHeader && (
-                        <div className="sticky pt-2 z-20 flex justify-center my-3 top-0">
-                          <div className="bg-background text-primary text-xs px-4 py-1.5 rounded-full shadow-sm border border-primary/10">
-                            {dateHeader}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="messages-container">
-                        {messages.map((item) => {
-                          if (item.type === 'call_session') {
-                            return (
-                              <MemoizedCallSessionItem
-                                key={item.id}
-                                messages={item.messages}
-                              />
-                            );
-                          }
-
-                          const msg = item.message;
-
-                          const isStreamingMessage =
-                            isSending &&
-                            msg.content_type === 'assistant' &&
-                            msg.message_id === lastMessage?.message_id &&
-                            msg.finish_reason == null;
-
-                          const isLastFailedMessage =
-                            msg.message_id === lastFailedMessageId;
-
-                          const storedThoughts = (msg as unknown as { thoughts?: string })
-                            .thoughts;
-                          const effectiveThoughtText =
-                            currentThoughtText || storedThoughts || undefined;
-
-                          const shouldShowTypingIndicator =
-                            msg.content_type === 'assistant' &&
-                            msg.message_id === lastMessage?.message_id &&
-                            isAssistantTyping &&
-                            (msg.content ?? '').length === 0;
-
-                          const latestUserIdForRef =
-                            lastOptimisticMessageIdRef.current ?? lastUserMessageId;
-
-                          const isLatestUserMessage =
-                            msg.content_type === 'user' &&
-                            msg.message_id === latestUserIdForRef;
-
-                          const isLatestAssistantMessage =
-                            msg.content_type === 'assistant' &&
-                            msg.message_id === getMostRecentAssistantMessageId();
-
-                          return (
-                            <div
-                              id={`message-${msg.message_id}`}
-                              key={msg.message_id}
-                              ref={
-                                isLatestUserMessage
-                                  ? latestUserMessageRef
-                                  : isLatestAssistantMessage
-                                  ? latestAssistantMessageRef
-                                  : null
-                              }
-                              className="message-item-wrapper w-full transform-gpu will-change-transform"
-                            >
-                              <MemoizedRenderedMessageItem
-                                message={msg}
-                                isStreaming={isStreamingMessage}
-                                onRetry={handleRetryMessage}
-                                isLastFailedMessage={isLastFailedMessage}
-                                showTypingIndicator={shouldShowTypingIndicator}
-                                thoughtText={effectiveThoughtText}
-                                hasMinHeight={false}
-                                dynamicMinHeight={dynamicMinHeight}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                );
+              })}
 
               <div ref={spacerRef} className="h-0" />
             </div>
