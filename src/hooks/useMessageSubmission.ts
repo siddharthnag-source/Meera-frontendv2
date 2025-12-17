@@ -1,3 +1,4 @@
+// src/hooks/useMessageSubmission.ts
 'use client';
 
 import { chatService } from '@/app/api/services/chat';
@@ -21,7 +22,6 @@ interface UseMessageSubmissionProps {
   isSearchActive: boolean; // still passed from Conversation, but not used here
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
-  setJustSentMessage: (justSent: boolean) => void;
   setCurrentThoughtText: (text: string) => void;
   lastOptimisticMessageIdRef: MutableRefObject<string | null>;
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
@@ -86,7 +86,6 @@ export const useMessageSubmission = ({
   // isSearchActive, // not needed here
   isSending,
   setIsSending,
-  setJustSentMessage,
   setCurrentThoughtText,
   lastOptimisticMessageIdRef,
   setChatMessages,
@@ -160,9 +159,7 @@ export const useMessageSubmission = ({
           ...msg,
           attachments: msg.attachments ?? [],
         }))
-        .sort((a, b) =>
-          a.timestamp.localeCompare(b.timestamp),
-        );
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
       setChatMessages(messages);
     } catch (err) {
@@ -248,6 +245,7 @@ export const useMessageSubmission = ({
         clearAllInput();
         onMessageSent?.();
 
+        // Scroll only on user send
         setTimeout(() => scrollToBottom(true, true), 150);
       } else {
         // Retry: clear failed state on the user message
@@ -261,7 +259,6 @@ export const useMessageSubmission = ({
       }
 
       setIsSending(true);
-      setJustSentMessage(true);
       setCurrentThoughtText('');
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
@@ -326,8 +323,7 @@ export const useMessageSubmission = ({
               );
             }
 
-            // IMPORTANT: pull fresh messages so the assistant row
-            // now includes `attachments` with Supabase Storage URLs.
+            // Pull fresh messages so the assistant row includes attachments with URLs
             await refreshLatestMessagesFromServer();
           },
           onError: (err) => {
@@ -375,7 +371,6 @@ export const useMessageSubmission = ({
       clearAllInput,
       scrollToBottom,
       setIsSending,
-      setJustSentMessage,
       setCurrentThoughtText,
       lastOptimisticMessageIdRef,
       setIsAssistantTyping,
