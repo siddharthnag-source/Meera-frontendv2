@@ -164,13 +164,13 @@ export const Conversation: React.FC = () => {
   const latestUserMessageRef = useRef<HTMLDivElement | null>(null);
   const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null);
 
-  // NEW: measures actual rendered content height
+  // NEW: content wrapper to measure total content height accurately
   const messagesContentRef = useRef<HTMLDivElement | null>(null);
 
-  // NEW: top padding to bottom-anchor while still allowing scroll behavior
+  // NEW: top padding to allow scrolling even when content < viewport
   const [topPadPx, setTopPadPx] = useState(0);
 
-  // NEW: flag that triggers the ChatGPT-style focus jump after user sends
+  // NEW: focus jump flag (ChatGPT behavior)
   const pendingFocusJumpRef = useRef(false);
 
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
@@ -211,6 +211,23 @@ export const Conversation: React.FC = () => {
     for (let i = chatMessages.length - 1; i >= 0; i--) {
       const msg = chatMessages[i];
       if (msg.content_type === 'user' && msg.failed) return msg.message_id;
+    }
+    return null;
+  }, [chatMessages]);
+
+  // NEW: always compute true last user and assistant message ids
+  const lastUserMessageId = useMemo(() => {
+    for (let i = chatMessages.length - 1; i >= 0; i--) {
+      const m = chatMessages[i];
+      if (m.content_type === 'user') return m.message_id;
+    }
+    return null;
+  }, [chatMessages]);
+
+  const lastAssistantMessageId = useMemo(() => {
+    for (let i = chatMessages.length - 1; i >= 0; i--) {
+      const m = chatMessages[i];
+      if (m.content_type === 'assistant') return m.message_id;
     }
     return null;
   }, [chatMessages]);
@@ -326,30 +343,43 @@ export const Conversation: React.FC = () => {
     [],
   );
 
-  // NEW: make latest user bubble sit just above the composer, and push previous messages out of view
-  const alignLatestUserAboveComposer = useCallback(() => {
+  const computeNeededTopPad = useCallback(() => {
     const scroller = mainScrollRef.current;
-    const msgEl = latestUserMessageRef.current;
-    if (!scroller || !msgEl) return;
-
-    const scRect = scroller.getBoundingClientRect();
-    const msgRect = msgEl.getBoundingClientRect();
-
-    const bottomGap = 12;
-    const desiredMsgTop = scRect.bottom - msgRect.height - bottomGap;
-
-    const delta = msgRect.top - desiredMsgTop;
-    scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
+    const content = messagesContentRef.current;
+    if (!scroller || !content) return 0;
+    return Math.max(0, scroller.clientHeight - content.scrollHeight + 1);
   }, []);
 
   const syncTopPad = useCallback(() => {
+    const needed = computeNeededTopPad();
+    setTopPadPx((prev) => (prev === needed ? prev : needed));
+  }, [computeNeededTopPad]);
+
+  // NEW: ChatGPT-style behavior
+  // - after user sends, jump so latest user message is near the top of the viewport
+  // - this pushes previous message out of view immediately
+  const focusLatestUserToTop = useCallback((): boolean => {
     const scroller = mainScrollRef.current;
     const content = messagesContentRef.current;
-    if (!scroller || !content) return;
+    const msgEl = latestUserMessageRef.current;
+    if (!scroller || !content || !msgEl) return false;
 
-    const needed = Math.max(0, scroller.clientHeight - content.scrollHeight + 1);
-    setTopPadPx((prev) => (prev === needed ? prev : needed));
-  }, []);
+    const neededPad = Math.max(0, scroller.clientHeight - content.scrollHeight + 1);
+    if (neededPad !== topPadPx) {
+      setTopPadPx(neededPad);
+      return false; // wait for next layout pass
+    }
+
+    const scRect = scroller.getBoundingClientRect();
+    const msgRect = msgEl.getBoundingClientRect();
+    const marginTop = 12;
+
+    const targetTop =
+      scroller.scrollTop + (msgRect.top - scRect.top) - marginTop;
+
+    scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'auto' });
+    return true;
+  }, [topPadPx]);
 
   useEffect(() => {
     const email = sessionData?.user?.email;
@@ -763,12 +793,12 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // Keep bottom-anchor correct when content is short
+  // Keep padding correct when content changes
   useLayoutEffect(() => {
     syncTopPad();
   }, [chatMessages, syncTopPad]);
 
-  // Mark that we need to do the ChatGPT-style jump after a user send
+  // Trigger focus jump after a send
   useEffect(() => {
     if (justSentMessageRef.current) {
       pendingFocusJumpRef.current = true;
@@ -776,29 +806,15 @@ export const Conversation: React.FC = () => {
     }
   }, [chatMessages]);
 
-  // After DOM updates, jump so the latest user message sits just above the composer
+  // Execute focus jump after DOM paints
   useLayoutEffect(() => {
     if (!pendingFocusJumpRef.current) return;
 
-    // Ensure topPad is up to date before aligning
-    const scroller = mainScrollRef.current;
-    const content = messagesContentRef.current;
-    if (!scroller || !content) {
-      pendingFocusJumpRef.current = false;
-      return;
-    }
-
-    const needed = Math.max(0, scroller.clientHeight - content.scrollHeight + 1);
-    if (needed !== topPadPx) {
-      setTopPadPx(needed);
-      return;
-    }
-
     requestAnimationFrame(() => {
-      alignLatestUserAboveComposer();
-      pendingFocusJumpRef.current = false;
+      const done = focusLatestUserToTop();
+      if (done) pendingFocusJumpRef.current = false;
     });
-  }, [chatMessages, topPadPx, alignLatestUserAboveComposer]);
+  }, [chatMessages, topPadPx, focusLatestUserToTop]);
 
   useEffect(() => {
     handleResize();
@@ -980,11 +996,13 @@ export const Conversation: React.FC = () => {
 
                           const isLatestUserMessage =
                             msg.content_type === 'user' &&
-                            msg.message_id === lastOptimisticMessageIdRef.current;
+                            msg.message_id === lastUserMessageId;
 
                           const isLatestAssistantMessage =
                             msg.content_type === 'assistant' &&
-                            msg.message_id === getMostRecentAssistantMessageId();
+                            msg.message_id ===
+                              (lastAssistantMessageId ??
+                                getMostRecentAssistantMessageId());
 
                           return (
                             <div
