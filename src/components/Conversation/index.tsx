@@ -151,6 +151,9 @@ export const Conversation: React.FC = () => {
 
   const [dynamicMaxHeight, setDynamicMaxHeight] = useState(200);
 
+  // NEW: spacer to force overflow on send, so previous message can be pushed out of view
+  const [focusSpacerPx, setFocusSpacerPx] = useState(0);
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputAreaRef = useRef<AttachmentInputAreaRef>(null);
   const lastOptimisticMessageIdRef = useRef<string | null>(null);
@@ -235,11 +238,7 @@ export const Conversation: React.FC = () => {
             if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
             callSessions[msg.session_id].push(msg);
           } else {
-            displayItems.push({
-              type: 'message',
-              message: msg,
-              id: msg.message_id,
-            });
+            displayItems.push({ type: 'message', message: msg, id: msg.message_id });
           }
         });
 
@@ -317,23 +316,25 @@ export const Conversation: React.FC = () => {
     [],
   );
 
-  // NEW: after user sends, put the new user bubble at the top of the viewport
-  const scrollLatestUserMessageToTop = useCallback(
-    (smooth: boolean = false) => {
-      const el = latestUserMessageRef.current;
-      if (!el) return;
+  const getFocusSpacerHeight = useCallback(() => {
+    const el = mainScrollRef.current;
+    if (!el) return 0;
+    return Math.max(0, el.clientHeight - 1);
+  }, []);
 
+  const scrollLatestUserMessageToTop = useCallback((smooth: boolean = false) => {
+    const el = latestUserMessageRef.current;
+    if (!el) return;
+
+    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          el.scrollIntoView({
-            behavior: smooth ? 'smooth' : 'auto',
-            block: 'start',
-          });
+        el.scrollIntoView({
+          behavior: smooth ? 'smooth' : 'auto',
+          block: 'start',
         });
       });
-    },
-    [],
-  );
+    });
+  }, []);
 
   useEffect(() => {
     const email = sessionData?.user?.email;
@@ -412,8 +413,7 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey))
-        return requestCache.current.get(cacheKey);
+      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
       if (fetchState.abortController && !isInitial)
@@ -570,9 +570,12 @@ export const Conversation: React.FC = () => {
         !fetchState.isLoading &&
         !isInitialLoading
       ) {
-        scrollTimeoutRef.current = setTimeout(() => {
-          loadChatHistory(fetchState.currentPage + 1, false);
-        }, FETCH_DEBOUNCE_MS);
+        scrollTimeoutRef.current = setTimeout(
+          () => {
+            loadChatHistory(fetchState.currentPage + 1, false);
+          },
+          FETCH_DEBOUNCE_MS,
+        );
       }
     },
     [
@@ -746,13 +749,21 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // UPDATED: after user sends, move the latest user message to the top (hide previous message)
+  // UPDATED: when user sends, force overflow via spacer, then scroll latest user message to top
   useEffect(() => {
     if (justSentMessageRef.current) {
+      setFocusSpacerPx(getFocusSpacerHeight());
       scrollLatestUserMessageToTop(false);
       justSentMessageRef.current = false;
     }
-  }, [chatMessages, scrollLatestUserMessageToTop]);
+  }, [chatMessages, getFocusSpacerHeight, scrollLatestUserMessageToTop]);
+
+  // NEW: after assistant finishes, remove spacer so layout returns to normal
+  useEffect(() => {
+    if (!isSending && !isAssistantTyping && focusSpacerPx > 0) {
+      setFocusSpacerPx(0);
+    }
+  }, [isSending, isAssistantTyping, focusSpacerPx]);
 
   useEffect(() => {
     handleResize();
@@ -819,9 +830,7 @@ export const Conversation: React.FC = () => {
           <button
             onClick={() => setShowUserProfile(true)}
             className={`flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
-              sessionStatus === 'authenticated' && sessionData?.user?.image
-                ? ''
-                : 'p-2'
+              sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
             }`}
           >
             <FiMenu size={20} className="text-primary" />
@@ -915,9 +924,8 @@ export const Conversation: React.FC = () => {
                         const isLastFailedMessage =
                           msg.message_id === lastFailedMessageId;
 
-                        const storedThoughts = (
-                          msg as unknown as { thoughts?: string }
-                        ).thoughts;
+                        const storedThoughts = (msg as unknown as { thoughts?: string })
+                          .thoughts;
                         const effectiveThoughtText =
                           currentThoughtText || storedThoughts || undefined;
 
@@ -930,34 +938,44 @@ export const Conversation: React.FC = () => {
                         const isLatestUserMessage =
                           msg.content_type === 'user' &&
                           msg.message_id === lastOptimisticMessageIdRef.current;
+
                         const isLatestAssistantMessage =
                           msg.content_type === 'assistant' &&
                           msg.message_id === getMostRecentAssistantMessageId();
 
                         return (
-                          <div
-                            id={`message-${msg.message_id}`}
-                            key={msg.message_id}
-                            ref={
-                              isLatestUserMessage
-                                ? latestUserMessageRef
-                                : isLatestAssistantMessage
-                                ? latestAssistantMessageRef
-                                : null
-                            }
-                            className="message-item-wrapper w-full transform-gpu will-change-transform scroll-mt-24"
-                          >
-                            <MemoizedRenderedMessageItem
-                              message={msg}
-                              isStreaming={isStreamingMessage}
-                              onRetry={handleRetryMessage}
-                              isLastFailedMessage={isLastFailedMessage}
-                              showTypingIndicator={shouldShowTypingIndicator}
-                              thoughtText={effectiveThoughtText}
-                              hasMinHeight={false}
-                              dynamicMinHeight={dynamicMinHeight}
-                            />
-                          </div>
+                          <React.Fragment key={msg.message_id}>
+                            {isLatestUserMessage && focusSpacerPx > 0 && (
+                              <div
+                                aria-hidden
+                                className="w-full"
+                                style={{ height: focusSpacerPx }}
+                              />
+                            )}
+
+                            <div
+                              id={`message-${msg.message_id}`}
+                              ref={
+                                isLatestUserMessage
+                                  ? latestUserMessageRef
+                                  : isLatestAssistantMessage
+                                  ? latestAssistantMessageRef
+                                  : null
+                              }
+                              className="message-item-wrapper w-full transform-gpu will-change-transform scroll-mt-24"
+                            >
+                              <MemoizedRenderedMessageItem
+                                message={msg}
+                                isStreaming={isStreamingMessage}
+                                onRetry={handleRetryMessage}
+                                isLastFailedMessage={isLastFailedMessage}
+                                showTypingIndicator={shouldShowTypingIndicator}
+                                thoughtText={effectiveThoughtText}
+                                hasMinHeight={false}
+                                dynamicMinHeight={dynamicMinHeight}
+                              />
+                            </div>
+                          </React.Fragment>
                         );
                       })}
                     </div>
