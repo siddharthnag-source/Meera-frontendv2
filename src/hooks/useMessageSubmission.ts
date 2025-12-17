@@ -4,17 +4,13 @@ import { chatService } from '@/app/api/services/chat';
 import { useToast } from '@/components/ui/ToastProvider';
 import { createLocalTimestamp } from '@/lib/dateUtils';
 import { supabase } from '@/lib/supabaseClient';
-import {
-  ChatAttachmentInputState,
-  ChatMessageFromServer,
-} from '@/types/chat';
+import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import React, { MutableRefObject, useCallback, useRef } from 'react';
 
 interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean; // still passed from Conversation, but not used here
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setCurrentThoughtText: (text: string) => void;
@@ -78,7 +74,6 @@ export const useMessageSubmission = ({
   message,
   currentAttachments,
   chatMessages,
-  // isSearchActive, // not needed here
   isSending,
   setIsSending,
   setCurrentThoughtText,
@@ -86,7 +81,7 @@ export const useMessageSubmission = ({
   setChatMessages,
   setIsAssistantTyping,
   clearAllInput,
-  scrollToBottom,
+  scrollToBottom, // kept for compatibility, but we do not call it here
   onMessageSent,
 }: UseMessageSubmissionProps) => {
   const { showToast } = useToast();
@@ -135,54 +130,25 @@ export const useMessageSubmission = ({
     mostRecentAssistantMessageIdRef.current = null;
   }, []);
 
-  /**
-   * IMPORTANT:
-   * Do not replace the entire chat array after streaming ends.
-   * Only patch the existing assistant placeholder with the latest server attachments.
-   * This prevents scroll jumps.
-   */
-  const refreshLatestMessagesFromServer = useCallback(
-    async (assistantIdToPatch?: string) => {
-      try {
-        if (!assistantIdToPatch) return;
+  const refreshLatestMessagesFromServer = useCallback(async () => {
+    try {
+      const res = await chatService.getChatHistory(1);
+      if (!res?.data || res.data.length === 0) return;
 
-        const res = await chatService.getChatHistory(1);
-        if (!res?.data || res.data.length === 0) return;
+      const rawMessages = res.data as ChatMessageFromServer[];
 
-        const rawMessages = res.data as ChatMessageFromServer[];
+      const messages = rawMessages
+        .map((msg) => ({
+          ...msg,
+          attachments: msg.attachments ?? [],
+        }))
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-        const serverMessages = rawMessages
-          .map((msg) => ({
-            ...msg,
-            attachments: msg.attachments ?? [],
-          }))
-          .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-
-        const latestServerAssistant = [...serverMessages]
-          .reverse()
-          .find((m) => m.content_type === 'assistant');
-
-        if (!latestServerAssistant) return;
-
-        setChatMessages((prev) =>
-          prev.map((m) =>
-            m.message_id === assistantIdToPatch
-              ? {
-                  ...m,
-                  attachments:
-                    latestServerAssistant.attachments ?? m.attachments ?? [],
-                  finish_reason:
-                    latestServerAssistant.finish_reason ?? m.finish_reason ?? null,
-                }
-              : m,
-          ),
-        );
-      } catch (err) {
-        console.error('Failed to refresh assistant attachments:', err);
-      }
-    },
-    [setChatMessages],
-  );
+      setChatMessages(messages);
+    } catch (err) {
+      console.error('Failed to refresh messages after send:', err);
+    }
+  }, [setChatMessages]);
 
   const executeSubmission = useCallback(
     async (
@@ -190,7 +156,6 @@ export const useMessageSubmission = ({
       attachments: ChatAttachmentInputState[] = [],
       tryNumber: number = 1,
       optimisticIdToUpdate?: string,
-      isFromManualRetry: boolean = false,
     ) => {
       if (isSending) return;
 
@@ -219,6 +184,7 @@ export const useMessageSubmission = ({
         }
       }
 
+      // Attach storagePath/publicUrl back onto attachments for optimistic UI
       const attachmentsWithStorage: ChatAttachmentInputState[] = attachments.map(
         (att, index) => {
           const meta = uploaded[index];
@@ -233,7 +199,7 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // STEP 2: optimistic user + assistant placeholder
+      // STEP 2: optimistic user + assistant placeholders
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(
           optimisticId,
@@ -250,7 +216,6 @@ export const useMessageSubmission = ({
           attachments: [],
           try_number: tryNumber,
           failed: false,
-          finish_reason: null,
         };
 
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
@@ -260,10 +225,8 @@ export const useMessageSubmission = ({
 
         clearAllInput();
         onMessageSent?.();
-
-        // Only scroll on user's own send
-        setTimeout(() => scrollToBottom(true, true), 150);
       } else {
+        // Retry: clear failed state on user message
         setChatMessages((prev) =>
           prev.map((msg) =>
             msg.message_id === optimisticId
@@ -278,7 +241,7 @@ export const useMessageSubmission = ({
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
 
-      // STEP 3: build payload
+      // STEP 3: build payload (plain prompt + list of public URLs if any)
       let payloadMessage = trimmedMessage;
 
       if (uploaded.length > 0) {
@@ -337,8 +300,8 @@ export const useMessageSubmission = ({
               );
             }
 
-            // Patch only attachments, do not replace entire chat array
-            await refreshLatestMessagesFromServer(assistantId);
+            // Pull fresh messages so assistant row includes attachments (generated images)
+            await refreshLatestMessagesFromServer();
           },
           onError: (err) => {
             throw err;
@@ -371,10 +334,6 @@ export const useMessageSubmission = ({
         setIsSending(false);
         setIsAssistantTyping(false);
         lastOptimisticMessageIdRef.current = null;
-
-        if (isFromManualRetry) {
-          setTimeout(() => scrollToBottom(true, true), 150);
-        }
       }
     },
     [
@@ -382,7 +341,6 @@ export const useMessageSubmission = ({
       createOptimisticMessage,
       setChatMessages,
       clearAllInput,
-      scrollToBottom,
       setIsSending,
       setCurrentThoughtText,
       lastOptimisticMessageIdRef,
@@ -417,13 +375,7 @@ export const useMessageSubmission = ({
         });
 
       if (messageContent || retryAttachments.length > 0) {
-        executeSubmission(
-          messageContent,
-          retryAttachments,
-          nextTryNumber,
-          failedMessageId,
-          true,
-        );
+        executeSubmission(messageContent, retryAttachments, nextTryNumber, failedMessageId);
       }
     },
     [executeSubmission],
