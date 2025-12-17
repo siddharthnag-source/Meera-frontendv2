@@ -4,8 +4,15 @@ import { chatService } from '@/app/api/services/chat';
 import { useToast } from '@/components/ui/ToastProvider';
 import { createLocalTimestamp } from '@/lib/dateUtils';
 import { supabase } from '@/lib/supabaseClient';
-import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
-import React, { MutableRefObject, useCallback, useRef } from 'react';
+import {
+  ChatAttachmentInputState,
+  ChatMessageFromServer,
+} from '@/types/chat';
+import React, {
+  MutableRefObject,
+  useCallback,
+  useRef,
+} from 'react';
 
 interface UseMessageSubmissionProps {
   message: string;
@@ -14,10 +21,7 @@ interface UseMessageSubmissionProps {
   isSearchActive: boolean; // still passed from Conversation, but not used here
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
-
-  // IMPORTANT: keep signature as-is (your Conversation currently passes a no-arg fn)
   setJustSentMessage: (justSent: boolean) => void;
-
   setCurrentThoughtText: (text: string) => void;
   lastOptimisticMessageIdRef: MutableRefObject<string | null>;
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
@@ -106,7 +110,9 @@ export const useMessageSubmission = ({
       let newTimestamp = new Date();
 
       if (lastMessage && new Date(lastMessage.timestamp) >= newTimestamp) {
-        newTimestamp = new Date(new Date(lastMessage.timestamp).getTime() + 6);
+        newTimestamp = new Date(
+          new Date(lastMessage.timestamp).getTime() + 6,
+        );
       }
 
       return {
@@ -137,6 +143,11 @@ export const useMessageSubmission = ({
     mostRecentAssistantMessageIdRef.current = null;
   }, []);
 
+  /**
+   * After a successful call to the Edge Function, pull the latest page of
+   * messages from the backend so our local assistant message gets the
+   * `attachments` field (including generated images).
+   */
   const refreshLatestMessagesFromServer = useCallback(async () => {
     try {
       const res = await chatService.getChatHistory(1);
@@ -149,11 +160,14 @@ export const useMessageSubmission = ({
           ...msg,
           attachments: msg.attachments ?? [],
         }))
-        .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        .sort((a, b) =>
+          a.timestamp.localeCompare(b.timestamp),
+        );
 
       setChatMessages(messages);
     } catch (err) {
       console.error('Failed to refresh messages after send:', err);
+      // Non-fatal: text is already shown, only images might be missing.
     }
   }, [setChatMessages]);
 
@@ -178,7 +192,9 @@ export const useMessageSubmission = ({
       if (hasAttachments) {
         try {
           uploaded = await Promise.all(
-            attachments.map((att) => uploadAttachmentToStorage(att.file, att.type)),
+            attachments.map((att) =>
+              uploadAttachmentToStorage(att.file, att.type),
+            ),
           );
         } catch (uploadErr) {
           console.error('Upload failed', uploadErr);
@@ -205,7 +221,7 @@ export const useMessageSubmission = ({
 
       const optimisticId = optimisticIdToUpdate || `optimistic-${Date.now()}`;
 
-      // STEP 2: optimistic user + assistant placeholders
+      // STEP 2: create optimistic user + assistant placeholders
       if (!optimisticIdToUpdate) {
         const userMessage = createOptimisticMessage(
           optimisticId,
@@ -227,17 +243,12 @@ export const useMessageSubmission = ({
         messageRelationshipMapRef.current.set(optimisticId, assistantMessageId);
         mostRecentAssistantMessageIdRef.current = assistantMessageId;
 
-        // Important: set optimistic ID before setChatMessages so Conversation can use it
-        lastOptimisticMessageIdRef.current = optimisticId;
-
         setChatMessages((prev) => [...prev, userMessage, emptyAssistantMessage]);
 
         clearAllInput();
         onMessageSent?.();
 
-        // CRITICAL CHANGE:
-        // Do NOT scroll to bottom here. Conversation will do the "jump user message to top".
-        setJustSentMessage(true);
+        setTimeout(() => scrollToBottom(true, true), 150);
       } else {
         // Retry: clear failed state on the user message
         setChatMessages((prev) =>
@@ -247,16 +258,15 @@ export const useMessageSubmission = ({
               : msg,
           ),
         );
-
-        // On retry, you likely want classic chat behavior (stick to bottom),
-        // but we still won't force it here. If you want it, do it in Conversation.
       }
 
       setIsSending(true);
+      setJustSentMessage(true);
       setCurrentThoughtText('');
+      lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
 
-      // STEP 3: build payload
+      // STEP 3: build payload text (plain prompt + list of public URLs if any)
       let payloadMessage = trimmedMessage;
 
       if (uploaded.length > 0) {
@@ -275,7 +285,8 @@ export const useMessageSubmission = ({
           .join('\n');
       }
 
-      const assistantId = messageRelationshipMapRef.current.get(optimisticId);
+      const assistantId =
+        messageRelationshipMapRef.current.get(optimisticId);
 
       try {
         let fullAssistantText = '';
@@ -315,12 +326,9 @@ export const useMessageSubmission = ({
               );
             }
 
+            // IMPORTANT: pull fresh messages so the assistant row
+            // now includes `attachments` with Supabase Storage URLs.
             await refreshLatestMessagesFromServer();
-
-            // Optional: when assistant finishes, you may want to keep assistant visible.
-            // If your desired UX is "user + assistant in view", do NOT scroll here.
-            // If you want to ensure assistant is visible, you can scrollToBottom in Conversation
-            // ONLY when content overflows.
           },
           onError: (err) => {
             throw err;
@@ -338,7 +346,8 @@ export const useMessageSubmission = ({
 
         setChatMessages((prev) =>
           prev.map((msg) => {
-            if (msg.message_id === optimisticId) return { ...msg, failed: true };
+            if (msg.message_id === optimisticId)
+              return { ...msg, failed: true };
             if (assistantId && msg.message_id === assistantId) {
               return {
                 ...msg,
@@ -352,15 +361,10 @@ export const useMessageSubmission = ({
       } finally {
         setIsSending(false);
         setIsAssistantTyping(false);
-
-        // Keep lastOptimisticMessageIdRef while turn-jump is settling.
-        // Clearing it immediately can race the UI. Let Conversation clear it if needed.
-        // lastOptimisticMessageIdRef.current = null;
+        lastOptimisticMessageIdRef.current = null;
 
         if (isFromManualRetry) {
-          // If you insist on a bottom scroll on retry, uncomment:
-          // setTimeout(() => scrollToBottom(true, true), 150);
-          void scrollToBottom;
+          setTimeout(() => scrollToBottom(true, true), 150);
         }
       }
     },
@@ -369,6 +373,7 @@ export const useMessageSubmission = ({
       createOptimisticMessage,
       setChatMessages,
       clearAllInput,
+      scrollToBottom,
       setIsSending,
       setJustSentMessage,
       setCurrentThoughtText,
@@ -377,7 +382,6 @@ export const useMessageSubmission = ({
       showToast,
       onMessageSent,
       refreshLatestMessagesFromServer,
-      scrollToBottom,
     ],
   );
 
@@ -389,23 +393,30 @@ export const useMessageSubmission = ({
       const nextTryNumber = currentTryNumber + 1;
       const failedMessageId = failedMessage.message_id;
 
-      const retryAttachments: ChatAttachmentInputState[] = messageAttachments
-        .filter((att) => att.file)
-        .map((att) => {
-          const file = att.file as File;
-          const blob = file.slice(0, file.size, file.type);
-          const newFile = new File([blob], file.name, { type: file.type });
-          const isPdf = file.type === 'application/pdf';
+      const retryAttachments: ChatAttachmentInputState[] =
+        messageAttachments
+          .filter((att) => att.file)
+          .map((att) => {
+            const file = att.file as File;
+            const blob = file.slice(0, file.size, file.type);
+            const newFile = new File([blob], file.name, { type: file.type });
+            const isPdf = file.type === 'application/pdf';
 
-          return {
-            file: newFile,
-            previewUrl: att.url,
-            type: isPdf ? 'document' : 'image',
-          };
-        });
+            return {
+              file: newFile,
+              previewUrl: att.url,
+              type: isPdf ? 'document' : 'image',
+            };
+          });
 
       if (messageContent || retryAttachments.length > 0) {
-        executeSubmission(messageContent, retryAttachments, nextTryNumber, failedMessageId, true);
+        executeSubmission(
+          messageContent,
+          retryAttachments,
+          nextTryNumber,
+          failedMessageId,
+          true,
+        );
       }
     },
     [executeSubmission],
