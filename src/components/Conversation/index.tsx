@@ -151,9 +151,6 @@ export const Conversation: React.FC = () => {
 
   const [dynamicMaxHeight, setDynamicMaxHeight] = useState(200);
 
-  // NEW: spacer to force overflow on send, so previous message can be pushed out of view
-  const [focusSpacerPx, setFocusSpacerPx] = useState(0);
-
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputAreaRef = useRef<AttachmentInputAreaRef>(null);
   const lastOptimisticMessageIdRef = useRef<string | null>(null);
@@ -166,6 +163,15 @@ export const Conversation: React.FC = () => {
   const footerRef = useRef<HTMLElement>(null);
   const latestUserMessageRef = useRef<HTMLDivElement | null>(null);
   const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null);
+
+  // NEW: measures actual rendered content height
+  const messagesContentRef = useRef<HTMLDivElement | null>(null);
+
+  // NEW: top padding to bottom-anchor while still allowing scroll behavior
+  const [topPadPx, setTopPadPx] = useState(0);
+
+  // NEW: flag that triggers the ChatGPT-style focus jump after user sends
+  const pendingFocusJumpRef = useRef(false);
 
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
   const cleanupFunctions = useRef<Array<() => void>>([]);
@@ -238,7 +244,11 @@ export const Conversation: React.FC = () => {
             if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
             callSessions[msg.session_id].push(msg);
           } else {
-            displayItems.push({ type: 'message', message: msg, id: msg.message_id });
+            displayItems.push({
+              type: 'message',
+              message: msg,
+              id: msg.message_id,
+            });
           }
         });
 
@@ -316,24 +326,29 @@ export const Conversation: React.FC = () => {
     [],
   );
 
-  const getFocusSpacerHeight = useCallback(() => {
-    const el = mainScrollRef.current;
-    if (!el) return 0;
-    return Math.max(0, el.clientHeight - 1);
+  // NEW: make latest user bubble sit just above the composer, and push previous messages out of view
+  const alignLatestUserAboveComposer = useCallback(() => {
+    const scroller = mainScrollRef.current;
+    const msgEl = latestUserMessageRef.current;
+    if (!scroller || !msgEl) return;
+
+    const scRect = scroller.getBoundingClientRect();
+    const msgRect = msgEl.getBoundingClientRect();
+
+    const bottomGap = 12;
+    const desiredMsgTop = scRect.bottom - msgRect.height - bottomGap;
+
+    const delta = msgRect.top - desiredMsgTop;
+    scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
   }, []);
 
-  const scrollLatestUserMessageToTop = useCallback((smooth: boolean = false) => {
-    const el = latestUserMessageRef.current;
-    if (!el) return;
+  const syncTopPad = useCallback(() => {
+    const scroller = mainScrollRef.current;
+    const content = messagesContentRef.current;
+    if (!scroller || !content) return;
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        el.scrollIntoView({
-          behavior: smooth ? 'smooth' : 'auto',
-          block: 'start',
-        });
-      });
-    });
+    const needed = Math.max(0, scroller.clientHeight - content.scrollHeight + 1);
+    setTopPadPx((prev) => (prev === needed ? prev : needed));
   }, []);
 
   useEffect(() => {
@@ -413,7 +428,8 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
+      if (requestCache.current.has(cacheKey))
+        return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
       if (fetchState.abortController && !isInitial)
@@ -570,12 +586,9 @@ export const Conversation: React.FC = () => {
         !fetchState.isLoading &&
         !isInitialLoading
       ) {
-        scrollTimeoutRef.current = setTimeout(
-          () => {
-            loadChatHistory(fetchState.currentPage + 1, false);
-          },
-          FETCH_DEBOUNCE_MS,
-        );
+        scrollTimeoutRef.current = setTimeout(() => {
+          loadChatHistory(fetchState.currentPage + 1, false);
+        }, FETCH_DEBOUNCE_MS);
       }
     },
     [
@@ -595,7 +608,8 @@ export const Conversation: React.FC = () => {
   const handleResize = useCallback(() => {
     setDynamicMaxHeight(window.innerHeight / DYNAMIC_MAX_HEIGHT_RATIO);
     calculateMinHeight();
-  }, [calculateMinHeight]);
+    syncTopPad();
+  }, [calculateMinHeight, syncTopPad]);
 
   const debouncedHandleResize = useMemo(
     () => debounce(handleResize, RESIZE_DEBOUNCE_MS),
@@ -749,21 +763,42 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // UPDATED: when user sends, force overflow via spacer, then scroll latest user message to top
+  // Keep bottom-anchor correct when content is short
+  useLayoutEffect(() => {
+    syncTopPad();
+  }, [chatMessages, syncTopPad]);
+
+  // Mark that we need to do the ChatGPT-style jump after a user send
   useEffect(() => {
     if (justSentMessageRef.current) {
-      setFocusSpacerPx(getFocusSpacerHeight());
-      scrollLatestUserMessageToTop(false);
+      pendingFocusJumpRef.current = true;
       justSentMessageRef.current = false;
     }
-  }, [chatMessages, getFocusSpacerHeight, scrollLatestUserMessageToTop]);
+  }, [chatMessages]);
 
-  // NEW: after assistant finishes, remove spacer so layout returns to normal
-  useEffect(() => {
-    if (!isSending && !isAssistantTyping && focusSpacerPx > 0) {
-      setFocusSpacerPx(0);
+  // After DOM updates, jump so the latest user message sits just above the composer
+  useLayoutEffect(() => {
+    if (!pendingFocusJumpRef.current) return;
+
+    // Ensure topPad is up to date before aligning
+    const scroller = mainScrollRef.current;
+    const content = messagesContentRef.current;
+    if (!scroller || !content) {
+      pendingFocusJumpRef.current = false;
+      return;
     }
-  }, [isSending, isAssistantTyping, focusSpacerPx]);
+
+    const needed = Math.max(0, scroller.clientHeight - content.scrollHeight + 1);
+    if (needed !== topPadPx) {
+      setTopPadPx(needed);
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      alignLatestUserAboveComposer();
+      pendingFocusJumpRef.current = false;
+    });
+  }, [chatMessages, topPadPx, alignLatestUserAboveComposer]);
 
   useEffect(() => {
     handleResize();
@@ -830,7 +865,9 @@ export const Conversation: React.FC = () => {
           <button
             onClick={() => setShowUserProfile(true)}
             className={`flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
-              sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
+              sessionStatus === 'authenticated' && sessionData?.user?.image
+                ? ''
+                : 'p-2'
             }`}
           >
             <FiMenu size={20} className="text-primary" />
@@ -881,80 +918,78 @@ export const Conversation: React.FC = () => {
           )}
 
           {!isInitialLoading && chatMessages.length > 0 && (
-            <div className="flex flex-col space-y-0 w-full flex-1 justify-end">
-              {fetchState.isLoading && isUserNearTop && (
-                <div className="flex justify-center py-4 sticky top-0 z-10">
-                  <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
+            <div
+              className="flex flex-col space-y-0 w-full flex-1"
+              style={{ paddingTop: topPadPx }}
+            >
+              <div ref={messagesContentRef} className="w-full">
+                {fetchState.isLoading && isUserNearTop && (
+                  <div className="flex justify-center py-4 sticky top-0 z-10">
+                    <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {messagesByDate.map(([dateKey, messages]) => {
-                const dateHeader = formatWhatsAppStyle(dateKey);
+                {messagesByDate.map(([dateKey, messages]) => {
+                  const dateHeader = formatWhatsAppStyle(dateKey);
 
-                return (
-                  <div key={dateKey} className="date-group relative w_full">
-                    {dateHeader && (
-                      <div className="sticky pt-2 z-20 flex justify-center my-3 top-0">
-                        <div className="bg-background text-primary text-xs px-4 py-1.5 rounded-full shadow-sm border border-primary/10">
-                          {dateHeader}
+                  return (
+                    <div key={dateKey} className="date-group relative w_full">
+                      {dateHeader && (
+                        <div className="sticky pt-2 z-20 flex justify-center my-3 top-0">
+                          <div className="bg-background text-primary text-xs px-4 py-1.5 rounded-full shadow-sm border border-primary/10">
+                            {dateHeader}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    <div className="messages-container">
-                      {messages.map((item) => {
-                        if (item.type === 'call_session') {
-                          return (
-                            <MemoizedCallSessionItem
-                              key={item.id}
-                              messages={item.messages}
-                            />
-                          );
-                        }
-
-                        const msg = item.message;
-                        const isStreamingMessage =
-                          isSending &&
-                          msg.content_type === 'assistant' &&
-                          msg.message_id === lastMessage?.message_id &&
-                          msg.finish_reason == null;
-
-                        const isLastFailedMessage =
-                          msg.message_id === lastFailedMessageId;
-
-                        const storedThoughts = (msg as unknown as { thoughts?: string })
-                          .thoughts;
-                        const effectiveThoughtText =
-                          currentThoughtText || storedThoughts || undefined;
-
-                        const shouldShowTypingIndicator =
-                          msg.content_type === 'assistant' &&
-                          msg.message_id === lastMessage?.message_id &&
-                          isAssistantTyping &&
-                          (msg.content ?? '').length === 0;
-
-                        const isLatestUserMessage =
-                          msg.content_type === 'user' &&
-                          msg.message_id === lastOptimisticMessageIdRef.current;
-
-                        const isLatestAssistantMessage =
-                          msg.content_type === 'assistant' &&
-                          msg.message_id === getMostRecentAssistantMessageId();
-
-                        return (
-                          <React.Fragment key={msg.message_id}>
-                            {isLatestUserMessage && focusSpacerPx > 0 && (
-                              <div
-                                aria-hidden
-                                className="w-full"
-                                style={{ height: focusSpacerPx }}
+                      <div className="messages-container">
+                        {messages.map((item) => {
+                          if (item.type === 'call_session') {
+                            return (
+                              <MemoizedCallSessionItem
+                                key={item.id}
+                                messages={item.messages}
                               />
-                            )}
+                            );
+                          }
 
+                          const msg = item.message;
+
+                          const isStreamingMessage =
+                            isSending &&
+                            msg.content_type === 'assistant' &&
+                            msg.message_id === lastMessage?.message_id &&
+                            msg.finish_reason == null;
+
+                          const isLastFailedMessage =
+                            msg.message_id === lastFailedMessageId;
+
+                          const storedThoughts = (
+                            msg as unknown as { thoughts?: string }
+                          ).thoughts;
+                          const effectiveThoughtText =
+                            currentThoughtText || storedThoughts || undefined;
+
+                          const shouldShowTypingIndicator =
+                            msg.content_type === 'assistant' &&
+                            msg.message_id === lastMessage?.message_id &&
+                            isAssistantTyping &&
+                            (msg.content ?? '').length === 0;
+
+                          const isLatestUserMessage =
+                            msg.content_type === 'user' &&
+                            msg.message_id === lastOptimisticMessageIdRef.current;
+
+                          const isLatestAssistantMessage =
+                            msg.content_type === 'assistant' &&
+                            msg.message_id === getMostRecentAssistantMessageId();
+
+                          return (
                             <div
                               id={`message-${msg.message_id}`}
+                              key={msg.message_id}
                               ref={
                                 isLatestUserMessage
                                   ? latestUserMessageRef
@@ -962,7 +997,7 @@ export const Conversation: React.FC = () => {
                                   ? latestAssistantMessageRef
                                   : null
                               }
-                              className="message-item-wrapper w-full transform-gpu will-change-transform scroll-mt-24"
+                              className="message-item-wrapper w-full transform-gpu will-change-transform"
                             >
                               <MemoizedRenderedMessageItem
                                 message={msg}
@@ -975,13 +1010,13 @@ export const Conversation: React.FC = () => {
                                 dynamicMinHeight={dynamicMinHeight}
                               />
                             </div>
-                          </React.Fragment>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
 
               <div ref={spacerRef} className="h-0" />
             </div>
