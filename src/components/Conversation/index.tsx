@@ -235,7 +235,11 @@ export const Conversation: React.FC = () => {
             if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
             callSessions[msg.session_id].push(msg);
           } else {
-            displayItems.push({ type: 'message', message: msg, id: msg.message_id });
+            displayItems.push({
+              type: 'message',
+              message: msg,
+              id: msg.message_id,
+            });
           }
         });
 
@@ -307,6 +311,24 @@ export const Conversation: React.FC = () => {
         el.scrollTo({
           top: el.scrollHeight,
           behavior: smooth ? 'smooth' : 'auto',
+        });
+      });
+    },
+    [],
+  );
+
+  // NEW: after user sends, put the new user bubble at the top of the viewport
+  const scrollLatestUserMessageToTop = useCallback(
+    (smooth: boolean = false) => {
+      const el = latestUserMessageRef.current;
+      if (!el) return;
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          el.scrollIntoView({
+            behavior: smooth ? 'smooth' : 'auto',
+            block: 'start',
+          });
         });
       });
     },
@@ -390,7 +412,8 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
+      if (requestCache.current.has(cacheKey))
+        return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
       if (fetchState.abortController && !isInitial)
@@ -547,12 +570,9 @@ export const Conversation: React.FC = () => {
         !fetchState.isLoading &&
         !isInitialLoading
       ) {
-        scrollTimeoutRef.current = setTimeout(
-          () => {
-            loadChatHistory(fetchState.currentPage + 1, false);
-          },
-          FETCH_DEBOUNCE_MS,
-        );
+        scrollTimeoutRef.current = setTimeout(() => {
+          loadChatHistory(fetchState.currentPage + 1, false);
+        }, FETCH_DEBOUNCE_MS);
       }
     },
     [
@@ -726,12 +746,13 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
+  // UPDATED: after user sends, move the latest user message to the top (hide previous message)
   useEffect(() => {
     if (justSentMessageRef.current) {
-      scrollToBottom(true, true);
+      scrollLatestUserMessageToTop(false);
       justSentMessageRef.current = false;
     }
-  }, [chatMessages, scrollToBottom]);
+  }, [chatMessages, scrollLatestUserMessageToTop]);
 
   useEffect(() => {
     handleResize();
@@ -798,7 +819,9 @@ export const Conversation: React.FC = () => {
           <button
             onClick={() => setShowUserProfile(true)}
             className={`flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
-              sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
+              sessionStatus === 'authenticated' && sessionData?.user?.image
+                ? ''
+                : 'p-2'
             }`}
           >
             <FiMenu size={20} className="text-primary" />
@@ -820,13 +843,11 @@ export const Conversation: React.FC = () => {
         </div>
       </header>
 
-      {/* CHANGED: make main a flex column so inner content can bottom-anchor */}
       <main
         ref={mainScrollRef}
         className="overflow-y-auto w-full scroll-pt-2.5 flex flex-col"
         onScroll={handleScroll}
       >
-        {/* CHANGED: flex-1 + flex-col so message area can justify-end */}
         <div className="flex-1 px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto flex flex-col">
           {isInitialLoading && (
             <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
@@ -850,7 +871,6 @@ export const Conversation: React.FC = () => {
             <div className="flex-1" />
           )}
 
-          {/* CHANGED: flex-1 justify-end so messages sit at bottom when not overflowing */}
           {!isInitialLoading && chatMessages.length > 0 && (
             <div className="flex flex-col space-y-0 w-full flex-1 justify-end">
               {fetchState.isLoading && isUserNearTop && (
@@ -895,8 +915,9 @@ export const Conversation: React.FC = () => {
                         const isLastFailedMessage =
                           msg.message_id === lastFailedMessageId;
 
-                        const storedThoughts = (msg as unknown as { thoughts?: string })
-                          .thoughts;
+                        const storedThoughts = (
+                          msg as unknown as { thoughts?: string }
+                        ).thoughts;
                         const effectiveThoughtText =
                           currentThoughtText || storedThoughts || undefined;
 
@@ -924,19 +945,18 @@ export const Conversation: React.FC = () => {
                                 ? latestAssistantMessageRef
                                 : null
                             }
-                            className="message-item-wrapper w-full transform-gpu will-change-transform"
+                            className="message-item-wrapper w-full transform-gpu will-change-transform scroll-mt-24"
                           >
-                          <MemoizedRenderedMessageItem
-  message={msg}
-  isStreaming={isStreamingMessage}
-  onRetry={handleRetryMessage}
-  isLastFailedMessage={isLastFailedMessage}
-  showTypingIndicator={shouldShowTypingIndicator}
-  thoughtText={effectiveThoughtText}
-  hasMinHeight={false}
-  dynamicMinHeight={dynamicMinHeight}
-/>
-
+                            <MemoizedRenderedMessageItem
+                              message={msg}
+                              isStreaming={isStreamingMessage}
+                              onRetry={handleRetryMessage}
+                              isLastFailedMessage={isLastFailedMessage}
+                              showTypingIndicator={shouldShowTypingIndicator}
+                              thoughtText={effectiveThoughtText}
+                              hasMinHeight={false}
+                              dynamicMinHeight={dynamicMinHeight}
+                            />
                           </div>
                         );
                       })}
