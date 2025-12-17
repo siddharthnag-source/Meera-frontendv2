@@ -18,7 +18,7 @@ interface UseMessageSubmissionProps {
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessageFromServer[]>>;
   setIsAssistantTyping: (isTyping: boolean) => void;
   clearAllInput: () => void;
-  scrollToBottom: (smooth?: boolean, force?: boolean) => void;
+  scrollToBottom: (smooth?: boolean, force?: boolean) => void; // kept for compatibility
   onMessageSent?: () => void;
 }
 
@@ -81,9 +81,13 @@ export const useMessageSubmission = ({
   setChatMessages,
   setIsAssistantTyping,
   clearAllInput,
-  scrollToBottom, // kept for compatibility, but we do not call it here
+  scrollToBottom,
   onMessageSent,
 }: UseMessageSubmissionProps) => {
+  // We intentionally do not scroll from inside this hook.
+  // This line satisfies eslint no-unused-vars without changing behavior.
+  void scrollToBottom;
+
   const { showToast } = useToast();
 
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
@@ -184,7 +188,6 @@ export const useMessageSubmission = ({
         }
       }
 
-      // Attach storagePath/publicUrl back onto attachments for optimistic UI
       const attachmentsWithStorage: ChatAttachmentInputState[] = attachments.map(
         (att, index) => {
           const meta = uploaded[index];
@@ -241,7 +244,7 @@ export const useMessageSubmission = ({
       lastOptimisticMessageIdRef.current = optimisticId;
       setIsAssistantTyping(true);
 
-      // STEP 3: build payload (plain prompt + list of public URLs if any)
+      // STEP 3: build payload
       let payloadMessage = trimmedMessage;
 
       if (uploaded.length > 0) {
@@ -300,7 +303,6 @@ export const useMessageSubmission = ({
               );
             }
 
-            // Pull fresh messages so assistant row includes attachments (generated images)
             await refreshLatestMessagesFromServer();
           },
           onError: (err) => {
@@ -375,7 +377,12 @@ export const useMessageSubmission = ({
         });
 
       if (messageContent || retryAttachments.length > 0) {
-        executeSubmission(messageContent, retryAttachments, nextTryNumber, failedMessageId);
+        executeSubmission(
+          messageContent,
+          retryAttachments,
+          nextTryNumber,
+          failedMessageId,
+        );
       }
     },
     [executeSubmission],
