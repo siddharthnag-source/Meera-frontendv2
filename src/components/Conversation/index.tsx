@@ -1,3 +1,4 @@
+// src/components/Conversation/index.tsx
 'use client';
 
 import { chatService } from '@/app/api/services/chat';
@@ -157,7 +158,6 @@ export const Conversation: React.FC = () => {
   const lastOptimisticMessageIdRef = useRef<string | null>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
-  const justSentMessageRef = useRef(false);
   const spacerRef = useRef<HTMLDivElement>(null);
 
   const headerRef = useRef<HTMLElement>(null);
@@ -671,9 +671,6 @@ export const Conversation: React.FC = () => {
     isSearchActive,
     isSending,
     setIsSending,
-    setJustSentMessage: () => {
-      justSentMessageRef.current = true;
-    },
     setCurrentThoughtText,
     lastOptimisticMessageIdRef,
     setChatMessages,
@@ -727,18 +724,10 @@ export const Conversation: React.FC = () => {
     if (!initialLoadDone.current) {
       loadChatHistory(1, true);
       getSystemInfo();
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: true });
       initialLoadDone.current = true;
     }
   }, [loadChatHistory]);
-
-  // ONLY scroll on send. No scrollIntoView shifting.
-  useEffect(() => {
-    if (justSentMessageRef.current) {
-      scrollToBottom(true, true);
-      justSentMessageRef.current = false;
-    }
-  }, [chatMessages, scrollToBottom]);
 
   useEffect(() => {
     handleResize();
@@ -831,6 +820,7 @@ export const Conversation: React.FC = () => {
       <main
         ref={mainScrollRef}
         className="overflow-y-auto w-full scroll-pt-2.5"
+        style={{ overflowAnchor: 'none' } as React.CSSProperties}
         onScroll={handleScroll}
       >
         <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
@@ -852,7 +842,6 @@ export const Conversation: React.FC = () => {
             </div>
           )}
 
-          {/* For an empty, non-error initial state, render nothing in the middle */}
           {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
             <div className="h-[calc(100vh-10rem)]" />
           )}
