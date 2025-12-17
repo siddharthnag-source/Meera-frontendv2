@@ -252,10 +252,7 @@ export const RenderedMessageItem: React.FC<{
       !message.isGeneratingImage &&
       (showTypingIndicator || (phase === 'thoughts' && !!thoughtText));
 
-    // IMPORTANT: minHeight should ONLY apply when the assistant bubble has no real content yet.
-    // This prevents the huge blank “gap” after the assistant response arrives.
     const onlyThinking = showThinkingRow && !hasMainContent;
-    const shouldApplyMinHeight = !!hasMinHeight && !isUser && onlyThinking;
 
     const bubbleBase =
       `px-4 py-4 shadow-sm relative ${bgColor} ${textColor} ` +
@@ -271,7 +268,7 @@ export const RenderedMessageItem: React.FC<{
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-3 group`}>
         <div
-          style={shouldApplyMinHeight ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
+          style={hasMinHeight && !isUser ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
           className={`flex flex-col md:pr-1 ${
             hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'
           }`}
