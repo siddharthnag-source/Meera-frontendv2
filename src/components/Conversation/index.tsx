@@ -164,13 +164,13 @@ export const Conversation: React.FC = () => {
   const latestUserMessageRef = useRef<HTMLDivElement | null>(null);
   const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null);
 
-  // NEW: content wrapper to measure total content height accurately
+  // Content wrapper for accurate measurements
   const messagesContentRef = useRef<HTMLDivElement | null>(null);
 
-  // NEW: top padding to allow scrolling even when content < viewport
+  // Top padding so scroll works even when content < viewport
   const [topPadPx, setTopPadPx] = useState(0);
 
-  // NEW: focus jump flag (ChatGPT behavior)
+  // Jump flag
   const pendingFocusJumpRef = useRef(false);
 
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
@@ -215,7 +215,6 @@ export const Conversation: React.FC = () => {
     return null;
   }, [chatMessages]);
 
-  // NEW: always compute true last user and assistant message ids
   const lastUserMessageId = useMemo(() => {
     for (let i = chatMessages.length - 1; i >= 0; i--) {
       const m = chatMessages[i];
@@ -355,31 +354,72 @@ export const Conversation: React.FC = () => {
     setTopPadPx((prev) => (prev === needed ? prev : needed));
   }, [computeNeededTopPad]);
 
-  // NEW: ChatGPT-style behavior
-  // - after user sends, jump so latest user message is near the top of the viewport
-  // - this pushes previous message out of view immediately
-  const focusLatestUserToTop = useCallback((): boolean => {
-    const scroller = mainScrollRef.current;
-    const content = messagesContentRef.current;
-    const msgEl = latestUserMessageRef.current;
-    if (!scroller || !content || !msgEl) return false;
+  // Hard "turn jump": on send, push previous content out of view by pinning the new user bubble near top.
+  const scrollMessageToTop = useCallback(
+    (messageId?: string | null) => {
+      const scroller = mainScrollRef.current;
+      const content = messagesContentRef.current;
+      if (!scroller || !content) return false;
 
-    const neededPad = Math.max(0, scroller.clientHeight - content.scrollHeight + 1);
-    if (neededPad !== topPadPx) {
-      setTopPadPx(neededPad);
-      return false; // wait for next layout pass
-    }
+      const id =
+        messageId ??
+        lastOptimisticMessageIdRef.current ??
+        lastUserMessageId ??
+        null;
 
-    const scRect = scroller.getBoundingClientRect();
-    const msgRect = msgEl.getBoundingClientRect();
-    const marginTop = 12;
+      const el =
+        id ? (document.getElementById(`message-${id}`) as HTMLElement | null) : null;
 
-    const targetTop =
-      scroller.scrollTop + (msgRect.top - scRect.top) - marginTop;
+      const targetEl =
+        el ?? (latestUserMessageRef.current as unknown as HTMLElement | null);
 
-    scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'auto' });
-    return true;
-  }, [topPadPx]);
+      if (!targetEl) return false;
+
+      const neededPad = Math.max(0, scroller.clientHeight - content.scrollHeight + 1);
+      if (neededPad !== topPadPx) {
+        setTopPadPx(neededPad);
+        return false;
+      }
+
+      const scRect = scroller.getBoundingClientRect();
+      const msgRect = targetEl.getBoundingClientRect();
+      const marginTop = 12;
+
+      const targetTop =
+        scroller.scrollTop + (msgRect.top - scRect.top) - marginTop;
+
+      scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'auto' });
+      return true;
+    },
+    [topPadPx, lastUserMessageId],
+  );
+
+  const runTurnJump = useCallback(() => {
+    pendingFocusJumpRef.current = true;
+
+    let tries = 0;
+    const maxTries = 24;
+
+    const tick = () => {
+      if (!pendingFocusJumpRef.current) return;
+
+      const ok = scrollMessageToTop(lastOptimisticMessageIdRef.current);
+      if (ok) {
+        pendingFocusJumpRef.current = false;
+        return;
+      }
+
+      tries += 1;
+      if (tries >= maxTries) {
+        pendingFocusJumpRef.current = false;
+        return;
+      }
+
+      requestAnimationFrame(tick);
+    };
+
+    requestAnimationFrame(tick);
+  }, [scrollMessageToTop]);
 
   useEffect(() => {
     const email = sessionData?.user?.email;
@@ -670,7 +710,8 @@ export const Conversation: React.FC = () => {
         const selectionEnd = textarea.selectionEnd;
         const currentScrollTop = textarea.scrollTop;
         const isScrolledToBottom =
-          textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
+          textarea.scrollTop + textarea.clientHeight >=
+          textarea.scrollHeight - 1;
         const isCursorAtEnd = cursorPosition === textarea.value.length;
 
         const shouldAutoScroll =
@@ -711,9 +752,7 @@ export const Conversation: React.FC = () => {
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
         setTimeout(
-          () =>
-            inputRef.current &&
-            handleTextareaResize(inputRef.current, false),
+          () => inputRef.current && handleTextareaResize(inputRef.current, false),
           10,
         );
       }
@@ -734,6 +773,7 @@ export const Conversation: React.FC = () => {
     setIsSending,
     setJustSentMessage: () => {
       justSentMessageRef.current = true;
+      runTurnJump();
     },
     setCurrentThoughtText,
     lastOptimisticMessageIdRef,
@@ -793,28 +833,10 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // Keep padding correct when content changes
+  // Keep top padding correct as content changes
   useLayoutEffect(() => {
     syncTopPad();
   }, [chatMessages, syncTopPad]);
-
-  // Trigger focus jump after a send
-  useEffect(() => {
-    if (justSentMessageRef.current) {
-      pendingFocusJumpRef.current = true;
-      justSentMessageRef.current = false;
-    }
-  }, [chatMessages]);
-
-  // Execute focus jump after DOM paints
-  useLayoutEffect(() => {
-    if (!pendingFocusJumpRef.current) return;
-
-    requestAnimationFrame(() => {
-      const done = focusLatestUserToTop();
-      if (done) pendingFocusJumpRef.current = false;
-    });
-  }, [chatMessages, topPadPx, focusLatestUserToTop]);
 
   useEffect(() => {
     handleResize();
@@ -858,9 +880,11 @@ export const Conversation: React.FC = () => {
     (e: React.FormEvent) => {
       e.preventDefault();
       if (!canSubmit) return;
+
       executeSubmission(message, currentAttachments);
+      runTurnJump();
     },
-    [executeSubmission, message, currentAttachments, canSubmit],
+    [executeSubmission, message, currentAttachments, canSubmit, runTurnJump],
   );
 
   return (
@@ -985,6 +1009,7 @@ export const Conversation: React.FC = () => {
                           const storedThoughts = (
                             msg as unknown as { thoughts?: string }
                           ).thoughts;
+
                           const effectiveThoughtText =
                             currentThoughtText || storedThoughts || undefined;
 
