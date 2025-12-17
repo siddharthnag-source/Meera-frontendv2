@@ -1,4 +1,3 @@
-// src/components/Conversation/index.tsx
 'use client';
 
 import { chatService } from '@/app/api/services/chat';
@@ -120,7 +119,6 @@ const MemoizedAttachmentPreview = React.memo(
 );
 
 export const Conversation: React.FC = () => {
-  // text state: inputValue (what user types) + message (debounced version used for sending)
   const [message, setMessage] = useState('');
   const [inputValue, setInputValue] = useState('');
 
@@ -153,11 +151,16 @@ export const Conversation: React.FC = () => {
 
   const [dynamicMaxHeight, setDynamicMaxHeight] = useState(200);
 
+  // Sticky date bubble (show only while user is scrolling)
+  const [showDateSticky, setShowDateSticky] = useState(false);
+  const hideDateStickyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputAreaRef = useRef<AttachmentInputAreaRef>(null);
   const lastOptimisticMessageIdRef = useRef<string | null>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
+  const justSentMessageRef = useRef(false);
   const spacerRef = useRef<HTMLDivElement>(null);
 
   const headerRef = useRef<HTMLElement>(null);
@@ -190,7 +193,6 @@ export const Conversation: React.FC = () => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
-  // keep message in sync with inputValue with a tiny debounce
   const debouncedSetMessage = useMemo(
     () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
     [],
@@ -299,7 +301,6 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
-  // Auto-scroll only when forced (send and initial loads)
   const scrollToBottom = useCallback(
     (smooth: boolean = true, force: boolean = false) => {
       const el = mainScrollRef.current;
@@ -316,7 +317,6 @@ export const Conversation: React.FC = () => {
     [],
   );
 
-  // Legacy user id by email
   useEffect(() => {
     const email = sessionData?.user?.email;
     if (!email) return;
@@ -339,7 +339,6 @@ export const Conversation: React.FC = () => {
     findLegacyUser();
   }, [sessionData?.user?.email]);
 
-  // Load legacy messages
   useEffect(() => {
     if (!legacyUserId || hasLoadedLegacyHistory) return;
 
@@ -454,7 +453,6 @@ export const Conversation: React.FC = () => {
               abortController: null,
             }));
           } else {
-            // Empty history is a valid state, not an error
             setFetchState((prev) => ({
               ...prev,
               isLoading: false,
@@ -525,6 +523,15 @@ export const Conversation: React.FC = () => {
     (e: React.UIEvent<HTMLDivElement>) => {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
 
+      // Show date bubble while scrolling, hide shortly after
+      if (!showDateSticky) setShowDateSticky(true);
+      if (hideDateStickyTimeoutRef.current) {
+        clearTimeout(hideDateStickyTimeoutRef.current);
+      }
+      hideDateStickyTimeoutRef.current = setTimeout(() => {
+        setShowDateSticky(false);
+      }, 900);
+
       const currentScrollTop = scrollTop;
       isScrollingUp.current = currentScrollTop < lastScrollTop.current;
       lastScrollTop.current = currentScrollTop;
@@ -553,12 +560,9 @@ export const Conversation: React.FC = () => {
         !fetchState.isLoading &&
         !isInitialLoading
       ) {
-        scrollTimeoutRef.current = setTimeout(
-          () => {
-            loadChatHistory(fetchState.currentPage + 1, false);
-          },
-          FETCH_DEBOUNCE_MS,
-        );
+        scrollTimeoutRef.current = setTimeout(() => {
+          loadChatHistory(fetchState.currentPage + 1, false);
+        }, FETCH_DEBOUNCE_MS);
       }
     },
     [
@@ -567,6 +571,7 @@ export const Conversation: React.FC = () => {
       fetchState.currentPage,
       isInitialLoading,
       loadChatHistory,
+      showDateSticky,
     ],
   );
 
@@ -650,9 +655,7 @@ export const Conversation: React.FC = () => {
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
         setTimeout(
-          () =>
-            inputRef.current &&
-            handleTextareaResize(inputRef.current, false),
+          () => inputRef.current && handleTextareaResize(inputRef.current, false),
           10,
         );
       }
@@ -729,6 +732,14 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
+  // Only scroll on user send
+  useEffect(() => {
+    if (justSentMessageRef.current) {
+      scrollToBottom(true, true);
+      justSentMessageRef.current = false;
+    }
+  }, [chatMessages, scrollToBottom]);
+
   useEffect(() => {
     handleResize();
     window.addEventListener('resize', debouncedHandleResize);
@@ -752,6 +763,8 @@ export const Conversation: React.FC = () => {
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
+      if (hideDateStickyTimeoutRef.current)
+        clearTimeout(hideDateStickyTimeoutRef.current);
 
       cleanupFunctions.current.forEach((cleanup) => cleanup());
       cleanupFunctions.current = [];
@@ -767,11 +780,11 @@ export const Conversation: React.FC = () => {
     scrollToBottom(true, true);
   }, [scrollToBottom]);
 
-  // single place that actually triggers sending
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
       if (!canSubmit) return;
+      justSentMessageRef.current = true;
       executeSubmission(message, currentAttachments);
     },
     [executeSubmission, message, currentAttachments, canSubmit],
@@ -795,7 +808,9 @@ export const Conversation: React.FC = () => {
           <button
             onClick={() => setShowUserProfile(true)}
             className={`flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
-              sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
+              sessionStatus === 'authenticated' && sessionData?.user?.image
+                ? ''
+                : 'p-2'
             }`}
           >
             <FiMenu size={20} className="text-primary" />
@@ -820,7 +835,6 @@ export const Conversation: React.FC = () => {
       <main
         ref={mainScrollRef}
         className="overflow-y-auto w-full scroll-pt-2.5"
-        style={{ overflowAnchor: 'none' } as React.CSSProperties}
         onScroll={handleScroll}
       >
         <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
@@ -861,8 +875,8 @@ export const Conversation: React.FC = () => {
 
                 return (
                   <div key={dateKey} className="date-group relative w_full">
-                    {dateHeader && (
-                      <div className="sticky pt-2 z-20 flex justify-center my-3 top-0">
+                    {dateHeader && showDateSticky && (
+                      <div className="sticky pt-2 z-20 flex justify-center my-3 top-0 pointer-events-none">
                         <div className="bg-background text-primary text-xs px-4 py-1.5 rounded-full shadow-sm border border-primary/10">
                           {dateHeader}
                         </div>
@@ -904,6 +918,7 @@ export const Conversation: React.FC = () => {
                         const isLatestUserMessage =
                           msg.content_type === 'user' &&
                           msg.message_id === lastOptimisticMessageIdRef.current;
+
                         const isLatestAssistantMessage =
                           msg.content_type === 'assistant' &&
                           msg.message_id === getMostRecentAssistantMessageId();
@@ -955,8 +970,7 @@ export const Conversation: React.FC = () => {
               !isSubscriptionError &&
               subscriptionData?.plan_type === 'paid' &&
               !(
-                new Date(subscriptionData?.subscription_end_date || 0) >=
-                new Date()
+                new Date(subscriptionData?.subscription_end_date || 0) >= new Date()
               ) && (
                 <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
                   <span className="text-sm">
@@ -987,9 +1001,7 @@ export const Conversation: React.FC = () => {
                   </span>
                   <span
                     className="text-primary font-medium cursor-pointer underline"
-                    onClick={() =>
-                      openModal('5000_tokens_left_toast_clicked', true)
-                    }
+                    onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
                   >
                     Add more
                   </span>
