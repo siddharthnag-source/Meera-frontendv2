@@ -23,7 +23,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { FiArrowUp, FiGlobe, FiMenu } from 'react-icons/fi';
+import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
 import {
@@ -1130,7 +1130,23 @@ export const Conversation: React.FC = () => {
                     maxAttachments={MAX_ATTACHMENTS_CONFIG}
                     existingAttachments={currentAttachments}
                   >
-                    <span />
+                    <button
+                      type="button"
+                      aria-label="Attach files"
+                      title="Attach files"
+                      disabled={
+                        isSending ||
+                        currentAttachments.length >= MAX_ATTACHMENTS_CONFIG
+                      }
+                      className={`rounded-full flex items-center justify-center focus:outline-none transition-all duration-150 ease-in-out min-w-[38px] min-h-[38px] border border-primary/20 transform-gpu will-change-transform ${
+                        isSending ||
+                        currentAttachments.length >= MAX_ATTACHMENTS_CONFIG
+                          ? 'bg-primary/5 text-primary/40 cursor-not-allowed'
+                          : 'bg-transparent text-primary hover:bg-primary/10 hover:scale-105 cursor-pointer'
+                      }`}
+                    >
+                      <FiPaperclip size={18} />
+                    </button>
                   </AttachmentInputArea>
 
                   <button
