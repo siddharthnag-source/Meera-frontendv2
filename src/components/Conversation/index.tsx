@@ -264,7 +264,7 @@ export const Conversation: React.FC = () => {
           const timestampA =
             a.type === 'message' ? a.message.timestamp : a.timestamp;
           const timestampB =
-            b.type === 'message' ? b.message.timestamp : b.timestamp;
+            a.type === 'message' ? b.message.timestamp : b.timestamp;
           return timestampA.localeCompare(timestampB);
         });
       };
@@ -687,6 +687,7 @@ export const Conversation: React.FC = () => {
     message,
     currentAttachments,
     chatMessages,
+    isSearchActive,
     isSending,
     setIsSending,
     setCurrentThoughtText,
