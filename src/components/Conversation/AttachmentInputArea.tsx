@@ -8,7 +8,6 @@ export interface AttachmentInputAreaRef {
   clear: () => void;
   removeAttachment: (index: number) => void;
   processPastedFiles: (files: File[]) => void;
-  openPicker: () => void;
 }
 
 interface Props {
@@ -17,39 +16,39 @@ interface Props {
   maxAttachments: number;
   messageValue: string;
   resetInputHeightState: () => void;
+  children?: React.ReactNode;
 }
 
 const MAX_FILE_SIZE_MB = 25;
 
 export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
   (props, ref) => {
-    const { onAttachmentsChange, existingAttachments, maxAttachments } = props;
+    const { onAttachmentsChange, existingAttachments, maxAttachments, children } =
+      props;
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const uploadToSupabase = async (file: File) => {
       try {
-        const ext = file.name.includes('.') ? file.name.split('.').pop() || '' : '';
-        const randomSuffix = Math.random().toString(36).slice(2);
-        const path = `attachments/${Date.now()}-${randomSuffix}${ext ? '.' + ext : ''}`;
+        const ext = file.name.split('.').pop() || 'bin';
+        const path = `attachments/${Date.now()}-${Math.random()
+          .toString(36)
+          .substring(2)}.${ext}`;
 
         const { error: uploadError } = await supabase.storage
           .from('attachments')
           .upload(path, file, { upsert: false });
 
         if (uploadError) {
-          console.error('Supabase upload error', uploadError);
+          console.error(uploadError);
           return null;
         }
 
         const { data } = supabase.storage.from('attachments').getPublicUrl(path);
-        const publicUrl = data?.publicUrl || '';
-
-        if (!publicUrl) return null;
 
         return {
           storagePath: path,
-          publicUrl,
+          publicUrl: data.publicUrl,
         };
       } catch (err) {
         console.error('Upload failed:', err);
@@ -58,14 +57,18 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
     };
 
     const processFiles = async (files: FileList | File[]) => {
-      const incoming = Array.isArray(files) ? files : Array.from(files);
+      const fileArray: File[] = Array.isArray(files) ? files : Array.from(files);
       const processed: ChatAttachmentInputState[] = [];
 
-      for (const file of incoming) {
-        if (processed.length + existingAttachments.length >= maxAttachments) continue;
+      for (const file of fileArray) {
+        if (processed.length + existingAttachments.length >= maxAttachments) {
+          continue;
+        }
 
         const sizeMb = file.size / (1024 * 1024);
-        if (sizeMb > MAX_FILE_SIZE_MB) continue;
+        if (sizeMb > MAX_FILE_SIZE_MB) {
+          continue;
+        }
 
         const isImage = file.type.startsWith('image/');
         const type: 'image' | 'document' = isImage ? 'image' : 'document';
@@ -93,9 +96,6 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
 
     useImperativeHandle(ref, () => ({
       clear: () => {
-        for (const att of existingAttachments) {
-          if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
-        }
         onAttachmentsChange([]);
       },
 
@@ -113,10 +113,6 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
       processPastedFiles: async (files: File[]) => {
         await processFiles(files);
       },
-
-      openPicker: () => {
-        openFilePicker();
-      },
     }));
 
     return (
@@ -126,32 +122,20 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
           type="file"
           className="hidden"
           multiple
-          accept="image/*,application/pdf,.pdf"
+          accept="image/*,.pdf"
           onChange={(e) => {
             const files = e.target.files;
             if (files && files.length > 0) processFiles(files);
-            // reset so selecting the same file again triggers onChange
-            e.currentTarget.value = '';
           }}
         />
 
-        {/* This button is the one you place beside Send in the keyboard row */}
         <button
           type="button"
           onClick={openFilePicker}
-          aria-label="Attach files"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-primary/10 text-primary transition-all"
+          className="p-2 rounded-full hover:bg-primary/10 text-primary transition-all"
+          title="Attach files"
         >
-          {/* Parent should pass an icon as children, e.g. <Paperclip /> */}
-          <span className="flex items-center justify-center">{/* @ts-ignore */}</span>
-          {/*
-            Keep children rendering simple and reliable:
-            Conversation can call:
-              <AttachmentInputArea ...>
-                <Paperclip className="h-5 w-5" />
-              </AttachmentInputArea>
-          */}
-          {/* eslint-disable-next-line react/no-children-prop */}
+          {children}
         </button>
       </div>
     );
