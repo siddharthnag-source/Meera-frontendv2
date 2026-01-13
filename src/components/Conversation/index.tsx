@@ -130,7 +130,7 @@ export const Conversation: React.FC = () => {
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [isAttachmentUploading, setIsAttachmentUploading] = useState(false);
+const [isAttachmentUploading, setIsAttachmentUploading] = useState(false);
 
 
   const [showUserProfile, setShowUserProfile] = useState(false);
@@ -144,8 +144,6 @@ export const Conversation: React.FC = () => {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isUserNearTop, setIsUserNearTop] = useState(false);
 
-  // NEW: gate send while uploads in progress
-  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
 
   const [fetchState, setFetchState] = useState<FetchState>({
     isLoading: false,
@@ -307,13 +305,14 @@ export const Conversation: React.FC = () => {
     chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
   // UPDATED: disable submit while uploading
- const canSubmit = useMemo(
+const canSubmit = useMemo(
   () =>
     (message.trim() || currentAttachments.length > 0) &&
     !isSending &&
     !isAttachmentUploading,
   [message, currentAttachments.length, isSending, isAttachmentUploading],
 );
+
 
 
   const scrollToBottom = useCallback(
@@ -797,7 +796,6 @@ export const Conversation: React.FC = () => {
       );
     };
     // Intentionally keep deps minimal; we snapshot refs above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchState.abortController, currentAttachments]);
 
   const handleScrollToBottomClick = useCallback(() => {
@@ -1115,7 +1113,7 @@ export const Conversation: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1">
-                <AttachmentInputArea
+           <AttachmentInputArea
   ref={attachmentInputAreaRef}
   onAttachmentsChange={setCurrentAttachments}
   onUploadingChange={setIsAttachmentUploading}
@@ -1126,6 +1124,7 @@ export const Conversation: React.FC = () => {
 >
   <FiPaperclip size={18} />
 </AttachmentInputArea>
+
 
 
                   <button
