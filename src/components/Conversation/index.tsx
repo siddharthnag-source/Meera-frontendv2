@@ -141,7 +141,7 @@ export const Conversation: React.FC = () => {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isUserNearTop, setIsUserNearTop] = useState(false);
 
-  // NEW: parent-level upload gate, disables Send + Enter until upload completes
+  // Critical: gate Send until attachments are fully uploaded
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
 
   const [fetchState, setFetchState] = useState<FetchState>({
@@ -299,12 +299,18 @@ export const Conversation: React.FC = () => {
   const lastMessage =
     chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
+  const hasPendingUploads = useMemo(() => {
+    if (isUploadingAttachments) return true;
+    return currentAttachments.some((att) => {
+      const storagePath = (att as unknown as { storagePath?: string }).storagePath || '';
+      const publicUrl = (att as unknown as { publicUrl?: string }).publicUrl || '';
+      return !publicUrl || !storagePath || storagePath.startsWith('__uploading__');
+    });
+  }, [currentAttachments, isUploadingAttachments]);
+
   const canSubmit = useMemo(
-    () =>
-      (message.trim() || currentAttachments.length > 0) &&
-      !isSending &&
-      !isUploadingAttachments,
-    [message, currentAttachments.length, isSending, isUploadingAttachments],
+    () => (message.trim() || currentAttachments.length > 0) && !isSending && !hasPendingUploads,
+    [message, currentAttachments.length, isSending, hasPendingUploads],
   );
 
   const scrollToBottom = useCallback(
@@ -403,8 +409,7 @@ export const Conversation: React.FC = () => {
       if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
-      if (fetchState.abortController && !isInitial)
-        fetchState.abortController.abort();
+      if (fetchState.abortController && !isInitial) fetchState.abortController.abort();
       const abortController = new AbortController();
 
       const loadPromise = (async () => {
@@ -439,14 +444,11 @@ export const Conversation: React.FC = () => {
               });
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
-              if (scrollContainer)
-                previousScrollHeight.current = scrollContainer.scrollHeight;
+              if (scrollContainer) previousScrollHeight.current = scrollContainer.scrollHeight;
 
               setChatMessages((prev) => {
                 const existingIds = new Set(prev.map((m) => m.message_id));
-                const newMessages = messages.filter(
-                  (m) => !existingIds.has(m.message_id),
-                );
+                const newMessages = messages.filter((m) => !existingIds.has(m.message_id));
                 return [...newMessages, ...prev];
               });
             }
@@ -481,10 +483,7 @@ export const Conversation: React.FC = () => {
               (error as { code?: string }).code === 'NETWORK_ERROR') ||
               !navigator.onLine)
           ) {
-            setTimeout(
-              () => loadChatHistory(page, isInitial, retryCount + 1),
-              1000 * (retryCount + 1),
-            );
+            setTimeout(() => loadChatHistory(page, isInitial, retryCount + 1), 1000 * (retryCount + 1));
             return;
           }
 
@@ -530,9 +529,8 @@ export const Conversation: React.FC = () => {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
 
       if (!showDateSticky) setShowDateSticky(true);
-      if (hideDateStickyTimeoutRef.current) {
-        clearTimeout(hideDateStickyTimeoutRef.current);
-      }
+      if (hideDateStickyTimeoutRef.current) clearTimeout(hideDateStickyTimeoutRef.current);
+
       hideDateStickyTimeoutRef.current = setTimeout(() => {
         setShowDateSticky(false);
       }, 900);
@@ -636,8 +634,7 @@ export const Conversation: React.FC = () => {
             : currentScrollTop;
         }
 
-        if (shouldPreserveCursor)
-          textarea.setSelectionRange(cursorPosition, selectionEnd);
+        if (shouldPreserveCursor) textarea.setSelectionRange(cursorPosition, selectionEnd);
       });
     },
     [currentAttachments.length, dynamicMaxHeight],
@@ -659,10 +656,7 @@ export const Conversation: React.FC = () => {
         e.preventDefault();
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
-        setTimeout(
-          () => inputRef.current && handleTextareaResize(inputRef.current, false),
-          10,
-        );
+        setTimeout(() => inputRef.current && handleTextareaResize(inputRef.current, false), 10);
       }
     },
     [handleTextareaResize],
@@ -716,8 +710,7 @@ export const Conversation: React.FC = () => {
       mainScrollRef.current
     ) {
       const scrollContainer = mainScrollRef.current;
-      const heightDifference =
-        scrollContainer.scrollHeight - previousScrollHeight.current;
+      const heightDifference = scrollContainer.scrollHeight - previousScrollHeight.current;
 
       if (heightDifference > 0) {
         requestAnimationFrame(() => {
@@ -747,8 +740,7 @@ export const Conversation: React.FC = () => {
   useEffect(() => {
     handleResize();
     window.addEventListener('resize', debouncedHandleResize);
-    const cleanup = () =>
-      window.removeEventListener('resize', debouncedHandleResize);
+    const cleanup = () => window.removeEventListener('resize', debouncedHandleResize);
     cleanupFunctions.current.push(cleanup);
     return cleanup;
   }, [handleResize, debouncedHandleResize]);
@@ -767,8 +759,7 @@ export const Conversation: React.FC = () => {
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
-      if (hideDateStickyTimeoutRef.current)
-        clearTimeout(hideDateStickyTimeoutRef.current);
+      if (hideDateStickyTimeoutRef.current) clearTimeout(hideDateStickyTimeoutRef.current);
 
       cleanupFunctions.current.forEach((cleanup) => cleanup());
       cleanupFunctions.current = [];
@@ -905,13 +896,10 @@ export const Conversation: React.FC = () => {
                           msg.message_id === lastMessage?.message_id &&
                           msg.finish_reason == null;
 
-                        const isLastFailedMessage =
-                          msg.message_id === lastFailedMessageId;
+                        const isLastFailedMessage = msg.message_id === lastFailedMessageId;
 
-                        const storedThoughts = (msg as unknown as { thoughts?: string })
-                          .thoughts;
-                        const effectiveThoughtText =
-                          currentThoughtText || storedThoughts || undefined;
+                        const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
+                        const effectiveThoughtText = currentThoughtText || storedThoughts || undefined;
 
                         const shouldShowTypingIndicator =
                           msg.content_type === 'assistant' &&
@@ -980,10 +968,7 @@ export const Conversation: React.FC = () => {
                     <span
                       className="text-primary font-medium cursor-pointer underline"
                       onClick={() =>
-                        openModal(
-                          'subscription_has_ended_renew_here_toast_clicked',
-                          true,
-                        )
+                        openModal('subscription_has_ended_renew_here_toast_clicked', true)
                       }
                     >
                       Renew here
@@ -1062,14 +1047,11 @@ export const Conversation: React.FC = () => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     if (!canSubmit) return;
-
                     const form = e.currentTarget.form;
                     if (form && typeof form.requestSubmit === 'function') {
                       form.requestSubmit();
                     } else {
-                      handleFormSubmit(
-                        e as unknown as React.FormEvent<HTMLFormElement>,
-                      );
+                      handleFormSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
                     }
                   }
                 }}
@@ -1097,11 +1079,11 @@ export const Conversation: React.FC = () => {
                   <AttachmentInputArea
                     ref={attachmentInputAreaRef}
                     onAttachmentsChange={setCurrentAttachments}
-                    onUploadStateChange={setIsUploadingAttachments}
                     messageValue={message}
                     resetInputHeightState={() => {}}
                     maxAttachments={MAX_ATTACHMENTS_CONFIG}
                     existingAttachments={currentAttachments}
+                    onUploadStateChange={setIsUploadingAttachments}
                   >
                     <FiPaperclip size={18} />
                   </AttachmentInputArea>
@@ -1114,9 +1096,7 @@ export const Conversation: React.FC = () => {
                         : 'bg-primary/20 text-primary/50 cursor-not-allowed'
                     }`}
                     disabled={!canSubmit}
-                    title={
-                      isUploadingAttachments ? 'Uploading attachment…' : 'Send message'
-                    }
+                    title={hasPendingUploads ? 'Uploading attachment…' : 'Send message'}
                   >
                     <FiArrowUp size={20} />
                   </button>
@@ -1127,10 +1107,7 @@ export const Conversation: React.FC = () => {
         </div>
       </footer>
 
-      <UserProfile
-        isOpen={showUserProfile}
-        onClose={() => setShowUserProfile(false)}
-      />
+      <UserProfile isOpen={showUserProfile} onClose={() => setShowUserProfile(false)} />
       <MeeraVoice
         isOpen={showMeeraVoice}
         onClose={(wasConnected) => {
