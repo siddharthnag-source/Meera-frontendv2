@@ -42,7 +42,6 @@ const SCROLL_THROTTLE_MS = 16; // 60fps
 const INPUT_DEBOUNCE_MS = 16;
 const RESIZE_DEBOUNCE_MS = 100;
 
-
 type ChatDisplayItem =
   | { type: 'message'; message: ChatMessageFromServer; id: string }
   | {
@@ -130,8 +129,6 @@ export const Conversation: React.FC = () => {
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-const [isAttachmentUploading, setIsAttachmentUploading] = useState(false);
-
 
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
@@ -144,6 +141,8 @@ const [isAttachmentUploading, setIsAttachmentUploading] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isUserNearTop, setIsUserNearTop] = useState(false);
 
+  // NEW: blocks Enter + Send until uploads complete
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
 
   const [fetchState, setFetchState] = useState<FetchState>({
     isLoading: false,
@@ -304,16 +303,14 @@ const [isAttachmentUploading, setIsAttachmentUploading] = useState(false);
   const lastMessage =
     chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
-  // UPDATED: disable submit while uploading
-const canSubmit = useMemo(
-  () =>
-    (message.trim() || currentAttachments.length > 0) &&
-    !isSending &&
-    !isAttachmentUploading,
-  [message, currentAttachments.length, isSending, isAttachmentUploading],
-);
-
-
+  // UPDATED: block send/enter while uploading attachments
+  const canSubmit = useMemo(
+    () =>
+      (message.trim() || currentAttachments.length > 0) &&
+      !isSending &&
+      !isUploadingAttachments,
+    [message, currentAttachments.length, isSending, isUploadingAttachments],
+  );
 
   const scrollToBottom = useCallback(
     (smooth: boolean = true, force: boolean = false) => {
@@ -408,12 +405,14 @@ const canSubmit = useMemo(
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey))
+      if (requestCache.current.has(cacheKey)) {
         return requestCache.current.get(cacheKey);
+      }
       if (fetchState.isLoading && !isInitial) return;
 
-      if (fetchState.abortController && !isInitial)
+      if (fetchState.abortController && !isInitial) {
         fetchState.abortController.abort();
+      }
       const abortController = new AbortController();
 
       const loadPromise = (async () => {
@@ -448,8 +447,9 @@ const canSubmit = useMemo(
               });
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
-              if (scrollContainer)
+              if (scrollContainer) {
                 previousScrollHeight.current = scrollContainer.scrollHeight;
+              }
 
               setChatMessages((prev) => {
                 const existingIds = new Set(prev.map((m) => m.message_id));
@@ -538,6 +538,7 @@ const canSubmit = useMemo(
     (e: React.UIEvent<HTMLDivElement>) => {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
 
+      // Show date bubble while scrolling, hide shortly after
       if (!showDateSticky) setShowDateSticky(true);
       if (hideDateStickyTimeoutRef.current) {
         clearTimeout(hideDateStickyTimeoutRef.current);
@@ -628,7 +629,8 @@ const canSubmit = useMemo(
         const selectionEnd = textarea.selectionEnd;
         const currentScrollTop = textarea.scrollTop;
         const isScrolledToBottom =
-          textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
+          textarea.scrollTop + textarea.clientHeight >=
+          textarea.scrollHeight - 1;
         const isCursorAtEnd = cursorPosition === textarea.value.length;
 
         const shouldAutoScroll =
@@ -645,8 +647,9 @@ const canSubmit = useMemo(
             : currentScrollTop;
         }
 
-        if (shouldPreserveCursor)
+        if (shouldPreserveCursor) {
           textarea.setSelectionRange(cursorPosition, selectionEnd);
+        }
       });
     },
     [currentAttachments.length, dynamicMaxHeight],
@@ -746,6 +749,7 @@ const canSubmit = useMemo(
     }
   }, [loadChatHistory]);
 
+  // Only scroll on user send
   useEffect(() => {
     if (justSentMessageRef.current) {
       scrollToBottom(true, true);
@@ -762,7 +766,6 @@ const canSubmit = useMemo(
     return cleanup;
   }, [handleResize, debouncedHandleResize]);
 
-  // FIX: include currentAttachments in deps (lint warning)
   useEffect(() => {
     return () => {
       currentAttachments.forEach(
@@ -771,31 +774,24 @@ const canSubmit = useMemo(
     };
   }, [currentAttachments]);
 
-  // FIX: make cleanup refs stable for lint (copy .current into locals)
   useEffect(() => {
-    const abortCtrl = fetchState.abortController;
-    const st1 = scrollTimeoutRef.current;
-    const st2 = scrollTimeoutRef2.current;
-    const hideSticky = hideDateStickyTimeoutRef.current;
-    const cleanupFns = cleanupFunctions.current;
-    const cache = requestCache.current;
-
     return () => {
-      abortCtrl?.abort();
+      fetchState.abortController?.abort();
 
-      if (st1) clearTimeout(st1);
-      if (st2) clearTimeout(st2);
-      if (hideSticky) clearTimeout(hideSticky);
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
+      if (hideDateStickyTimeoutRef.current) {
+        clearTimeout(hideDateStickyTimeoutRef.current);
+      }
 
-      cleanupFns.forEach((cleanup) => cleanup());
-
-      cache.clear();
+      cleanupFunctions.current.forEach((cleanup) => cleanup());
+      cleanupFunctions.current = [];
+      requestCache.current.clear();
 
       currentAttachments.forEach(
         (att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl),
       );
     };
-    // Intentionally keep deps minimal; we snapshot refs above.
   }, [fetchState.abortController, currentAttachments]);
 
   const handleScrollToBottomClick = useCallback(() => {
@@ -926,8 +922,9 @@ const canSubmit = useMemo(
                         const isLastFailedMessage =
                           msg.message_id === lastFailedMessageId;
 
-                        const storedThoughts = (msg as unknown as { thoughts?: string })
-                          .thoughts;
+                        const storedThoughts = (msg as unknown as {
+                          thoughts?: string;
+                        }).thoughts;
                         const effectiveThoughtText =
                           currentThoughtText || storedThoughts || undefined;
 
@@ -991,9 +988,7 @@ const canSubmit = useMemo(
             {!isSubscriptionLoading &&
               !isSubscriptionError &&
               subscriptionData?.plan_type === 'paid' &&
-              !(
-                new Date(subscriptionData?.subscription_end_date || 0) >= new Date()
-              ) && (
+              !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
                 <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
                   <span className="text-sm">
                     Your subscription has expired.{' '}
@@ -1082,6 +1077,7 @@ const canSubmit = useMemo(
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     if (!canSubmit) return;
+
                     const form = e.currentTarget.form;
                     if (form && typeof form.requestSubmit === 'function') {
                       form.requestSubmit();
@@ -1113,19 +1109,17 @@ const canSubmit = useMemo(
                 </div>
 
                 <div className="flex items-center gap-1">
-           <AttachmentInputArea
-  ref={attachmentInputAreaRef}
-  onAttachmentsChange={setCurrentAttachments}
-  onUploadingChange={setIsAttachmentUploading}
-  messageValue={message}
-  resetInputHeightState={() => {}}
-  maxAttachments={MAX_ATTACHMENTS_CONFIG}
-  existingAttachments={currentAttachments}
->
-  <FiPaperclip size={18} />
-</AttachmentInputArea>
-
-
+                  <AttachmentInputArea
+                    ref={attachmentInputAreaRef}
+                    onAttachmentsChange={setCurrentAttachments}
+                    messageValue={message}
+                    resetInputHeightState={() => {}}
+                    maxAttachments={MAX_ATTACHMENTS_CONFIG}
+                    existingAttachments={currentAttachments}
+                    onUploadingChange={setIsUploadingAttachments}
+                  >
+                    <FiPaperclip size={18} />
+                  </AttachmentInputArea>
 
                   <button
                     type="submit"
@@ -1135,7 +1129,9 @@ const canSubmit = useMemo(
                         : 'bg-primary/20 text-primary/50 cursor-not-allowed'
                     }`}
                     disabled={!canSubmit}
-                    title={isAttachmentUploading ? 'Uploading attachment…' : 'Send message'}
+                    title={
+                      isUploadingAttachments ? 'Uploading attachment…' : 'Send message'
+                    }
                   >
                     <FiArrowUp size={20} />
                   </button>
