@@ -1,10 +1,6 @@
 'use client';
 
-import React, {
-  forwardRef,
-  useImperativeHandle,
-  useRef,
-} from 'react';
+import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { ChatAttachmentInputState } from '@/types/chat';
 
@@ -21,135 +17,167 @@ interface Props {
   messageValue: string;
   resetInputHeightState: () => void;
   children?: React.ReactNode;
+
+  // NEW
+  onUploadingChange?: (isUploading: boolean) => void;
+  disabled?: boolean;
+  triggerClassName?: string;
+  accept?: string;
 }
 
 const MAX_FILE_SIZE_MB = 25;
 
-export const AttachmentInputArea = forwardRef<
-  AttachmentInputAreaRef,
-  Props
->((props, ref) => {
-  const {
-    onAttachmentsChange,
-    existingAttachments,
-    maxAttachments,
-    children,
-  } = props;
+export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
+  (props, ref) => {
+    const {
+      onAttachmentsChange,
+      existingAttachments,
+      maxAttachments,
+      children,
+      onUploadingChange,
+      disabled,
+      triggerClassName,
+      accept,
+    } = props;
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const uploadToSupabase = async (file: File) => {
-    try {
-      const ext = file.name.split('.').pop();
-      const path = `attachments/${Date.now()}-${Math.random()
-        .toString(36)
-        .substring(2)}.${ext}`;
+    const uploadToSupabase = async (file: File) => {
+      try {
+        const ext = file.name.split('.').pop() || 'bin';
+        const path = `attachments/${Date.now()}-${Math.random()
+          .toString(36)
+          .substring(2)}.${ext}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('attachments')
-        .upload(path, file, { upsert: false });
+        const { error: uploadError } = await supabase.storage
+          .from('attachments')
+          .upload(path, file, { upsert: false });
 
-      if (uploadError) {
-        console.error(uploadError);
+        if (uploadError) {
+          console.error(uploadError);
+          return null;
+        }
+
+        const { data } = supabase.storage.from('attachments').getPublicUrl(path);
+
+        return {
+          storagePath: path,
+          publicUrl: data.publicUrl,
+        };
+      } catch (err) {
+        console.error('Upload failed:', err);
         return null;
       }
+    };
 
-      const { data } = supabase.storage.from('attachments').getPublicUrl(path);
-      return {
-        storagePath: path,
-        publicUrl: data.publicUrl,
-      };
-    } catch (err) {
-      console.error('Upload failed:', err);
-      return null;
-    }
-  };
+    const processFiles = async (files: FileList | File[]) => {
+      if (disabled) return;
 
-  const processFiles = async (files: FileList | File[]) => {
-    const processed: ChatAttachmentInputState[] = [];
+      const list = Array.isArray(files) ? files : Array.from(files);
+      if (list.length === 0) return;
 
-    for (const file of files) {
-      if (processed.length + existingAttachments.length >= maxAttachments) {
-        continue;
+      onUploadingChange?.(true);
+
+      try {
+        const processed: ChatAttachmentInputState[] = [];
+
+        for (const file of list) {
+          if (processed.length + existingAttachments.length >= maxAttachments) {
+            continue;
+          }
+
+          const sizeMb = file.size / (1024 * 1024);
+          if (sizeMb > MAX_FILE_SIZE_MB) {
+            continue;
+          }
+
+          const isImage = file.type.startsWith('image/');
+          const type: 'image' | 'document' = isImage ? 'image' : 'document';
+
+          const uploaded = await uploadToSupabase(file);
+          if (!uploaded) continue;
+
+          processed.push({
+            file,
+            previewUrl: URL.createObjectURL(file),
+            type,
+            storagePath: uploaded.storagePath,
+            publicUrl: uploaded.publicUrl,
+          });
+        }
+
+        if (processed.length > 0) {
+          onAttachmentsChange([...existingAttachments, ...processed]);
+        }
+      } finally {
+        onUploadingChange?.(false);
       }
+    };
 
-      const sizeMb = file.size / (1024 * 1024);
-      if (sizeMb > MAX_FILE_SIZE_MB) {
-        continue;
-      }
+    const openFilePicker = () => {
+      if (disabled) return;
+      fileInputRef.current?.click();
+    };
 
-      const isImage = file.type.startsWith('image/');
-      const type: 'image' | 'document' = isImage ? 'image' : 'document';
+    useImperativeHandle(ref, () => ({
+      clear: () => {
+        existingAttachments.forEach((att) => {
+          if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+        });
+        onAttachmentsChange([]);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      },
 
-      const uploaded = await uploadToSupabase(file);
-      if (!uploaded) continue;
+      removeAttachment: (index: number) => {
+        const updated = [...existingAttachments];
+        const removed = updated.splice(index, 1);
 
-      processed.push({
-        file,
-        previewUrl: URL.createObjectURL(file),
-        type,
-        storagePath: uploaded.storagePath,
-        publicUrl: uploaded.publicUrl,
-      });
-    }
+        if (removed[0]?.previewUrl) {
+          URL.revokeObjectURL(removed[0].previewUrl);
+        }
 
-    if (processed.length > 0) {
-      onAttachmentsChange([...existingAttachments, ...processed]);
-    }
-  };
+        onAttachmentsChange(updated);
+      },
 
-  // Open OS file picker
-  const openFilePicker = () => {
-    fileInputRef.current?.click();
-  };
+      processPastedFiles: async (files: File[]) => {
+        await processFiles(files);
+      },
+    }));
 
-  // Exposed functions for parent component
-  useImperativeHandle(ref, () => ({
-    clear: () => {
-      onAttachmentsChange([]);
-    },
+    return (
+      <div className="relative">
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          multiple
+          accept={accept ?? 'image/*,.pdf'}
+          onChange={async (e) => {
+            const files = e.target.files;
+            if (files && files.length > 0) {
+              await processFiles(files);
+            }
+            // Allow selecting the same file again later
+            e.target.value = '';
+          }}
+        />
 
-    removeAttachment: (index: number) => {
-      const updated = [...existingAttachments];
-      const removed = updated.splice(index, 1);
-
-      if (removed[0]?.previewUrl) {
-        URL.revokeObjectURL(removed[0].previewUrl);
-      }
-
-      onAttachmentsChange(updated);
-    },
-
-    processPastedFiles: async (files: File[]) => {
-      await processFiles(files);
-    },
-  }));
-
-  return (
-    <div className="relative">
-      {/* Hidden input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        multiple
-        accept="image/*,.pdf"
-        onChange={(e) => {
-          const files = e.target.files;
-          if (files && files.length > 0) processFiles(files);
-        }}
-      />
-
-      {/* Trigger button */}
-      <button
-        type="button"
-        onClick={openFilePicker}
-        className="p-2 rounded-full hover:bg-primary/10 text-primary transition-all"
-      >
-        {children}
-      </button>
-    </div>
-  );
-});
+        <button
+          type="button"
+          onClick={openFilePicker}
+          disabled={disabled}
+          aria-label="Attach files"
+          title="Attach files"
+          className={
+            triggerClassName ??
+            'p-2 rounded-full hover:bg-primary/10 text-primary transition-all'
+          }
+        >
+          {children}
+        </button>
+      </div>
+    );
+  },
+);
 
 AttachmentInputArea.displayName = 'AttachmentInputArea';

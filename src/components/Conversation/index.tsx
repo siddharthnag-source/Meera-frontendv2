@@ -23,7 +23,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { FiArrowUp, FiGlobe, FiMenu } from 'react-icons/fi';
+import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
 import {
@@ -151,7 +151,7 @@ export const Conversation: React.FC = () => {
 
   const [dynamicMaxHeight, setDynamicMaxHeight] = useState(200);
 
-  // Sticky date bubble (show only while user is scrolling)
+  // Date badge: show only while user is actively scrolling
   const [showDateSticky, setShowDateSticky] = useState(false);
   const hideDateStickyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -160,7 +160,10 @@ export const Conversation: React.FC = () => {
   const lastOptimisticMessageIdRef = useRef<string | null>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
+
+  // Only this ref controls auto-scroll. It should be true only for user-initiated sends.
   const justSentMessageRef = useRef(false);
+
   const spacerRef = useRef<HTMLDivElement>(null);
 
   const headerRef = useRef<HTMLElement>(null);
@@ -170,7 +173,6 @@ export const Conversation: React.FC = () => {
 
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
   const cleanupFunctions = useRef<Array<() => void>>([]);
-  const chatMessagesRef = useRef<ChatMessageFromServer[]>(chatMessages);
 
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastScrollTop = useRef(0);
@@ -188,10 +190,6 @@ export const Conversation: React.FC = () => {
   } = useSubscriptionStatus();
   const { showToast } = useToast();
   const { openModal } = usePricingModal();
-
-  useEffect(() => {
-    chatMessagesRef.current = chatMessages;
-  }, [chatMessages]);
 
   const debouncedSetMessage = useMemo(
     () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
@@ -239,7 +237,11 @@ export const Conversation: React.FC = () => {
             if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
             callSessions[msg.session_id].push(msg);
           } else {
-            displayItems.push({ type: 'message', message: msg, id: msg.message_id });
+            displayItems.push({
+              type: 'message',
+              message: msg,
+              id: msg.message_id,
+            });
           }
         });
 
@@ -262,7 +264,7 @@ export const Conversation: React.FC = () => {
           const timestampA =
             a.type === 'message' ? a.message.timestamp : a.timestamp;
           const timestampB =
-            b.type === 'message' ? b.message.timestamp : b.timestamp;
+            a.type === 'message' ? b.message.timestamp : b.timestamp;
           return timestampA.localeCompare(timestampB);
         });
       };
@@ -301,16 +303,27 @@ export const Conversation: React.FC = () => {
     [message, currentAttachments.length, isSending],
   );
 
+  // One scroll owner. Mobile uses "auto" to prevent iOS jitter.
   const scrollToBottom = useCallback(
     (smooth: boolean = true, force: boolean = false) => {
       const el = mainScrollRef.current;
       if (!el) return;
       if (!force) return;
 
+      const isCoarsePointer =
+        typeof window !== 'undefined' &&
+        window.matchMedia &&
+        window.matchMedia('(pointer: coarse)').matches;
+
+      const behavior: ScrollBehavior =
+        smooth && !isCoarsePointer ? 'smooth' : 'auto';
+
       requestAnimationFrame(() => {
-        el.scrollTo({
-          top: el.scrollHeight,
-          behavior: smooth ? 'smooth' : 'auto',
+        requestAnimationFrame(() => {
+          el.scrollTo({
+            top: el.scrollHeight,
+            behavior,
+          });
         });
       });
     },
@@ -394,7 +407,8 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
+      if (requestCache.current.has(cacheKey))
+        return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
       if (fetchState.abortController && !isInitial)
@@ -523,7 +537,7 @@ export const Conversation: React.FC = () => {
     (e: React.UIEvent<HTMLDivElement>) => {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
 
-      // Show date bubble while scrolling, hide shortly after
+      // Date badge: show while scrolling, hide shortly after
       if (!showDateSticky) setShowDateSticky(true);
       if (hideDateStickyTimeoutRef.current) {
         clearTimeout(hideDateStickyTimeoutRef.current);
@@ -614,7 +628,8 @@ export const Conversation: React.FC = () => {
         const selectionEnd = textarea.selectionEnd;
         const currentScrollTop = textarea.scrollTop;
         const isScrolledToBottom =
-          textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
+          textarea.scrollTop + textarea.clientHeight >=
+          textarea.scrollHeight - 1;
         const isCursorAtEnd = cursorPosition === textarea.value.length;
 
         const shouldAutoScroll =
@@ -655,7 +670,8 @@ export const Conversation: React.FC = () => {
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
         setTimeout(
-          () => inputRef.current && handleTextareaResize(inputRef.current, false),
+          () =>
+            inputRef.current && handleTextareaResize(inputRef.current, false),
           10,
         );
       }
@@ -684,6 +700,15 @@ export const Conversation: React.FC = () => {
       setTimeout(() => calculateMinHeight(), 200);
     },
   });
+
+  // Make retry count as user-initiated send for scroll purposes
+  const handleRetryMessageWithScroll = useCallback(
+    (failedMessage: ChatMessageFromServer) => {
+      justSentMessageRef.current = true;
+      handleRetryMessage(failedMessage);
+    },
+    [handleRetryMessage],
+  );
 
   const { isDraggingOver } = useDragAndDrop({
     maxAttachments: MAX_ATTACHMENTS_CONFIG,
@@ -732,7 +757,7 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // Only scroll on user send
+  // Only scroll when we explicitly mark a user-initiated send (or retry)
   useEffect(() => {
     if (justSentMessageRef.current) {
       scrollToBottom(true, true);
@@ -784,6 +809,7 @@ export const Conversation: React.FC = () => {
     (e: React.FormEvent) => {
       e.preventDefault();
       if (!canSubmit) return;
+
       justSentMessageRef.current = true;
       executeSubmission(message, currentAttachments);
     },
@@ -834,7 +860,8 @@ export const Conversation: React.FC = () => {
 
       <main
         ref={mainScrollRef}
-        className="overflow-y-auto w-full scroll-pt-2.5"
+        className="overflow-y-auto w-full scroll-pt-2.5 overscroll-contain"
+        style={{ overflowAnchor: 'none' }}
         onScroll={handleScroll}
       >
         <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
@@ -895,6 +922,7 @@ export const Conversation: React.FC = () => {
                         }
 
                         const msg = item.message;
+
                         const isStreamingMessage =
                           isSending &&
                           msg.content_type === 'assistant' &&
@@ -904,8 +932,9 @@ export const Conversation: React.FC = () => {
                         const isLastFailedMessage =
                           msg.message_id === lastFailedMessageId;
 
-                        const storedThoughts = (msg as unknown as { thoughts?: string })
-                          .thoughts;
+                        const storedThoughts = (msg as unknown as {
+                          thoughts?: string;
+                        }).thoughts;
                         const effectiveThoughtText =
                           currentThoughtText || storedThoughts || undefined;
 
@@ -939,7 +968,7 @@ export const Conversation: React.FC = () => {
                             <MemoizedRenderedMessageItem
                               message={msg}
                               isStreaming={isStreamingMessage}
-                              onRetry={handleRetryMessage}
+                              onRetry={handleRetryMessageWithScroll}
                               isLastFailedMessage={isLastFailedMessage}
                               showTypingIndicator={shouldShowTypingIndicator}
                               thoughtText={effectiveThoughtText}
@@ -970,7 +999,8 @@ export const Conversation: React.FC = () => {
               !isSubscriptionError &&
               subscriptionData?.plan_type === 'paid' &&
               !(
-                new Date(subscriptionData?.subscription_end_date || 0) >= new Date()
+                new Date(subscriptionData?.subscription_end_date || 0) >=
+                new Date()
               ) && (
                 <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
                   <span className="text-sm">
@@ -1001,7 +1031,9 @@ export const Conversation: React.FC = () => {
                   </span>
                   <span
                     className="text-primary font-medium cursor-pointer underline"
-                    onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
+                    onClick={() =>
+                      openModal('5000_tokens_left_toast_clicked', true)
+                    }
                   >
                     Add more
                   </span>
@@ -1099,7 +1131,23 @@ export const Conversation: React.FC = () => {
                     maxAttachments={MAX_ATTACHMENTS_CONFIG}
                     existingAttachments={currentAttachments}
                   >
-                    <span />
+                    <button
+                      type="button"
+                      aria-label="Attach files"
+                      title="Attach files"
+                      disabled={
+                        isSending ||
+                        currentAttachments.length >= MAX_ATTACHMENTS_CONFIG
+                      }
+                      className={`rounded-full flex items-center justify-center focus:outline-none transition-all duration-150 ease-in-out min-w-[38px] min-h-[38px] border border-primary/20 transform-gpu will-change-transform ${
+                        isSending ||
+                        currentAttachments.length >= MAX_ATTACHMENTS_CONFIG
+                          ? 'bg-primary/5 text-primary/40 cursor-not-allowed'
+                          : 'bg-transparent text-primary hover:bg-primary/10 hover:scale-105 cursor-pointer'
+                      }`}
+                    >
+                      <FiPaperclip size={18} />
+                    </button>
                   </AttachmentInputArea>
 
                   <button

@@ -14,7 +14,11 @@ interface UseMessageSubmissionProps {
   message: string;
   currentAttachments: ChatAttachmentInputState[];
   chatMessages: ChatMessageFromServer[];
-  isSearchActive: boolean; // still passed from Conversation, but not used here
+
+  // Make optional so other call sites never break builds.
+  // Still passed from Conversation, but not used here.
+  isSearchActive?: boolean;
+
   isSending: boolean;
   setIsSending: (isSending: boolean) => void;
   setCurrentThoughtText: (text: string) => void;
@@ -78,7 +82,8 @@ export const useMessageSubmission = ({
   message,
   currentAttachments,
   chatMessages,
-  // isSearchActive, // not needed here
+  // keep for API compatibility, even if not used
+  isSearchActive: _isSearchActive,
   isSending,
   setIsSending,
   setCurrentThoughtText,
@@ -172,7 +177,9 @@ export const useMessageSubmission = ({
                   attachments:
                     latestServerAssistant.attachments ?? m.attachments ?? [],
                   finish_reason:
-                    latestServerAssistant.finish_reason ?? m.finish_reason ?? null,
+                    latestServerAssistant.finish_reason ??
+                    m.finish_reason ??
+                    null,
                 }
               : m,
           ),
