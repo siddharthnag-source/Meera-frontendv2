@@ -11,18 +11,17 @@ export interface AttachmentInputAreaRef {
 }
 
 interface Props {
-  onAttachmentsChange: (attachments: ChatAttachmentInputState[]) => void;
+  onAttachmentsChange: React.Dispatch<React.SetStateAction<ChatAttachmentInputState[]>>;
   existingAttachments: ChatAttachmentInputState[];
   maxAttachments: number;
   messageValue: string;
   resetInputHeightState: () => void;
-  children?: React.ReactNode;
-
-  // NEW: lets parent disable Send while uploads are running
   onUploadStateChange?: (isUploading: boolean) => void;
+  children?: React.ReactNode;
 }
 
 const MAX_FILE_SIZE_MB = 25;
+const UPLOADING_PREFIX = '__uploading__';
 
 export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
   (props, ref) => {
@@ -30,25 +29,11 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
       onAttachmentsChange,
       existingAttachments,
       maxAttachments,
-      children,
       onUploadStateChange,
+      children,
     } = props;
 
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    // Support overlapping uploads safely (paste + picker, multiple picks, etc.)
-    const uploadCounterRef = useRef(0);
-    const setUploading = (val: boolean) => onUploadStateChange?.(val);
-
-    const beginUpload = () => {
-      uploadCounterRef.current += 1;
-      if (uploadCounterRef.current === 1) setUploading(true);
-    };
-
-    const endUpload = () => {
-      uploadCounterRef.current = Math.max(0, uploadCounterRef.current - 1);
-      if (uploadCounterRef.current === 0) setUploading(false);
-    };
 
     const uploadToSupabase = async (file: File) => {
       try {
@@ -82,44 +67,69 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
       const fileArray: File[] = Array.isArray(files) ? files : Array.from(files);
       if (fileArray.length === 0) return;
 
-      beginUpload();
+      // capacity guard
+      const availableSlots = Math.max(0, maxAttachments - existingAttachments.length);
+      const acceptedFiles = fileArray.slice(0, availableSlots);
 
+      // pre-filter by size
+      const validFiles = acceptedFiles.filter((file) => {
+        const sizeMb = file.size / (1024 * 1024);
+        return sizeMb <= MAX_FILE_SIZE_MB;
+      });
+
+      if (validFiles.length === 0) return;
+
+      // Create placeholders first (chip appears instantly)
+      const placeholders: ChatAttachmentInputState[] = validFiles.map((file) => {
+        const isImage = file.type.startsWith('image/');
+        const type: 'image' | 'document' = isImage ? 'image' : 'document';
+        const tempId = `${UPLOADING_PREFIX}${Date.now()}-${Math.random()
+          .toString(36)
+          .substring(2)}`;
+
+        return {
+          file,
+          previewUrl: URL.createObjectURL(file),
+          type,
+          storagePath: tempId, // placeholder marker
+          publicUrl: '', // not uploaded yet
+        };
+      });
+
+      onAttachmentsChange((prev) => [...prev, ...placeholders]);
+
+      onUploadStateChange?.(true);
       try {
-        const processed: ChatAttachmentInputState[] = [];
+        // Upload sequentially to keep it simple and stable
+        for (const placeholder of placeholders) {
+          const uploaded = await uploadToSupabase(placeholder.file as File);
 
-        for (const file of fileArray) {
-          if (processed.length + existingAttachments.length >= maxAttachments) {
+          if (!uploaded) {
+            // Remove failed placeholder
+            onAttachmentsChange((prev) => {
+              const next = prev.filter((a) => a.storagePath !== placeholder.storagePath);
+              return next;
+            });
+
+            if (placeholder.previewUrl) URL.revokeObjectURL(placeholder.previewUrl);
             continue;
           }
 
-          const sizeMb = file.size / (1024 * 1024);
-          if (sizeMb > MAX_FILE_SIZE_MB) {
-            continue;
-          }
-
-          const isImage = file.type.startsWith('image/');
-          const type: 'image' | 'document' = isImage ? 'image' : 'document';
-
-          const uploaded = await uploadToSupabase(file);
-          if (!uploaded) continue;
-
-          processed.push({
-            file,
-            previewUrl: URL.createObjectURL(file),
-            type,
-            storagePath: uploaded.storagePath,
-            publicUrl: uploaded.publicUrl,
+          // Replace placeholder with real URLs
+          onAttachmentsChange((prev) => {
+            const next = prev.map((a) => {
+              if (a.storagePath !== placeholder.storagePath) return a;
+              return {
+                ...a,
+                storagePath: uploaded.storagePath,
+                publicUrl: uploaded.publicUrl,
+              };
+            });
+            return next;
           });
         }
-
-        if (processed.length > 0) {
-          onAttachmentsChange([...existingAttachments, ...processed]);
-        }
       } finally {
-        endUpload();
-
-        // Critical: allows selecting the same file again to re-trigger onChange
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        onUploadStateChange?.(false);
       }
     };
 
@@ -130,18 +140,19 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
     useImperativeHandle(ref, () => ({
       clear: () => {
         onAttachmentsChange([]);
-        if (fileInputRef.current) fileInputRef.current.value = '';
       },
 
       removeAttachment: (index: number) => {
-        const updated = [...existingAttachments];
-        const removed = updated.splice(index, 1);
+        onAttachmentsChange((prev) => {
+          const updated = [...prev];
+          const removed = updated.splice(index, 1);
 
-        if (removed[0]?.previewUrl) {
-          URL.revokeObjectURL(removed[0].previewUrl);
-        }
+          if (removed[0]?.previewUrl) {
+            URL.revokeObjectURL(removed[0].previewUrl);
+          }
 
-        onAttachmentsChange(updated);
+          return updated;
+        });
       },
 
       processPastedFiles: async (files: File[]) => {
@@ -160,6 +171,8 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
           onChange={(e) => {
             const files = e.target.files;
             if (files && files.length > 0) processFiles(files);
+            // reset so selecting same file again triggers change
+            e.currentTarget.value = '';
           }}
         />
 
