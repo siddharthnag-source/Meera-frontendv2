@@ -12,6 +12,7 @@ export interface AttachmentInputAreaRef {
 
 interface Props {
   onAttachmentsChange: (attachments: ChatAttachmentInputState[]) => void;
+  onUploadingChange?: (uploading: boolean) => void; // NEW
   existingAttachments: ChatAttachmentInputState[];
   maxAttachments: number;
   messageValue: string;
@@ -23,10 +24,18 @@ const MAX_FILE_SIZE_MB = 25;
 
 export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
   (props, ref) => {
-    const { onAttachmentsChange, existingAttachments, maxAttachments, children } =
-      props;
+    const {
+      onAttachmentsChange,
+      onUploadingChange, // NEW
+      existingAttachments,
+      maxAttachments,
+      children,
+    } = props;
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Tracks in-flight uploads so we only flip "uploading=false" when all are done.
+    const activeUploadsRef = useRef(0);
 
     const uploadToSupabase = async (file: File) => {
       try {
@@ -58,35 +67,49 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
 
     const processFiles = async (files: FileList | File[]) => {
       const fileArray: File[] = Array.isArray(files) ? files : Array.from(files);
-      const processed: ChatAttachmentInputState[] = [];
 
-      for (const file of fileArray) {
-        if (processed.length + existingAttachments.length >= maxAttachments) {
-          continue;
+      // NEW: signal upload start
+      activeUploadsRef.current += 1;
+      onUploadingChange?.(true);
+
+      try {
+        const processed: ChatAttachmentInputState[] = [];
+
+        for (const file of fileArray) {
+          if (processed.length + existingAttachments.length >= maxAttachments) {
+            continue;
+          }
+
+          const sizeMb = file.size / (1024 * 1024);
+          if (sizeMb > MAX_FILE_SIZE_MB) {
+            continue;
+          }
+
+          const isImage = file.type.startsWith('image/');
+          const type: 'image' | 'document' = isImage ? 'image' : 'document';
+
+          const uploaded = await uploadToSupabase(file);
+          if (!uploaded) continue;
+
+          processed.push({
+            file,
+            previewUrl: URL.createObjectURL(file),
+            type,
+            storagePath: uploaded.storagePath,
+            publicUrl: uploaded.publicUrl,
+          });
         }
 
-        const sizeMb = file.size / (1024 * 1024);
-        if (sizeMb > MAX_FILE_SIZE_MB) {
-          continue;
+        if (processed.length > 0) {
+          onAttachmentsChange([...existingAttachments, ...processed]);
         }
-
-        const isImage = file.type.startsWith('image/');
-        const type: 'image' | 'document' = isImage ? 'image' : 'document';
-
-        const uploaded = await uploadToSupabase(file);
-        if (!uploaded) continue;
-
-        processed.push({
-          file,
-          previewUrl: URL.createObjectURL(file),
-          type,
-          storagePath: uploaded.storagePath,
-          publicUrl: uploaded.publicUrl,
-        });
-      }
-
-      if (processed.length > 0) {
-        onAttachmentsChange([...existingAttachments, ...processed]);
+      } finally {
+        // NEW: signal upload finish (only when all uploads complete)
+        activeUploadsRef.current -= 1;
+        if (activeUploadsRef.current <= 0) {
+          activeUploadsRef.current = 0;
+          onUploadingChange?.(false);
+        }
       }
     };
 
@@ -97,6 +120,8 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
     useImperativeHandle(ref, () => ({
       clear: () => {
         onAttachmentsChange([]);
+        onUploadingChange?.(false); // safety
+        activeUploadsRef.current = 0;
       },
 
       removeAttachment: (index: number) => {
@@ -126,6 +151,8 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
           onChange={(e) => {
             const files = e.target.files;
             if (files && files.length > 0) processFiles(files);
+            // allow re-selecting the same file immediately
+            e.currentTarget.value = '';
           }}
         />
 
