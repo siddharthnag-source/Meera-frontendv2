@@ -1135,7 +1135,7 @@ const canSubmit = useMemo(
                         : 'bg-primary/20 text-primary/50 cursor-not-allowed'
                     }`}
                     disabled={!canSubmit}
-                    title={isUploadingAttachments ? 'Uploading attachment…' : 'Send message'}
+                    title={isAttachmentUploading ? 'Uploading attachment…' : 'Send message'}
                   >
                     <FiArrowUp size={20} />
                   </button>
