@@ -23,7 +23,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { FiArrowUp, FiGlobe, FiMenu } from 'react-icons/fi';
+import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
 import {
@@ -1091,16 +1091,17 @@ export const Conversation: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1">
-                  <AttachmentInputArea
-                    ref={attachmentInputAreaRef}
-                    onAttachmentsChange={setCurrentAttachments}
-                    messageValue={message}
-                    resetInputHeightState={() => {}}
-                    maxAttachments={MAX_ATTACHMENTS_CONFIG}
-                    existingAttachments={currentAttachments}
-                  >
-                    <span />
-                  </AttachmentInputArea>
+                <AttachmentInputArea
+  ref={attachmentInputAreaRef}
+  onAttachmentsChange={setCurrentAttachments}
+  messageValue={message}
+  resetInputHeightState={() => {}}
+  maxAttachments={MAX_ATTACHMENTS_CONFIG}
+  existingAttachments={currentAttachments}
+>
+  <FiPaperclip size={18} />
+</AttachmentInputArea>
+
 
                   <button
                     type="submit"
