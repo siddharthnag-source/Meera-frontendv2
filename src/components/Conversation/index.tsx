@@ -141,7 +141,7 @@ export const Conversation: React.FC = () => {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isUserNearTop, setIsUserNearTop] = useState(false);
 
-  // NEW: gate send while uploads are in-flight
+  // NEW: gate send while uploads in progress
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
 
   const [fetchState, setFetchState] = useState<FetchState>({
@@ -303,7 +303,7 @@ export const Conversation: React.FC = () => {
   const lastMessage =
     chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
-  // UPDATED: also block submit while attachments are uploading
+  // UPDATED: disable submit while uploading
   const canSubmit = useMemo(
     () =>
       (message.trim() || currentAttachments.length > 0) &&
@@ -625,8 +625,7 @@ export const Conversation: React.FC = () => {
         const selectionEnd = textarea.selectionEnd;
         const currentScrollTop = textarea.scrollTop;
         const isScrolledToBottom =
-          textarea.scrollTop + textarea.clientHeight >=
-          textarea.scrollHeight - 1;
+          textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
         const isCursorAtEnd = cursorPosition === textarea.value.length;
 
         const shouldAutoScroll =
@@ -667,8 +666,7 @@ export const Conversation: React.FC = () => {
         attachmentInputAreaRef.current?.processPastedFiles(imageFiles);
       } else {
         setTimeout(
-          () =>
-            inputRef.current && handleTextareaResize(inputRef.current, false),
+          () => inputRef.current && handleTextareaResize(inputRef.current, false),
           10,
         );
       }
@@ -761,31 +759,41 @@ export const Conversation: React.FC = () => {
     return cleanup;
   }, [handleResize, debouncedHandleResize]);
 
+  // FIX: include currentAttachments in deps (lint warning)
   useEffect(() => {
     return () => {
       currentAttachments.forEach(
         (att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl),
       );
     };
-  }, []);
+  }, [currentAttachments]);
 
+  // FIX: make cleanup refs stable for lint (copy .current into locals)
   useEffect(() => {
+    const abortCtrl = fetchState.abortController;
+    const st1 = scrollTimeoutRef.current;
+    const st2 = scrollTimeoutRef2.current;
+    const hideSticky = hideDateStickyTimeoutRef.current;
+    const cleanupFns = cleanupFunctions.current;
+    const cache = requestCache.current;
+
     return () => {
-      fetchState.abortController?.abort();
+      abortCtrl?.abort();
 
-      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
-      if (hideDateStickyTimeoutRef.current)
-        clearTimeout(hideDateStickyTimeoutRef.current);
+      if (st1) clearTimeout(st1);
+      if (st2) clearTimeout(st2);
+      if (hideSticky) clearTimeout(hideSticky);
 
-      cleanupFunctions.current.forEach((cleanup) => cleanup());
-      cleanupFunctions.current = [];
-      requestCache.current.clear();
+      cleanupFns.forEach((cleanup) => cleanup());
+
+      cache.clear();
 
       currentAttachments.forEach(
         (att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl),
       );
     };
+    // Intentionally keep deps minimal; we snapshot refs above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchState.abortController, currentAttachments]);
 
   const handleScrollToBottomClick = useCallback(() => {
@@ -972,15 +980,73 @@ export const Conversation: React.FC = () => {
         </div>
       </main>
 
-      <footer ref={footerRef} className="w-full z-40 p-2 md:pr-[13px] bg-transparent">
+      <footer
+        ref={footerRef}
+        className="w-full z-40 p-2 md:pr-[13px] bg-transparent"
+      >
         <div className="relative">
           <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
+            {!isSubscriptionLoading &&
+              !isSubscriptionError &&
+              subscriptionData?.plan_type === 'paid' &&
+              !(
+                new Date(subscriptionData?.subscription_end_date || 0) >= new Date()
+              ) && (
+                <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
+                  <span className="text-sm">
+                    Your subscription has expired.{' '}
+                    <span
+                      className="text-primary font-medium cursor-pointer underline"
+                      onClick={() =>
+                        openModal(
+                          'subscription_has_ended_renew_here_toast_clicked',
+                          true,
+                        )
+                      }
+                    >
+                      Renew here
+                    </span>
+                  </span>
+                </div>
+              )}
+
+            {!isSubscriptionLoading &&
+              !isSubscriptionError &&
+              subscriptionData?.plan_type !== 'paid' &&
+              subscriptionData?.tokens_left != null &&
+              subscriptionData.tokens_left <= 5000 && (
+                <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
+                  <span className="text-sm">
+                    You have {subscriptionData?.tokens_left} tokens left.{' '}
+                  </span>
+                  <span
+                    className="text-primary font-medium cursor-pointer underline"
+                    onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
+                  >
+                    Add more
+                  </span>
+                </div>
+              )}
+
+            {showScrollToBottom && (
+              <button
+                onClick={handleScrollToBottomClick}
+                className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
+                title="Scroll to bottom"
+              >
+                <MdKeyboardArrowDown size={20} />
+              </button>
+            )}
+
             <div className="w-full pt-1 flex justify_center">
               <Toast position="conversation" />
             </div>
           </div>
 
-          <form onSubmit={handleFormSubmit} className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]">
+          <form
+            onSubmit={handleFormSubmit}
+            className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]"
+          >
             <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200 transform-gpu will-change-transform">
               {currentAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 px-4 pt-2.5 pb-1">
@@ -1018,7 +1084,9 @@ export const Conversation: React.FC = () => {
                     if (form && typeof form.requestSubmit === 'function') {
                       form.requestSubmit();
                     } else {
-                      handleFormSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
+                      handleFormSubmit(
+                        e as unknown as React.FormEvent<HTMLFormElement>,
+                      );
                     }
                   }
                 }}
@@ -1031,7 +1099,9 @@ export const Conversation: React.FC = () => {
                     type="button"
                     onClick={stableCallbacks.toggleSearchActive}
                     className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform ${
-                      isSearchActive ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-50'
+                      isSearchActive
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-gray-500 hover:bg-gray-50'
                     }`}
                     title="Search"
                   >
@@ -1072,7 +1142,10 @@ export const Conversation: React.FC = () => {
         </div>
       </footer>
 
-      <UserProfile isOpen={showUserProfile} onClose={() => setShowUserProfile(false)} />
+      <UserProfile
+        isOpen={showUserProfile}
+        onClose={() => setShowUserProfile(false)}
+      />
       <MeeraVoice
         isOpen={showMeeraVoice}
         onClose={(wasConnected) => {
