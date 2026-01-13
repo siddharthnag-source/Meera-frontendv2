@@ -42,6 +42,7 @@ const SCROLL_THROTTLE_MS = 16; // 60fps
 const INPUT_DEBOUNCE_MS = 16;
 const RESIZE_DEBOUNCE_MS = 100;
 
+
 type ChatDisplayItem =
   | { type: 'message'; message: ChatMessageFromServer; id: string }
   | {
@@ -129,6 +130,8 @@ export const Conversation: React.FC = () => {
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [isAttachmentUploading, setIsAttachmentUploading] = useState(false);
+
 
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
@@ -304,13 +307,14 @@ export const Conversation: React.FC = () => {
     chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
   // UPDATED: disable submit while uploading
-  const canSubmit = useMemo(
-    () =>
-      (message.trim() || currentAttachments.length > 0) &&
-      !isSending &&
-      !isUploadingAttachments,
-    [message, currentAttachments.length, isSending, isUploadingAttachments],
-  );
+ const canSubmit = useMemo(
+  () =>
+    (message.trim() || currentAttachments.length > 0) &&
+    !isSending &&
+    !isAttachmentUploading,
+  [message, currentAttachments.length, isSending, isAttachmentUploading],
+);
+
 
   const scrollToBottom = useCallback(
     (smooth: boolean = true, force: boolean = false) => {
@@ -1111,17 +1115,18 @@ export const Conversation: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1">
-                  <AttachmentInputArea
-                    ref={attachmentInputAreaRef}
-                    onAttachmentsChange={setCurrentAttachments}
-                    onUploadingChange={setIsUploadingAttachments}
-                    messageValue={message}
-                    resetInputHeightState={() => {}}
-                    maxAttachments={MAX_ATTACHMENTS_CONFIG}
-                    existingAttachments={currentAttachments}
-                  >
-                    <FiPaperclip size={18} />
-                  </AttachmentInputArea>
+                <AttachmentInputArea
+  ref={attachmentInputAreaRef}
+  onAttachmentsChange={setCurrentAttachments}
+  onUploadingChange={setIsAttachmentUploading}
+  messageValue={message}
+  resetInputHeightState={() => {}}
+  maxAttachments={MAX_ATTACHMENTS_CONFIG}
+  existingAttachments={currentAttachments}
+>
+  <FiPaperclip size={18} />
+</AttachmentInputArea>
+
 
                   <button
                     type="submit"
