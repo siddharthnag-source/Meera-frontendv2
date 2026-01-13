@@ -141,7 +141,7 @@ export const Conversation: React.FC = () => {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isUserNearTop, setIsUserNearTop] = useState(false);
 
-  // NEW: blocks Enter + Send until uploads complete
+  // NEW: parent-level upload gate, disables Send + Enter until upload completes
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
 
   const [fetchState, setFetchState] = useState<FetchState>({
@@ -242,11 +242,7 @@ export const Conversation: React.FC = () => {
             if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
             callSessions[msg.session_id].push(msg);
           } else {
-            displayItems.push({
-              type: 'message',
-              message: msg,
-              id: msg.message_id,
-            });
+            displayItems.push({ type: 'message', message: msg, id: msg.message_id });
           }
         });
 
@@ -303,7 +299,6 @@ export const Conversation: React.FC = () => {
   const lastMessage =
     chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
-  // UPDATED: block send/enter while uploading attachments
   const canSubmit = useMemo(
     () =>
       (message.trim() || currentAttachments.length > 0) &&
@@ -405,14 +400,11 @@ export const Conversation: React.FC = () => {
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
       const cacheKey = `${page}-${isInitial}`;
 
-      if (requestCache.current.has(cacheKey)) {
-        return requestCache.current.get(cacheKey);
-      }
+      if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
       if (fetchState.isLoading && !isInitial) return;
 
-      if (fetchState.abortController && !isInitial) {
+      if (fetchState.abortController && !isInitial)
         fetchState.abortController.abort();
-      }
       const abortController = new AbortController();
 
       const loadPromise = (async () => {
@@ -447,9 +439,8 @@ export const Conversation: React.FC = () => {
               });
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
-              if (scrollContainer) {
+              if (scrollContainer)
                 previousScrollHeight.current = scrollContainer.scrollHeight;
-              }
 
               setChatMessages((prev) => {
                 const existingIds = new Set(prev.map((m) => m.message_id));
@@ -538,7 +529,6 @@ export const Conversation: React.FC = () => {
     (e: React.UIEvent<HTMLDivElement>) => {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
 
-      // Show date bubble while scrolling, hide shortly after
       if (!showDateSticky) setShowDateSticky(true);
       if (hideDateStickyTimeoutRef.current) {
         clearTimeout(hideDateStickyTimeoutRef.current);
@@ -629,8 +619,7 @@ export const Conversation: React.FC = () => {
         const selectionEnd = textarea.selectionEnd;
         const currentScrollTop = textarea.scrollTop;
         const isScrolledToBottom =
-          textarea.scrollTop + textarea.clientHeight >=
-          textarea.scrollHeight - 1;
+          textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
         const isCursorAtEnd = cursorPosition === textarea.value.length;
 
         const shouldAutoScroll =
@@ -647,9 +636,8 @@ export const Conversation: React.FC = () => {
             : currentScrollTop;
         }
 
-        if (shouldPreserveCursor) {
+        if (shouldPreserveCursor)
           textarea.setSelectionRange(cursorPosition, selectionEnd);
-        }
       });
     },
     [currentAttachments.length, dynamicMaxHeight],
@@ -749,7 +737,6 @@ export const Conversation: React.FC = () => {
     }
   }, [loadChatHistory]);
 
-  // Only scroll on user send
   useEffect(() => {
     if (justSentMessageRef.current) {
       scrollToBottom(true, true);
@@ -780,9 +767,8 @@ export const Conversation: React.FC = () => {
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
-      if (hideDateStickyTimeoutRef.current) {
+      if (hideDateStickyTimeoutRef.current)
         clearTimeout(hideDateStickyTimeoutRef.current);
-      }
 
       cleanupFunctions.current.forEach((cleanup) => cleanup());
       cleanupFunctions.current = [];
@@ -922,9 +908,8 @@ export const Conversation: React.FC = () => {
                         const isLastFailedMessage =
                           msg.message_id === lastFailedMessageId;
 
-                        const storedThoughts = (msg as unknown as {
-                          thoughts?: string;
-                        }).thoughts;
+                        const storedThoughts = (msg as unknown as { thoughts?: string })
+                          .thoughts;
                         const effectiveThoughtText =
                           currentThoughtText || storedThoughts || undefined;
 
@@ -1112,11 +1097,11 @@ export const Conversation: React.FC = () => {
                   <AttachmentInputArea
                     ref={attachmentInputAreaRef}
                     onAttachmentsChange={setCurrentAttachments}
+                    onUploadStateChange={setIsUploadingAttachments}
                     messageValue={message}
                     resetInputHeightState={() => {}}
                     maxAttachments={MAX_ATTACHMENTS_CONFIG}
                     existingAttachments={currentAttachments}
-                    onUploadingChange={setIsUploadingAttachments}
                   >
                     <FiPaperclip size={18} />
                   </AttachmentInputArea>
