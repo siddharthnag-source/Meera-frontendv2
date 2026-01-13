@@ -12,12 +12,14 @@ export interface AttachmentInputAreaRef {
 
 interface Props {
   onAttachmentsChange: (attachments: ChatAttachmentInputState[]) => void;
-  onUploadingChange?: (uploading: boolean) => void; // NEW
   existingAttachments: ChatAttachmentInputState[];
   maxAttachments: number;
   messageValue: string;
   resetInputHeightState: () => void;
   children?: React.ReactNode;
+
+  // NEW: lets Conversation disable Send while upload is in progress
+  onUploadingChange?: (isUploading: boolean) => void;
 }
 
 const MAX_FILE_SIZE_MB = 25;
@@ -26,16 +28,21 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
   (props, ref) => {
     const {
       onAttachmentsChange,
-      onUploadingChange, // NEW
       existingAttachments,
       maxAttachments,
       children,
+      onUploadingChange,
     } = props;
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Tracks in-flight uploads so we only flip "uploading=false" when all are done.
-    const activeUploadsRef = useRef(0);
+    // Tracks how many uploads are currently in flight
+    const inFlightUploadsRef = useRef(0);
+
+    const setUploading = (delta: number) => {
+      inFlightUploadsRef.current = Math.max(0, inFlightUploadsRef.current + delta);
+      onUploadingChange?.(inFlightUploadsRef.current > 0);
+    };
 
     const uploadToSupabase = async (file: File) => {
       try {
@@ -67,10 +74,10 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
 
     const processFiles = async (files: FileList | File[]) => {
       const fileArray: File[] = Array.isArray(files) ? files : Array.from(files);
+      if (fileArray.length === 0) return;
 
-      // NEW: signal upload start
-      activeUploadsRef.current += 1;
-      onUploadingChange?.(true);
+      // Mark uploading started (even if attachment UI has not updated yet)
+      setUploading(+1);
 
       try {
         const processed: ChatAttachmentInputState[] = [];
@@ -104,12 +111,8 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
           onAttachmentsChange([...existingAttachments, ...processed]);
         }
       } finally {
-        // NEW: signal upload finish (only when all uploads complete)
-        activeUploadsRef.current -= 1;
-        if (activeUploadsRef.current <= 0) {
-          activeUploadsRef.current = 0;
-          onUploadingChange?.(false);
-        }
+        // Mark uploading finished
+        setUploading(-1);
       }
     };
 
@@ -120,8 +123,6 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
     useImperativeHandle(ref, () => ({
       clear: () => {
         onAttachmentsChange([]);
-        onUploadingChange?.(false); // safety
-        activeUploadsRef.current = 0;
       },
 
       removeAttachment: (index: number) => {
@@ -150,9 +151,9 @@ export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(
           accept="image/*,.pdf"
           onChange={(e) => {
             const files = e.target.files;
+            // Important: allow re-selecting same file later
+            e.target.value = '';
             if (files && files.length > 0) processFiles(files);
-            // allow re-selecting the same file immediately
-            e.currentTarget.value = '';
           }}
         />
 
