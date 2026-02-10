@@ -1,13 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import MetaPixel from '@/components/MetaPixel';
-import { QueryClientProvider } from '@/components/providers/QueryProvider';
-import { SessionProvider } from '@/components/providers/SessionProvider';
-import { ToastProvider } from '@/components/ui/ToastProvider';
-import { LiveAPIProvider } from '@/contexts/LiveAPIContext';
-import { PWAInstallProvider } from '@/contexts/PWAInstallContext';
-import { ThemeProvider } from '@/contexts/ThemeContext';
-import { LiveClientOptions } from '@/types/api';
+import Providers from '@/components/Providers';
 
 // Function to generate metadata dynamically
 export async function generateMetadata(): Promise<Metadata> {
@@ -68,10 +62,6 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
-const apiOptions: LiveClientOptions = {
-  apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY as string,
-};
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -79,17 +69,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <MetaPixel />
       </head>
       <body className={`antialiased`} suppressHydrationWarning>
-        <ThemeProvider>
-          <PWAInstallProvider>
-            <ToastProvider>
-              <QueryClientProvider>
-                <SessionProvider>
-                  <LiveAPIProvider options={apiOptions}>{children}</LiveAPIProvider>
-                </SessionProvider>
-              </QueryClientProvider>
-            </ToastProvider>
-          </PWAInstallProvider>
-        </ThemeProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

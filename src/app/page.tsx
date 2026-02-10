@@ -3,14 +3,9 @@
 import { Conversation } from '@/components/Conversation';
 import { PricingModalProvider } from '@/contexts/PricingModalContext';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import React, { Suspense, useEffect, useState } from 'react';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 type SessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
 

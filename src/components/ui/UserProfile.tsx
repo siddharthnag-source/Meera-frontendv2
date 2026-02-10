@@ -19,6 +19,30 @@ interface UserProfileProps {
   onClose: () => void;
 }
 
+function coercePostgresInt(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!/^-?\d+$/.test(trimmed)) return null;
+    return trimmed;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    // PostgREST may return bigint as number; truncate defensively.
+    return Math.trunc(value).toString(10);
+  }
+
+  // supabase-js can surface bigint as bigint when using custom type parsers
+  if (typeof value === 'bigint') return value.toString(10);
+
+  return null;
+}
+
+function formatIntStringWithCommas(value: string): string {
+  const sign = value.startsWith('-') ? '-' : '';
+  const digits = sign ? value.slice(1) : value;
+  return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
 // Faster transitions for improved UX
 const TRANSITIONS = {
   backdrop: { duration: 0.2 },
@@ -39,6 +63,8 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
   const { data: subscription } = useSubscriptionStatus();
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [totalCostTokens, setTotalCostTokens] = useState<string>('0');
+  const [isLoadingTotalCostTokens, setIsLoadingTotalCostTokens] = useState(false);
   // const { installPrompt, isStandalone, isIOS, handleInstallClick } = usePWAInstall();
   const { openModal } = usePricingModal();
 
@@ -61,6 +87,62 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
       subscription.unsubscribe();
     };
   }, []);
+
+  // Token ledger: load initial total + keep it live via Realtime (RLS-filtered by user_id).
+  useEffect(() => {
+    if (!user?.id) {
+      setTotalCostTokens('0');
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingTotalCostTokens(true);
+
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('user_token_ledger')
+        .select('total_tokens')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error('Failed to load user_token_ledger:', error);
+        setIsLoadingTotalCostTokens(false);
+        return;
+      }
+
+      setTotalCostTokens(coercePostgresInt(data?.total_tokens) ?? '0');
+      setIsLoadingTotalCostTokens(false);
+    };
+
+    load();
+
+    const channel = supabase
+      .channel(`user-token-ledger:${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_token_ledger',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const next = coercePostgresInt(
+            (payload.new as { total_tokens?: unknown } | null)?.total_tokens,
+          );
+          if (next != null) setTotalCostTokens(next);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   // Check if user is guest (has guest token but no Supabase user)
   const isGuest =
@@ -161,24 +243,39 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto hide-scrollbar px-4 sm:px-6 md:px-10 py-4 sm:py-6 md:py-8">
-                  <div className="flex flex-col gap-4 sm:gap-6">
-                    {/* Welcome Header */}
-                    <div>
-                      <h3 className="text-2xl sm:text-3xl font-serif italic text-primary">
-                        {isGuest
-                          ? `Welcome to ${process.env.NEXT_PUBLIC_APP_NAME} OS`
-                          : displayName || `Welcome to ${process.env.NEXT_PUBLIC_APP_NAME} OS`}
-                      </h3>
-                      {!isGuest && user?.email && (
-                        <p className="text-sm text-primary/70 mt-1">{user.email}</p>
-                      )}
-                    </div>
+	                  <div className="flex flex-col gap-4 sm:gap-6">
+	                    {/* Welcome Header */}
+	                    <div>
+	                      <h3 className="text-2xl sm:text-3xl font-serif italic text-primary">
+	                        {isGuest
+	                          ? `Welcome to ${process.env.NEXT_PUBLIC_APP_NAME} OS`
+	                          : displayName || `Welcome to ${process.env.NEXT_PUBLIC_APP_NAME} OS`}
+	                      </h3>
+	                      {!isGuest && user?.email && (
+	                        <p className="text-sm text-primary/70 mt-1">{user.email}</p>
+	                      )}
+	                    </div>
 
-                    {subscription?.plan_type === 'free_trial' && (
-                      <div className="rounded-xl border border-primary/20 bg-background overflow-hidden">
-                        {/* Available Talktime */}
-                        <div className="w-full flex items-center justify-between px-4 sm:px-5 py-3">
-                          <span className="text-[15px] text-primary">Available Talktime</span>
+	                    {!!user && (
+	                      <div className="rounded-xl border border-primary/20 bg-background overflow-hidden">
+	                        <div className="w-full flex items-center justify-between px-4 sm:px-5 py-3">
+	                          <span className="text-[15px] text-primary">
+	                            Total Cost of Consciousness
+	                          </span>
+	                          <span className="text-[15px] font-mono font-medium text-primary bg-primary/10 px-3 sm:px-4 py-1 rounded-md">
+	                            {isLoadingTotalCostTokens
+	                              ? '...'
+	                              : `${formatIntStringWithCommas(totalCostTokens)} tokens`}
+	                          </span>
+	                        </div>
+	                      </div>
+	                    )}
+
+	                    {subscription?.plan_type === 'free_trial' && (
+	                      <div className="rounded-xl border border-primary/20 bg-background overflow-hidden">
+	                        {/* Available Talktime */}
+	                        <div className="w-full flex items-center justify-between px-4 sm:px-5 py-3">
+	                          <span className="text-[15px] text-primary">Available Talktime</span>
                           <span className="text-[15px] font-medium text-primary bg-primary/10 px-3 sm:px-4 py-1 rounded-md">
                             {Math.floor((subscription?.talktime_left ?? 0) / 3600)}h{' '}
                             {Math.floor(

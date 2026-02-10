@@ -580,7 +580,8 @@ export interface LiveClientEventTypes {
 }
 
 export class GenAILiveClient extends EventEmitter<LiveClientEventTypes> {
-  protected client: GoogleGenAI;
+  protected client: GoogleGenAI | null = null;
+  private readonly clientOptions: LiveClientOptions;
 
   private _status: 'connected' | 'disconnected' | 'connecting' | 'disconnecting' = 'disconnected';
   public get status() {
@@ -624,7 +625,9 @@ export class GenAILiveClient extends EventEmitter<LiveClientEventTypes> {
 
   constructor(options: LiveClientOptions) {
     super();
-    this.client = new GoogleGenAI(options);
+    // Lazy-init to avoid crashing Next.js build/SSR when API key isn't present.
+    // We only need a live client when the user explicitly connects voice.
+    this.clientOptions = options;
     this.onopen = this.onopen.bind(this);
     this.onerror = this.onerror.bind(this);
     this.onclose = this.onclose.bind(this);
@@ -650,6 +653,10 @@ export class GenAILiveClient extends EventEmitter<LiveClientEventTypes> {
     };
 
     try {
+      if (!this.client) {
+        this.client = new GoogleGenAI(this.clientOptions);
+      }
+
       this._session = await this.client.live.connect({
         model,
         config,

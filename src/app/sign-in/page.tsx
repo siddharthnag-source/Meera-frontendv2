@@ -2,18 +2,13 @@
 
 import { SuccessDialog } from '@/components/SuccessDialog';
 import { H1, Italic } from '@/components/ui/Typography';
+import { supabase } from '@/lib/supabaseClient';
 import { cn } from '@/lib/utils';
-import { createClient } from '@supabase/supabase-js';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { FcGoogle } from 'react-icons/fc';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 function SearchParamsHandler() {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
