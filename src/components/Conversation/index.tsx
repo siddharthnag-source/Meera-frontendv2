@@ -786,9 +786,23 @@ export const Conversation: React.FC = () => {
   }, [loadChatHistory]);
 
   useEffect(() => {
-    if (!sessionData?.user?.email) return;
     loadPersistedStarredMessages(false);
-  }, [loadPersistedStarredMessages, sessionData?.user?.email]);
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        loadPersistedStarredMessages(false);
+      } else {
+        setStarredMessageIds([]);
+        setStarredMessageSnapshots([]);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [loadPersistedStarredMessages]);
 
   useEffect(() => {
     if (justSentMessageRef.current) {
