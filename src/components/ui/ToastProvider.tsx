@@ -18,6 +18,7 @@ export interface ShowToastOptions {
 
 interface ToastContextProps {
   showToast: (message: string, options: ShowToastOptions) => void;
+  clearToasts: (position: string) => void;
   toasts: Record<string, ToastState[]>;
 }
 
@@ -59,5 +60,15 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
     [],
   );
 
-  return <ToastContext.Provider value={{ showToast, toasts }}>{children}</ToastContext.Provider>;
+  const clearToasts = useCallback((position: string) => {
+    setToasts((prev) => {
+      if (!prev[position] || prev[position].length === 0) return prev;
+      return {
+        ...prev,
+        [position]: [],
+      };
+    });
+  }, []);
+
+  return <ToastContext.Provider value={{ showToast, clearToasts, toasts }}>{children}</ToastContext.Provider>;
 };

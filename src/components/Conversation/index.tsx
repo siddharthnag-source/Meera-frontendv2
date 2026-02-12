@@ -33,8 +33,8 @@ const FETCH_DEBOUNCE_MS = 300;
 const SCROLL_THROTTLE_MS = 16; // 60fps
 const INPUT_DEBOUNCE_MS = 16;
 const RESIZE_DEBOUNCE_MS = 100;
-const JUMP_WAIT_MAX_FRAMES = 300;
-const JUMP_HISTORY_PAGE_LIMIT = 20;
+const JUMP_DOM_POLL_INTERVAL_MS = 250;
+const JUMP_DOM_POLL_TIMEOUT_MS = 10000;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
 
 type ChatDisplayItem =
@@ -229,7 +229,7 @@ export const Conversation: React.FC = () => {
     isLoading: isSubscriptionLoading,
     isError: isSubscriptionError,
   } = useSubscriptionStatus();
-  const { showToast } = useToast();
+  const { showToast, clearToasts } = useToast();
   const { openModal } = usePricingModal();
 
   useEffect(() => {
@@ -365,40 +365,6 @@ export const Conversation: React.FC = () => {
     },
     [showToast, starredMessageIdSet],
   );
-
-  const waitForRenderCommit = useCallback(async (): Promise<void> => {
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => resolve());
-      });
-    });
-  }, []);
-
-  const waitForMessageElement = useCallback(
-    async (messageId: string, maxFrames: number = JUMP_WAIT_MAX_FRAMES): Promise<HTMLElement | null> => {
-      for (let frame = 0; frame < maxFrames; frame += 1) {
-        const element = document.getElementById(`message-${messageId}`);
-        if (element instanceof HTMLElement) return element;
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      }
-
-      return null;
-    },
-    [],
-  );
-
-  const waitForActiveHistoryLoad = useCallback(async (): Promise<void> => {
-    while (fetchStateRef.current.isLoading) {
-      const activeLoads = Array.from(requestCache.current.values());
-
-      if (activeLoads.length === 0) {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        continue;
-      }
-
-      await Promise.race(activeLoads.map((loadPromise) => Promise.resolve(loadPromise).catch(() => undefined)));
-    }
-  }, []);
 
   const flashJumpTarget = useCallback((messageId: string) => {
     setHighlightedMessageId(messageId);
@@ -699,37 +665,6 @@ export const Conversation: React.FC = () => {
     ],
   );
 
-  const ensureAssistantMessageLoaded = useCallback(
-    async (
-      assistantMessageId: string,
-    ): Promise<{ sourceMessages: ChatMessageFromServer[]; assistantIndex: number }> => {
-      let pagesLoaded = 0;
-
-      while (true) {
-        const sourceMessages = chatMessagesRef.current;
-        const assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
-        if (assistantIndex >= 0) return { sourceMessages, assistantIndex };
-
-        const state = fetchStateRef.current;
-        if (!state.hasMore || pagesLoaded >= JUMP_HISTORY_PAGE_LIMIT) {
-          return { sourceMessages, assistantIndex: -1 };
-        }
-
-        if (state.isLoading) {
-          await waitForActiveHistoryLoad();
-          await waitForRenderCommit();
-          continue;
-        }
-
-        const nextPage = Math.max(1, state.currentPage + 1);
-        await loadChatHistory(nextPage, false);
-        pagesLoaded += 1;
-        await waitForRenderCommit();
-      }
-    },
-    [loadChatHistory, waitForActiveHistoryLoad, waitForRenderCommit],
-  );
-
   const handleJumpToMessage = useCallback(
     (assistantMessageId: string) => {
       if (isJumpingRef.current) return;
@@ -737,87 +672,63 @@ export const Conversation: React.FC = () => {
       void (async () => {
         isJumpingRef.current = true;
         suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
+        clearToasts('conversation');
+        showToast('Locating message in history...', {
+          type: 'info',
+          position: 'conversation',
+          persist: true,
+        });
 
-        let sourceMessages = chatMessagesRef.current;
-        let assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
+        const startedAt = Date.now();
+        let didJump = false;
 
-        if (assistantIndex < 0) {
-          showToast('Locating message in history...', {
-            type: 'info',
-            position: 'conversation',
-          });
-        }
+        while (Date.now() - startedAt < JUMP_DOM_POLL_TIMEOUT_MS) {
+          const sourceMessages = chatMessagesRef.current;
+          const assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
 
-        const resolved = await ensureAssistantMessageLoaded(assistantMessageId);
-        sourceMessages = resolved.sourceMessages;
-        assistantIndex = resolved.assistantIndex;
-
-        if (assistantIndex < 0) {
-          showToast('Message is too far back or deleted.', {
-            type: 'error',
-            position: 'conversation',
-          });
-          return;
-        }
-
-        if (assistantIndex === 0) {
-          const state = fetchStateRef.current;
-          if (state.hasMore) {
-            if (state.isLoading) {
-              await waitForActiveHistoryLoad();
-            } else {
-              const nextPage = Math.max(1, state.currentPage + 1);
-              await loadChatHistory(nextPage, false);
+          let targetMessageId = assistantMessageId;
+          if (assistantIndex > 0) {
+            const contextMessage = sourceMessages[assistantIndex - 1];
+            if (contextMessage?.content_type === 'user') {
+              targetMessageId = contextMessage.message_id;
             }
-
-            await waitForRenderCommit();
-
-            sourceMessages = chatMessagesRef.current;
-            assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
           }
+
+          const domId = `message-${targetMessageId}`;
+          const escapedDomId =
+            typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(domId) : domId;
+          const targetElement = document.querySelector<HTMLElement>(`#${escapedDomId}`);
+
+          if (targetElement) {
+            clearToasts('conversation');
+            targetElement.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            flashJumpTarget(targetMessageId);
+            suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
+            didJump = true;
+            break;
+          }
+
+          const state = fetchStateRef.current;
+          if (state.hasMore && !state.isLoading) {
+            const nextPage = Math.max(1, state.currentPage + 1);
+            await loadChatHistory(nextPage, false);
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, JUMP_DOM_POLL_INTERVAL_MS));
         }
 
-        if (assistantIndex < 0) {
+        if (!didJump) {
+          clearToasts('conversation');
           showToast('Message is too far back or deleted.', {
             type: 'error',
             position: 'conversation',
           });
-          return;
         }
-
-        let targetMessageId = assistantMessageId;
-        const contextMessage = sourceMessages[assistantIndex - 1];
-        if (contextMessage?.content_type === 'user') {
-          targetMessageId = contextMessage.message_id;
-        }
-
-        const scrollContainer = mainScrollRef.current;
-        if (!scrollContainer) {
-          showToast('Unable to locate this message in the current view.', {
-            type: 'error',
-            position: 'conversation',
-          });
-          return;
-        }
-
-        await waitForRenderCommit();
-        const targetElement = (document.getElementById(`message-${targetMessageId}`) as HTMLElement | null) ??
-          (await waitForMessageElement(targetMessageId, JUMP_WAIT_MAX_FRAMES));
-        if (!targetElement) {
-          showToast('Unable to locate this message in the current view.', {
-            type: 'error',
-            position: 'conversation',
-          });
-          return;
-        }
-
-        targetElement.scrollIntoView({ block: 'start', behavior: 'smooth' });
-        flashJumpTarget(targetMessageId);
-        suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
       })()
         .catch((error) => {
           console.error('Failed to jump to starred message context', error);
-          showToast('Unable to locate this message in the current view.', {
+          clearToasts('conversation');
+          showToast('Message is too far back or deleted.', {
             type: 'error',
             position: 'conversation',
           });
@@ -827,13 +738,10 @@ export const Conversation: React.FC = () => {
         });
     },
     [
-      ensureAssistantMessageLoaded,
+      clearToasts,
       flashJumpTarget,
       loadChatHistory,
       showToast,
-      waitForActiveHistoryLoad,
-      waitForMessageElement,
-      waitForRenderCommit,
     ],
   );
 
