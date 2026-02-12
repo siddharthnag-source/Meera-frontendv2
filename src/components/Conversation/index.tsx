@@ -208,7 +208,6 @@ export const Conversation: React.FC = () => {
 
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
   const cleanupFunctions = useRef<Array<() => void>>([]);
-  const chatMessagesRef = useRef<ChatMessageFromServer[]>(chatMessages);
   const fetchStateRef = useRef(fetchState);
   const starMutationInFlightRef = useRef<Set<string>>(new Set());
 
@@ -231,10 +230,6 @@ export const Conversation: React.FC = () => {
   } = useSubscriptionStatus();
   const { showToast, clearToasts } = useToast();
   const { openModal } = usePricingModal();
-
-  useEffect(() => {
-    chatMessagesRef.current = chatMessages;
-  }, [chatMessages]);
 
   useEffect(() => {
     fetchStateRef.current = fetchState;
@@ -317,7 +312,7 @@ export const Conversation: React.FC = () => {
       const isCurrentlyStarred = starredMessageIdSet.has(target.message_id);
       const userContext =
         target.content_type === 'assistant'
-          ? getUserContextForStar(chatMessagesRef.current, target.message_id)
+          ? getUserContextForStar(chatMessages, target.message_id)
           : '';
       const summary = generateStarSummary(userContext || target.content);
       const optimisticSnapshot = withStarMetadata(target, userContext, summary);
@@ -363,7 +358,7 @@ export const Conversation: React.FC = () => {
           starMutationInFlightRef.current.delete(target.message_id);
         });
     },
-    [showToast, starredMessageIdSet],
+    [chatMessages, showToast, starredMessageIdSet],
   );
 
   const flashJumpTarget = useCallback((messageId: string) => {
@@ -681,19 +676,17 @@ export const Conversation: React.FC = () => {
 
         const startedAt = Date.now();
         let didJump = false;
+        let targetMessageId = assistantMessageId;
+
+        const assistantIndex = chatMessages.findIndex((msg) => msg.message_id === assistantMessageId);
+        if (assistantIndex > 0) {
+          const contextMessage = chatMessages[assistantIndex - 1];
+          if (contextMessage?.content_type === 'user') {
+            targetMessageId = contextMessage.message_id;
+          }
+        }
 
         while (Date.now() - startedAt < JUMP_DOM_POLL_TIMEOUT_MS) {
-          const sourceMessages = chatMessagesRef.current;
-          const assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
-
-          let targetMessageId = assistantMessageId;
-          if (assistantIndex > 0) {
-            const contextMessage = sourceMessages[assistantIndex - 1];
-            if (contextMessage?.content_type === 'user') {
-              targetMessageId = contextMessage.message_id;
-            }
-          }
-
           const domId = `message-${targetMessageId}`;
           const escapedDomId =
             typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(domId) : domId;
@@ -739,6 +732,7 @@ export const Conversation: React.FC = () => {
     },
     [
       clearToasts,
+      chatMessages,
       flashJumpTarget,
       loadChatHistory,
       showToast,
