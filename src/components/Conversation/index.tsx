@@ -2,6 +2,7 @@
 
 import { chatService } from '@/app/api/services/chat';
 import { MeeraVoice } from '@/components/MeeraVoice';
+import { Sidebar } from '@/components/Sidebar';
 import { Toast } from '@/components/ui/Toast';
 import { useToast } from '@/components/ui/ToastProvider';
 import { UserProfile } from '@/components/ui/UserProfile';
@@ -15,21 +16,11 @@ import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
-import React, {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
-import {
-  AttachmentInputArea,
-  AttachmentInputAreaRef,
-} from './AttachmentInputArea';
+import { AttachmentInputArea, AttachmentInputAreaRef } from './AttachmentInputArea';
 import { AttachmentPreview } from './AttachmentPreview';
 import { CallSessionItem } from './CallSessionItem';
 import { RenderedMessageItem } from './RenderedMessageItem';
@@ -70,65 +61,56 @@ type LegacyMessageRow = {
   is_call: boolean | null;
 };
 
-const MemoizedRenderedMessageItem = React.memo(
-  RenderedMessageItem,
-  (prevProps, nextProps) => {
-    const prevAttachments = prevProps.message.attachments ?? [];
-    const nextAttachments = nextProps.message.attachments ?? [];
+const MemoizedRenderedMessageItem = React.memo(RenderedMessageItem, (prevProps, nextProps) => {
+  const prevAttachments = prevProps.message.attachments ?? [];
+  const nextAttachments = nextProps.message.attachments ?? [];
 
-    const attachmentsEqual =
-      prevAttachments.length === nextAttachments.length &&
-      JSON.stringify(prevAttachments) === JSON.stringify(nextAttachments);
+  const attachmentsEqual =
+    prevAttachments.length === nextAttachments.length &&
+    JSON.stringify(prevAttachments) === JSON.stringify(nextAttachments);
 
-    return (
-      prevProps.message.message_id === nextProps.message.message_id &&
-      prevProps.message.content === nextProps.message.content &&
-      prevProps.isStreaming === nextProps.isStreaming &&
-      prevProps.isLastFailedMessage === nextProps.isLastFailedMessage &&
-      prevProps.message.failed === nextProps.message.failed &&
-      prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
-      prevProps.thoughtText === nextProps.thoughtText &&
-      prevProps.hasMinHeight === nextProps.hasMinHeight &&
-      prevProps.dynamicMinHeight === nextProps.dynamicMinHeight &&
-      attachmentsEqual
-    );
-  },
-);
+  return (
+    prevProps.message.message_id === nextProps.message.message_id &&
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.isStreaming === nextProps.isStreaming &&
+    prevProps.isStarred === nextProps.isStarred &&
+    prevProps.isLastFailedMessage === nextProps.isLastFailedMessage &&
+    prevProps.message.failed === nextProps.message.failed &&
+    prevProps.showTypingIndicator === nextProps.showTypingIndicator &&
+    prevProps.thoughtText === nextProps.thoughtText &&
+    prevProps.hasMinHeight === nextProps.hasMinHeight &&
+    prevProps.dynamicMinHeight === nextProps.dynamicMinHeight &&
+    attachmentsEqual
+  );
+});
 
-const MemoizedCallSessionItem = React.memo(
-  CallSessionItem,
-  (prevProps, nextProps) => {
-    return (
-      prevProps.messages.length === nextProps.messages.length &&
-      prevProps.messages.every(
-        (msg, index) => msg.message_id === nextProps.messages[index]?.message_id,
-      )
-    );
-  },
-);
+const MemoizedCallSessionItem = React.memo(CallSessionItem, (prevProps, nextProps) => {
+  return (
+    prevProps.messages.length === nextProps.messages.length &&
+    prevProps.messages.every((msg, index) => msg.message_id === nextProps.messages[index]?.message_id)
+  );
+});
 
-const MemoizedAttachmentPreview = React.memo(
-  AttachmentPreview,
-  (prevProps, nextProps) => {
-    return (
-      prevProps.attachment.file?.name === nextProps.attachment.file?.name &&
-      prevProps.attachment.previewUrl === nextProps.attachment.previewUrl &&
-      prevProps.index === nextProps.index
-    );
-  },
-);
+const MemoizedAttachmentPreview = React.memo(AttachmentPreview, (prevProps, nextProps) => {
+  return (
+    prevProps.attachment.file?.name === nextProps.attachment.file?.name &&
+    prevProps.attachment.previewUrl === nextProps.attachment.previewUrl &&
+    prevProps.index === nextProps.index
+  );
+});
 
 export const Conversation: React.FC = () => {
   const [message, setMessage] = useState('');
   const [inputValue, setInputValue] = useState('');
 
-  const [currentAttachments, setCurrentAttachments] =
-    useState<ChatAttachmentInputState[]>([]);
+  const [currentAttachments, setCurrentAttachments] = useState<ChatAttachmentInputState[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessageFromServer[]>([]);
   const [isSearchActive, setIsSearchActive] = useState(true);
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
 
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
@@ -196,10 +178,7 @@ export const Conversation: React.FC = () => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
-  const debouncedSetMessage = useMemo(
-    () => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS),
-    [],
-  );
+  const debouncedSetMessage = useMemo(() => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS), []);
 
   useEffect(() => {
     debouncedSetMessage(inputValue);
@@ -213,91 +192,113 @@ export const Conversation: React.FC = () => {
     return null;
   }, [chatMessages]);
 
+  const starredMessageIdSet = useMemo(() => new Set(starredMessageIds), [starredMessageIds]);
+
+  const starredMessages = useMemo(() => {
+    const messageMap = new Map(chatMessages.map((msg) => [msg.message_id, msg]));
+    return [...starredMessageIds]
+      .reverse()
+      .map((messageId) => messageMap.get(messageId))
+      .filter((msg): msg is ChatMessageFromServer => Boolean(msg));
+  }, [chatMessages, starredMessageIds]);
+
+  const toggleStarForMessage = useCallback((target: ChatMessageFromServer) => {
+    if (!target.content.trim()) return;
+
+    setStarredMessageIds((prev) => {
+      if (prev.includes(target.message_id)) {
+        return prev.filter((id) => id !== target.message_id);
+      }
+      return [...prev, target.message_id];
+    });
+  }, []);
+
+  const handleSelectStarredMessage = useCallback(
+    (messageId: string) => {
+      const target = document.getElementById(`message-${messageId}`);
+      if (!target) {
+        showToast('Unable to locate this message in the current view.', {
+          type: 'error',
+          position: 'conversation',
+        });
+        return;
+      }
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
+    [showToast],
+  );
+
   const calculateMinHeight = useCallback(() => {
     const viewportHeight = window.innerHeight;
     const headerHeight = headerRef.current?.offsetHeight || 80;
     const footerHeight = (footerRef.current?.offsetHeight || 0) - 45;
     const userMessageHeight = latestUserMessageRef.current?.offsetHeight || 0;
 
-    const calculatedMinHeight = Math.max(
-      0,
-      viewportHeight - headerHeight - footerHeight - userMessageHeight - 100,
-    );
+    const calculatedMinHeight = Math.max(0, viewportHeight - headerHeight - footerHeight - userMessageHeight - 100);
 
     setDynamicMinHeight(calculatedMinHeight);
   }, []);
 
-  const processMessagesForDisplay = useCallback(
-    (messages: ChatMessageFromServer[]): [string, ChatDisplayItem[]][] => {
-      const grouped: Record<string, ChatDisplayItem[]> = {};
+  const processMessagesForDisplay = useCallback((messages: ChatMessageFromServer[]): [string, ChatDisplayItem[]][] => {
+    const grouped: Record<string, ChatDisplayItem[]> = {};
 
-      const groupCallSessions = (
-        msgs: ChatMessageFromServer[],
-      ): ChatDisplayItem[] => {
-        const displayItems: ChatDisplayItem[] = [];
-        const callSessions: Record<string, ChatMessageFromServer[]> = {};
+    const groupCallSessions = (msgs: ChatMessageFromServer[]): ChatDisplayItem[] => {
+      const displayItems: ChatDisplayItem[] = [];
+      const callSessions: Record<string, ChatMessageFromServer[]> = {};
 
-        msgs.forEach((msg) => {
-          if (msg.is_call && msg.session_id) {
-            if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
-            callSessions[msg.session_id].push(msg);
-          } else {
-            displayItems.push({ type: 'message', message: msg, id: msg.message_id });
-          }
-        });
-
-        for (const sessionId in callSessions) {
-          const sessionMessages = callSessions[sessionId].sort((a, b) =>
-            a.timestamp.localeCompare(b.timestamp),
-          );
-          if (sessionMessages.length > 0) {
-            displayItems.push({
-              type: 'call_session',
-              messages: sessionMessages,
-              session_id: sessionId,
-              timestamp: sessionMessages[sessionMessages.length - 1].timestamp,
-              id: sessionId,
-            });
-          }
+      msgs.forEach((msg) => {
+        if (msg.is_call && msg.session_id) {
+          if (!callSessions[msg.session_id]) callSessions[msg.session_id] = [];
+          callSessions[msg.session_id].push(msg);
+        } else {
+          displayItems.push({ type: 'message', message: msg, id: msg.message_id });
         }
-
-        return displayItems.sort((a, b) => {
-          const timestampA =
-            a.type === 'message' ? a.message.timestamp : a.timestamp;
-          const timestampB =
-            b.type === 'message' ? b.message.timestamp : b.timestamp;
-          return timestampA.localeCompare(timestampB);
-        });
-      };
-
-      const displayItems = groupCallSessions(messages);
-
-      displayItems.forEach((item) => {
-        const timestamp =
-          item.type === 'message' ? item.message.timestamp : item.timestamp;
-        const tsMatch = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})/);
-        const dateKey = tsMatch ? tsMatch[0] : 'unknown';
-
-        if (!grouped[dateKey]) grouped[dateKey] = [];
-        grouped[dateKey].push(item);
       });
 
-      return Object.entries(grouped).sort(([a], [b]) => {
-        if (a === 'unknown') return 1;
-        if (b === 'unknown') return -1;
-        return a.localeCompare(b);
+      for (const sessionId in callSessions) {
+        const sessionMessages = callSessions[sessionId].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        if (sessionMessages.length > 0) {
+          displayItems.push({
+            type: 'call_session',
+            messages: sessionMessages,
+            session_id: sessionId,
+            timestamp: sessionMessages[sessionMessages.length - 1].timestamp,
+            id: sessionId,
+          });
+        }
+      }
+
+      return displayItems.sort((a, b) => {
+        const timestampA = a.type === 'message' ? a.message.timestamp : a.timestamp;
+        const timestampB = b.type === 'message' ? b.message.timestamp : b.timestamp;
+        return timestampA.localeCompare(timestampB);
       });
-    },
-    [],
-  );
+    };
+
+    const displayItems = groupCallSessions(messages);
+
+    displayItems.forEach((item) => {
+      const timestamp = item.type === 'message' ? item.message.timestamp : item.timestamp;
+      const tsMatch = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      const dateKey = tsMatch ? tsMatch[0] : 'unknown';
+
+      if (!grouped[dateKey]) grouped[dateKey] = [];
+      grouped[dateKey].push(item);
+    });
+
+    return Object.entries(grouped).sort(([a], [b]) => {
+      if (a === 'unknown') return 1;
+      if (b === 'unknown') return -1;
+      return a.localeCompare(b);
+    });
+  }, []);
 
   const messagesByDate = useMemo(
     () => processMessagesForDisplay(chatMessages),
     [chatMessages, processMessagesForDisplay],
   );
 
-  const lastMessage =
-    chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
+  const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
   const hasPendingUploads = useMemo(() => {
     if (isUploadingAttachments) return true;
@@ -310,24 +311,26 @@ export const Conversation: React.FC = () => {
 
   const canSubmit = useMemo(
     () => (message.trim() || currentAttachments.length > 0) && !isSending && !hasPendingUploads,
-    [message, currentAttachments.length, isSending, hasPendingUploads],
+    [
+      message,
+      currentAttachments.length,
+      isSending,
+      hasPendingUploads,
+    ],
   );
 
-  const scrollToBottom = useCallback(
-    (smooth: boolean = true, force: boolean = false) => {
-      const el = mainScrollRef.current;
-      if (!el) return;
-      if (!force) return;
+  const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    if (!force) return;
 
-      requestAnimationFrame(() => {
-        el.scrollTo({
-          top: el.scrollHeight,
-          behavior: smooth ? 'smooth' : 'auto',
-        });
+    requestAnimationFrame(() => {
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto',
       });
-    },
-    [],
-  );
+    });
+  }, []);
 
   useEffect(() => {
     const email = sessionData?.user?.email;
@@ -335,12 +338,7 @@ export const Conversation: React.FC = () => {
 
     const findLegacyUser = async () => {
       try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('id')
-          .eq('email', email)
-          .limit(1)
-          .maybeSingle();
+        const { data, error } = await supabase.from('users').select('id').eq('email', email).limit(1).maybeSingle();
 
         if (!error && data?.id) setLegacyUserId(data.id as string);
       } catch (err) {
@@ -360,9 +358,7 @@ export const Conversation: React.FC = () => {
 
         const { data, error } = await supabase
           .from('messages')
-          .select(
-            'message_id,user_id,content_type,content,timestamp,session_id,is_call',
-          )
+          .select('message_id,user_id,content_type,content,timestamp,session_id,is_call')
           .eq('user_id', legacyUserId)
           .order('timestamp', { ascending: true });
 
@@ -372,19 +368,17 @@ export const Conversation: React.FC = () => {
           return;
         }
 
-        const mapped: ChatMessageFromServer[] = (data as LegacyMessageRow[]).map(
-          (row) => ({
-            message_id: row.message_id,
-            content_type: row.content_type,
-            content: row.content,
-            timestamp: row.timestamp,
-            session_id: row.session_id ?? undefined,
-            is_call: row.is_call ?? false,
-            attachments: [],
-            failed: false,
-            finish_reason: null,
-          }),
-        );
+        const mapped: ChatMessageFromServer[] = (data as LegacyMessageRow[]).map((row) => ({
+          message_id: row.message_id,
+          content_type: row.content_type,
+          content: row.content,
+          timestamp: row.timestamp,
+          session_id: row.session_id ?? undefined,
+          is_call: row.is_call ?? false,
+          attachments: [],
+          failed: false,
+          finish_reason: null,
+        }));
 
         setChatMessages(mapped);
         setHasLoadedLegacyHistory(true);
@@ -400,7 +394,11 @@ export const Conversation: React.FC = () => {
     };
 
     loadLegacyHistory();
-  }, [legacyUserId, hasLoadedLegacyHistory, scrollToBottom]);
+  }, [
+    legacyUserId,
+    hasLoadedLegacyHistory,
+    scrollToBottom,
+  ]);
 
   const loadChatHistory = useCallback(
     async (page: number = 1, isInitial: boolean = false, retryCount = 0) => {
@@ -478,9 +476,7 @@ export const Conversation: React.FC = () => {
 
           if (
             retryCount < 2 &&
-            ((error instanceof Error &&
-              'code' in error &&
-              (error as { code?: string }).code === 'NETWORK_ERROR') ||
+            ((error instanceof Error && 'code' in error && (error as { code?: string }).code === 'NETWORK_ERROR') ||
               !navigator.onLine)
           ) {
             setTimeout(() => loadChatHistory(page, isInitial, retryCount + 1), 1000 * (retryCount + 1));
@@ -543,8 +539,8 @@ export const Conversation: React.FC = () => {
         currentScrollTop > lastScrollTopRef.current
           ? 'down'
           : currentScrollTop < lastScrollTopRef.current
-          ? 'up'
-          : 'still';
+            ? 'up'
+            : 'still';
       lastScrollTopRef.current = currentScrollTop;
 
       if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
@@ -578,20 +574,14 @@ export const Conversation: React.FC = () => {
     ],
   );
 
-  const handleScroll = useMemo(
-    () => throttle(handleScrollInternal, SCROLL_THROTTLE_MS),
-    [handleScrollInternal],
-  );
+  const handleScroll = useMemo(() => throttle(handleScrollInternal, SCROLL_THROTTLE_MS), [handleScrollInternal]);
 
   const handleResize = useCallback(() => {
     setDynamicMaxHeight(window.innerHeight / DYNAMIC_MAX_HEIGHT_RATIO);
     calculateMinHeight();
   }, [calculateMinHeight]);
 
-  const debouncedHandleResize = useMemo(
-    () => debounce(handleResize, RESIZE_DEBOUNCE_MS),
-    [handleResize],
-  );
+  const debouncedHandleResize = useMemo(() => debounce(handleResize, RESIZE_DEBOUNCE_MS), [handleResize]);
 
   const clearAllInput = useCallback(() => {
     setMessage('');
@@ -616,12 +606,10 @@ export const Conversation: React.FC = () => {
         const cursorPosition = textarea.selectionStart;
         const selectionEnd = textarea.selectionEnd;
         const currentScrollTop = textarea.scrollTop;
-        const isScrolledToBottom =
-          textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
+        const isScrolledToBottom = textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
         const isCursorAtEnd = cursorPosition === textarea.value.length;
 
-        const shouldAutoScroll =
-          !shouldPreserveCursor || isScrolledToBottom || isCursorAtEnd;
+        const shouldAutoScroll = !shouldPreserveCursor || isScrolledToBottom || isCursorAtEnd;
 
         textarea.style.height = 'auto';
         const scrollHeight = textarea.scrollHeight;
@@ -629,9 +617,7 @@ export const Conversation: React.FC = () => {
         textarea.style.height = `${newHeight}px`;
 
         if (scrollHeight > dynamicMaxHeight) {
-          textarea.scrollTop = shouldAutoScroll
-            ? textarea.scrollHeight
-            : currentScrollTop;
+          textarea.scrollTop = shouldAutoScroll ? textarea.scrollHeight : currentScrollTop;
         }
 
         if (shouldPreserveCursor) textarea.setSelectionRange(cursorPosition, selectionEnd);
@@ -662,11 +648,7 @@ export const Conversation: React.FC = () => {
     [handleTextareaResize],
   );
 
-  const {
-    executeSubmission,
-    handleRetryMessage,
-    getMostRecentAssistantMessageId,
-  } = useMessageSubmission({
+  const { executeSubmission, handleRetryMessage, getMostRecentAssistantMessageId } = useMessageSubmission({
     message,
     currentAttachments,
     chatMessages,
@@ -704,11 +686,7 @@ export const Conversation: React.FC = () => {
   );
 
   useLayoutEffect(() => {
-    if (
-      !fetchState.isLoading &&
-      previousScrollHeight.current > 0 &&
-      mainScrollRef.current
-    ) {
+    if (!fetchState.isLoading && previousScrollHeight.current > 0 && mainScrollRef.current) {
       const scrollContainer = mainScrollRef.current;
       const heightDifference = scrollContainer.scrollHeight - previousScrollHeight.current;
 
@@ -747,9 +725,7 @@ export const Conversation: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      currentAttachments.forEach(
-        (att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl),
-      );
+      currentAttachments.forEach((att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl));
     };
   }, [currentAttachments]);
 
@@ -765,9 +741,7 @@ export const Conversation: React.FC = () => {
       cleanupFunctions.current = [];
       requestCache.current.clear();
 
-      currentAttachments.forEach(
-        (att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl),
-      );
+      currentAttachments.forEach((att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl));
     };
   }, [fetchState.abortController, currentAttachments]);
 
@@ -782,339 +756,339 @@ export const Conversation: React.FC = () => {
       justSentMessageRef.current = true;
       executeSubmission(message, currentAttachments);
     },
-    [executeSubmission, message, currentAttachments, canSubmit],
+    [
+      executeSubmission,
+      message,
+      currentAttachments,
+      canSubmit,
+    ],
   );
 
   return (
-    <div className="grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative">
-      {isDraggingOver && (
-        <div className="fixed inset-0 bg-primary/10 backdrop-blur-[2px] z-50 flex items-center justify-center">
-          <div className="bg-background px-8 py-5 rounded-lg shadow-md border border-primary/20">
-            <p className="text-primary font-medium">Drop files to attach</p>
+    <div className="relative bg-background">
+      <Sidebar
+        tokensLeft={subscriptionData?.tokens_left ?? null}
+        starredMessages={starredMessages}
+        onSelectMessage={handleSelectStarredMessage}
+        userName={sessionData?.user?.name || sessionData?.user?.email || 'Profile'}
+        userAvatar={sessionData?.user?.image || null}
+        isMobileOpen={isSidebarOpen}
+        onCloseMobile={() => setIsSidebarOpen(false)}
+      />
+
+      <div className="grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative md:ml-[260px]">
+        {isDraggingOver && (
+          <div className="fixed inset-0 bg-primary/10 backdrop-blur-[2px] z-50 flex items-center justify-center">
+            <div className="bg-background px-8 py-5 rounded-lg shadow-md border border-primary/20">
+              <p className="text-primary font-medium">Drop files to attach</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <header
-        ref={headerRef}
-        className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20"
-      >
-        <div className="w-full mx-auto flex items-center justify-between">
-          <button
-            onClick={() => setShowUserProfile(true)}
-            className={`flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
-              sessionStatus === 'authenticated' && sessionData?.user?.image
-                ? ''
-                : 'p-2'
-            }`}
-          >
-            <FiMenu size={20} className="text-primary" />
-          </button>
+        <header
+          ref={headerRef}
+          className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20"
+        >
+          <div className="w-full mx-auto flex items-center justify-between">
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="flex md:hidden items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary p-2"
+              aria-label="Open sidebar"
+            >
+              <FiMenu size={20} className="text-primary" />
+            </button>
+            <button
+              onClick={() => setShowUserProfile(true)}
+              className={`hidden md:flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
+                sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
+              }`}
+              aria-label="Open profile"
+            >
+              <FiMenu size={20} className="text-primary" />
+            </button>
 
-          <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
-            <h1 className="text-lg text-primary md:text-xl font-sans">
-              {process.env.NEXT_PUBLIC_APP_NAME}
-            </h1>
+            <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
+              <h1 className="text-lg text-primary md:text-xl font-sans">{process.env.NEXT_PUBLIC_APP_NAME}</h1>
+            </div>
+
+            <button
+              onClick={() => setShowMeeraVoice(true)}
+              className="flex items-center justify-center w-9 p-2 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
+              aria-label="Open voice assistant"
+            >
+              <IoCallSharp size={24} className="text-primary" />
+            </button>
           </div>
+        </header>
 
-          <button
-            onClick={() => setShowMeeraVoice(true)}
-            className="flex items-center justify-center w-9 p-2 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
-            aria-label="Open voice assistant"
-          >
-            <IoCallSharp size={24} className="text-primary" />
-          </button>
-        </div>
-      </header>
-
-      <main
-        ref={mainScrollRef}
-        className="overflow-y-auto w-full scroll-pt-2.5"
-        onScroll={handleScroll}
-      >
-        <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
-          {isInitialLoading && (
-            <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-            </div>
-          )}
-
-          {fetchState.error && !isInitialLoading && chatMessages.length === 0 && (
-            <div className="flex flex-col justify-center items-center h-[calc(100vh-10rem)] text-center">
-              <p className="text-red-500 mb-2">{fetchState.error}</p>
-              <button
-                onClick={stableCallbacks.handleRetryLoadHistory}
-                className="px-4 py-2 bg-primary text-background rounded-md hover:bg-primary/90 transition-colors"
-              >
-                Try Again
-              </button>
-            </div>
-          )}
-
-          {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
-            <div className="h-[calc(100vh-10rem)]" />
-          )}
-
-          {!isInitialLoading && chatMessages.length > 0 && (
-            <div className="flex flex-col space-y-0 w-full">
-              {fetchState.isLoading && isUserNearTop && (
-                <div className="flex justify-center py-4 sticky top-0 z-10">
-                  <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
-                  </div>
-                </div>
-              )}
-
-              {messagesByDate.map(([dateKey, messages]) => {
-                const dateHeader = formatWhatsAppStyle(dateKey);
-
-                return (
-                  <div key={dateKey} className="date-group relative w_full">
-                    {dateHeader && showDateSticky && (
-                      <div className="sticky pt-2 z-20 flex justify-center my-3 top-0 pointer-events-none">
-                        <div className="bg-background text-primary text-xs px-4 py-1.5 rounded-full shadow-sm border border-primary/10">
-                          {dateHeader}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="messages-container">
-                      {messages.map((item) => {
-                        if (item.type === 'call_session') {
-                          return (
-                            <MemoizedCallSessionItem
-                              key={item.id}
-                              messages={item.messages}
-                            />
-                          );
-                        }
-
-                        const msg = item.message;
-                        const isStreamingMessage =
-                          isSending &&
-                          msg.content_type === 'assistant' &&
-                          msg.message_id === lastMessage?.message_id &&
-                          msg.finish_reason == null;
-
-                        const isLastFailedMessage = msg.message_id === lastFailedMessageId;
-
-                        const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
-                        const effectiveThoughtText = currentThoughtText || storedThoughts || undefined;
-
-                        const shouldShowTypingIndicator =
-                          msg.content_type === 'assistant' &&
-                          msg.message_id === lastMessage?.message_id &&
-                          isAssistantTyping &&
-                          (msg.content ?? '').length === 0;
-
-                        const isLatestUserMessage =
-                          msg.content_type === 'user' &&
-                          msg.message_id === lastOptimisticMessageIdRef.current;
-
-                        const isLatestAssistantMessage =
-                          msg.content_type === 'assistant' &&
-                          msg.message_id === getMostRecentAssistantMessageId();
-
-                        return (
-                          <div
-                            id={`message-${msg.message_id}`}
-                            key={msg.message_id}
-                            ref={
-                              isLatestUserMessage
-                                ? latestUserMessageRef
-                                : isLatestAssistantMessage
-                                ? latestAssistantMessageRef
-                                : null
-                            }
-                            className="message-item-wrapper w-full transform-gpu will-change-transform"
-                          >
-                            <MemoizedRenderedMessageItem
-                              message={msg}
-                              isStreaming={isStreamingMessage}
-                              onRetry={handleRetryMessage}
-                              isLastFailedMessage={isLastFailedMessage}
-                              showTypingIndicator={shouldShowTypingIndicator}
-                              thoughtText={effectiveThoughtText}
-                              hasMinHeight={isLatestAssistantMessage}
-                              dynamicMinHeight={dynamicMinHeight}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-
-              <div ref={spacerRef} className="h-0" />
-            </div>
-          )}
-        </div>
-      </main>
-
-      <footer
-        ref={footerRef}
-        className="w-full z-40 p-2 md:pr-[13px] bg-transparent"
-      >
-        <div className="relative">
-          <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
-            {!isSubscriptionLoading &&
-              !isSubscriptionError &&
-              subscriptionData?.plan_type === 'paid' &&
-              !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
-                <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
-                  <span className="text-sm">
-                    Your subscription has expired.{' '}
-                    <span
-                      className="text-primary font-medium cursor-pointer underline"
-                      onClick={() =>
-                        openModal('subscription_has_ended_renew_here_toast_clicked', true)
-                      }
-                    >
-                      Renew here
-                    </span>
-                  </span>
-                </div>
-              )}
-
-            {!isSubscriptionLoading &&
-              !isSubscriptionError &&
-              subscriptionData?.plan_type !== 'paid' &&
-              subscriptionData?.tokens_left != null &&
-              subscriptionData.tokens_left <= 5000 && (
-                <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
-                  <span className="text-sm">
-                    You have {subscriptionData?.tokens_left} tokens left.{' '}
-                  </span>
-                  <span
-                    className="text-primary font-medium cursor-pointer underline"
-                    onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
-                  >
-                    Add more
-                  </span>
-                </div>
-              )}
-
-            {showScrollToBottom && (
-              <button
-                onClick={handleScrollToBottomClick}
-                className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
-                title="Scroll to bottom"
-              >
-                <MdKeyboardArrowDown size={20} />
-              </button>
+        <main ref={mainScrollRef} className="overflow-y-auto w-full scroll-pt-2.5" onScroll={handleScroll}>
+          <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
+            {isInitialLoading && (
+              <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+              </div>
             )}
 
-            <div className="w-full pt-1 flex justify_center">
-              <Toast position="conversation" />
-            </div>
-          </div>
+            {fetchState.error && !isInitialLoading && chatMessages.length === 0 && (
+              <div className="flex flex-col justify-center items-center h-[calc(100vh-10rem)] text-center">
+                <p className="text-red-500 mb-2">{fetchState.error}</p>
+                <button
+                  onClick={stableCallbacks.handleRetryLoadHistory}
+                  className="px-4 py-2 bg-primary text-background rounded-md hover:bg-primary/90 transition-colors"
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
 
-          <form
-            onSubmit={handleFormSubmit}
-            className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]"
-          >
-            <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200 transform-gpu will-change-transform">
-              {currentAttachments.length > 0 && (
-                <div className="flex flex-wrap gap-2 px-4 pt-2.5 pb-1">
-                  {currentAttachments.map((att, index) => (
-                    <MemoizedAttachmentPreview
-                      key={`${att.file?.name}-${index}`}
-                      attachment={att}
-                      index={index}
-                      onRemove={stableCallbacks.handleRemoveAttachment}
-                    />
-                  ))}
-                </div>
+            {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
+              <div className="h-[calc(100vh-10rem)]" />
+            )}
+
+            {!isInitialLoading && chatMessages.length > 0 && (
+              <div className="flex flex-col space-y-0 w-full">
+                {fetchState.isLoading && isUserNearTop && (
+                  <div className="flex justify-center py-4 sticky top-0 z-10">
+                    <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
+                    </div>
+                  </div>
+                )}
+
+                {messagesByDate.map(([dateKey, messages]) => {
+                  const dateHeader = formatWhatsAppStyle(dateKey);
+
+                  return (
+                    <div key={dateKey} className="date-group relative w_full">
+                      {dateHeader && showDateSticky && (
+                        <div className="sticky pt-2 z-20 flex justify-center my-3 top-0 pointer-events-none">
+                          <div className="bg-background text-primary text-xs px-4 py-1.5 rounded-full shadow-sm border border-primary/10">
+                            {dateHeader}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="messages-container">
+                        {messages.map((item) => {
+                          if (item.type === 'call_session') {
+                            return <MemoizedCallSessionItem key={item.id} messages={item.messages} />;
+                          }
+
+                          const msg = item.message;
+                          const isStreamingMessage =
+                            isSending &&
+                            msg.content_type === 'assistant' &&
+                            msg.message_id === lastMessage?.message_id &&
+                            msg.finish_reason == null;
+
+                          const isLastFailedMessage = msg.message_id === lastFailedMessageId;
+
+                          const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
+                          const effectiveThoughtText = currentThoughtText || storedThoughts || undefined;
+
+                          const shouldShowTypingIndicator =
+                            msg.content_type === 'assistant' &&
+                            msg.message_id === lastMessage?.message_id &&
+                            isAssistantTyping &&
+                            (msg.content ?? '').length === 0;
+
+                          const isLatestUserMessage =
+                            msg.content_type === 'user' && msg.message_id === lastOptimisticMessageIdRef.current;
+
+                          const isLatestAssistantMessage =
+                            msg.content_type === 'assistant' && msg.message_id === getMostRecentAssistantMessageId();
+
+                          return (
+                            <div
+                              id={`message-${msg.message_id}`}
+                              key={msg.message_id}
+                              ref={
+                                isLatestUserMessage
+                                  ? latestUserMessageRef
+                                  : isLatestAssistantMessage
+                                    ? latestAssistantMessageRef
+                                    : null
+                              }
+                              className="message-item-wrapper w-full transform-gpu will-change-transform"
+                            >
+                              <MemoizedRenderedMessageItem
+                                message={msg}
+                                isStreaming={isStreamingMessage}
+                                onRetry={handleRetryMessage}
+                                onToggleStar={toggleStarForMessage}
+                                isStarred={starredMessageIdSet.has(msg.message_id)}
+                                isLastFailedMessage={isLastFailedMessage}
+                                showTypingIndicator={shouldShowTypingIndicator}
+                                thoughtText={effectiveThoughtText}
+                                hasMinHeight={isLatestAssistantMessage}
+                                dynamicMinHeight={dynamicMinHeight}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div ref={spacerRef} className="h-0" />
+              </div>
+            )}
+          </div>
+        </main>
+
+        <footer ref={footerRef} className="w-full z-40 p-2 md:pr-[13px] bg-transparent">
+          <div className="relative">
+            <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
+              {!isSubscriptionLoading &&
+                !isSubscriptionError &&
+                subscriptionData?.plan_type === 'paid' &&
+                !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
+                  <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
+                    <span className="text-sm">
+                      Your subscription has expired.{' '}
+                      <span
+                        className="text-primary font-medium cursor-pointer underline"
+                        onClick={() => openModal('subscription_has_ended_renew_here_toast_clicked', true)}
+                      >
+                        Renew here
+                      </span>
+                    </span>
+                  </div>
+                )}
+
+              {!isSubscriptionLoading &&
+                !isSubscriptionError &&
+                subscriptionData?.plan_type !== 'paid' &&
+                subscriptionData?.tokens_left != null &&
+                subscriptionData.tokens_left <= 5000 && (
+                  <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
+                    <span className="text-sm">You have {subscriptionData?.tokens_left} tokens left. </span>
+                    <span
+                      className="text-primary font-medium cursor-pointer underline"
+                      onClick={() => openModal('5000_tokens_left_toast_clicked', true)}
+                    >
+                      Add more
+                    </span>
+                  </div>
+                )}
+
+              {showScrollToBottom && (
+                <button
+                  onClick={handleScrollToBottomClick}
+                  className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
+                  title="Scroll to bottom"
+                >
+                  <MdKeyboardArrowDown size={20} />
+                </button>
               )}
 
-              <textarea
-                ref={inputRef}
-                value={inputValue}
-                onChange={(e) => {
-                  setInputValue(e.target.value);
-                  debouncedTextareaResize(e.target);
-                }}
-                placeholder="Ask Meera"
-                className="w-full px-4 py-3 bg-transparent border-none resize-none outline-none text-primary placeholder-primary/50 text-base scrollbar-thin transform-gpu will-change-transform"
-                style={{
-                  minHeight: '52px',
-                  transition: 'height 0.1s ease-out',
-                  contain: 'layout',
-                }}
-                rows={1}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!canSubmit) return;
-                    const form = e.currentTarget.form;
-                    if (form && typeof form.requestSubmit === 'function') {
-                      form.requestSubmit();
-                    } else {
-                      handleFormSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
-                    }
-                  }
-                }}
-                onPaste={handlePaste}
-              />
-
-              <div className="flex flex-row items-center justify-between px-3 pb-1.5">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={stableCallbacks.toggleSearchActive}
-                    className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform ${
-                      isSearchActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-gray-500 hover:bg-gray-50'
-                    }`}
-                    title="Search"
-                  >
-                    <FiGlobe size={16} />
-                    <span>Search</span>
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <AttachmentInputArea
-                    ref={attachmentInputAreaRef}
-                    onAttachmentsChange={setCurrentAttachments}
-                    messageValue={message}
-                    resetInputHeightState={() => {}}
-                    maxAttachments={MAX_ATTACHMENTS_CONFIG}
-                    existingAttachments={currentAttachments}
-                    onUploadStateChange={setIsUploadingAttachments}
-                  >
-                    <FiPaperclip size={18} />
-                  </AttachmentInputArea>
-
-                  <button
-                    type="submit"
-                    className={`rounded-full flex items-center justify-center focus:outline-none transition-all duration-150 ease-in-out cursor-pointer min-w-[38px] min-h-[38px] transform-gpu will-change-transform ${
-                      canSubmit
-                        ? 'bg-primary text-background hover:bg-primary/90 hover:scale-105'
-                        : 'bg-primary/20 text-primary/50 cursor-not-allowed'
-                    }`}
-                    disabled={!canSubmit}
-                    title={hasPendingUploads ? 'Uploading attachment…' : 'Send message'}
-                  >
-                    <FiArrowUp size={20} />
-                  </button>
-                </div>
+              <div className="w-full pt-1 flex justify_center">
+                <Toast position="conversation" />
               </div>
             </div>
-          </form>
-        </div>
-      </footer>
 
-      <UserProfile isOpen={showUserProfile} onClose={() => setShowUserProfile(false)} />
-      <MeeraVoice
-        isOpen={showMeeraVoice}
-        onClose={(wasConnected) => {
-          setShowMeeraVoice(false);
-          if (wasConnected) loadChatHistory(1, true);
-        }}
-      />
+            <form onSubmit={handleFormSubmit} className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]">
+              <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200 transform-gpu will-change-transform">
+                {currentAttachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2 px-4 pt-2.5 pb-1">
+                    {currentAttachments.map((att, index) => (
+                      <MemoizedAttachmentPreview
+                        key={`${att.file?.name}-${index}`}
+                        attachment={att}
+                        index={index}
+                        onRemove={stableCallbacks.handleRemoveAttachment}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <textarea
+                  ref={inputRef}
+                  value={inputValue}
+                  onChange={(e) => {
+                    setInputValue(e.target.value);
+                    debouncedTextareaResize(e.target);
+                  }}
+                  placeholder="Ask Meera"
+                  className="w-full px-4 py-3 bg-transparent border-none resize-none outline-none text-primary placeholder-primary/50 text-base scrollbar-thin transform-gpu will-change-transform"
+                  style={{
+                    minHeight: '52px',
+                    transition: 'height 0.1s ease-out',
+                    contain: 'layout',
+                  }}
+                  rows={1}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!canSubmit) return;
+                      const form = e.currentTarget.form;
+                      if (form && typeof form.requestSubmit === 'function') {
+                        form.requestSubmit();
+                      } else {
+                        handleFormSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
+                      }
+                    }
+                  }}
+                  onPaste={handlePaste}
+                />
+
+                <div className="flex flex-row items-center justify-between px-3 pb-1.5">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={stableCallbacks.toggleSearchActive}
+                      className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform ${
+                        isSearchActive ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-50'
+                      }`}
+                      title="Search"
+                    >
+                      <FiGlobe size={16} />
+                      <span>Search</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <AttachmentInputArea
+                      ref={attachmentInputAreaRef}
+                      onAttachmentsChange={setCurrentAttachments}
+                      messageValue={message}
+                      resetInputHeightState={() => {}}
+                      maxAttachments={MAX_ATTACHMENTS_CONFIG}
+                      existingAttachments={currentAttachments}
+                      onUploadStateChange={setIsUploadingAttachments}
+                    >
+                      <FiPaperclip size={18} />
+                    </AttachmentInputArea>
+
+                    <button
+                      type="submit"
+                      className={`rounded-full flex items-center justify-center focus:outline-none transition-all duration-150 ease-in-out cursor-pointer min-w-[38px] min-h-[38px] transform-gpu will-change-transform ${
+                        canSubmit
+                          ? 'bg-primary text-background hover:bg-primary/90 hover:scale-105'
+                          : 'bg-primary/20 text-primary/50 cursor-not-allowed'
+                      }`}
+                      disabled={!canSubmit}
+                      title={hasPendingUploads ? 'Uploading attachment…' : 'Send message'}
+                    >
+                      <FiArrowUp size={20} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+        </footer>
+
+        <UserProfile isOpen={showUserProfile} onClose={() => setShowUserProfile(false)} />
+        <MeeraVoice
+          isOpen={showMeeraVoice}
+          onClose={(wasConnected) => {
+            setShowMeeraVoice(false);
+            if (wasConnected) loadChatHistory(1, true);
+          }}
+        />
+      </div>
     </div>
   );
 };

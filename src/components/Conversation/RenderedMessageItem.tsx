@@ -31,7 +31,7 @@ import { truncateFileName } from '@/lib/stringUtils';
 import { ChatMessageFromServer, GeneratedImage } from '@/types/chat';
 import Image from 'next/image';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FaFilePdf } from 'react-icons/fa';
+import { FaFilePdf, FaStar } from 'react-icons/fa';
 import {
   FiCheck,
   FiChevronDown,
@@ -40,6 +40,7 @@ import {
   FiDownload,
   FiPaperclip,
   FiRefreshCw,
+  FiStar,
 } from 'react-icons/fi';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -112,6 +113,8 @@ export const RenderedMessageItem: React.FC<{
   message: ChatMessageFromServer;
   isStreaming: boolean;
   onRetry?: (message: ChatMessageFromServer) => void;
+  onToggleStar?: (message: ChatMessageFromServer) => void;
+  isStarred?: boolean;
   isLastFailedMessage?: boolean;
   showTypingIndicator?: boolean;
   thoughtText?: string;
@@ -122,6 +125,8 @@ export const RenderedMessageItem: React.FC<{
     message,
     isStreaming,
     onRetry,
+    onToggleStar,
+    isStarred = false,
     isLastFailedMessage,
     showTypingIndicator,
     thoughtText,
@@ -151,15 +156,12 @@ export const RenderedMessageItem: React.FC<{
       [message.generatedImages],
     );
 
-    const hasTextContent =
-      !!message.content || (message.content_type === 'assistant' && !!message.failed);
+    const hasTextContent = !!message.content || (message.content_type === 'assistant' && !!message.failed);
 
-    const hasServerAttachments =
-      !!message.attachments && message.attachments.length > 0;
+    const hasServerAttachments = !!message.attachments && message.attachments.length > 0;
 
     const hasAnyImages =
-      inlineGeneratedImages.length > 0 ||
-      (message.attachments || []).some((att) => isImageAttachment(att));
+      inlineGeneratedImages.length > 0 || (message.attachments || []).some((att) => isImageAttachment(att));
 
     const hasAttachments = hasServerAttachments || inlineGeneratedImages.length > 0;
     const hasMainContent = hasTextContent || hasAttachments;
@@ -191,7 +193,11 @@ export const RenderedMessageItem: React.FC<{
           setPhase('idle');
         }
       }
-    }, [showTypingIndicator, isUser, thoughtText]);
+    }, [
+      showTypingIndicator,
+      isUser,
+      thoughtText,
+    ]);
 
     /* When model thoughts arrive, show them */
     useEffect(() => {
@@ -216,7 +222,11 @@ export const RenderedMessageItem: React.FC<{
 
         return () => resizeObserver.disconnect();
       }
-    }, [isUser, isExpanded, showExpandButton]);
+    }, [
+      isUser,
+      isExpanded,
+      showExpandButton,
+    ]);
 
     if (message.content_type === 'system') {
       return (
@@ -247,10 +257,12 @@ export const RenderedMessageItem: React.FC<{
       }
     };
 
+    const handleToggleStar = () => {
+      if (onToggleStar) onToggleStar(message);
+    };
+
     const showThinkingRow =
-      !isUser &&
-      !message.isGeneratingImage &&
-      (showTypingIndicator || (phase === 'thoughts' && !!thoughtText));
+      !isUser && !message.isGeneratingImage && (showTypingIndicator || (phase === 'thoughts' && !!thoughtText));
 
     const onlyThinking = showThinkingRow && !hasMainContent;
 
@@ -261,17 +273,13 @@ export const RenderedMessageItem: React.FC<{
         ? `rounded-l-lg rounded-br-lg after:right-0 after:border-t-[6px] after:border-l-[6px] after:border-l-transparent after:border-t-primary`
         : `rounded-r-lg rounded-bl-lg after:left-0 after:border-t-[6px] after:border-r-[6px] after:border-r-transparent after:border-t-card`);
 
-    const bubbleClasses = onlyThinking
-      ? `${bubbleBase} flex items-center justify-center`
-      : bubbleBase;
+    const bubbleClasses = onlyThinking ? `${bubbleBase} flex items-center justify-center` : bubbleBase;
 
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-3 group`}>
         <div
           style={hasMinHeight && !isUser ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
-          className={`flex flex-col md:pr-1 ${
-            hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'
-          }`}
+          className={`flex flex-col md:pr-1 ${hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'}`}
         >
           <div className={bubbleClasses}>
             {/* Main content (only when there is content) */}
@@ -288,9 +296,7 @@ export const RenderedMessageItem: React.FC<{
                   </div>
                 ) : message.content_type === 'assistant' ? (
                   message.failed && message.failedMessage ? (
-                    <div className="text-red-500 font-medium text-[15px]">
-                      {message.failedMessage}
-                    </div>
+                    <div className="text-red-500 font-medium text-[15px]">{message.failedMessage}</div>
                   ) : (
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
@@ -379,9 +385,7 @@ export const RenderedMessageItem: React.FC<{
                   const attachments = message.attachments ?? [];
 
                   const imageAttachments = attachments.filter((att) => isImageAttachment(att));
-                  const documentAttachments = attachments.filter(
-                    (att) => !isImageAttachment(att),
-                  );
+                  const documentAttachments = attachments.filter((att) => !isImageAttachment(att));
 
                   return (
                     <>
@@ -419,9 +423,7 @@ export const RenderedMessageItem: React.FC<{
                       {/* IMAGE ATTACHMENTS FROM SERVER */}
                       {imageAttachments.length > 0 && (
                         <div
-                          className={`grid gap-2 mb-3 ${
-                            imageAttachments.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
-                          }`}
+                          className={`grid gap-2 mb-3 ${imageAttachments.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}
                         >
                           {imageAttachments.map((att, index) => (
                             <div key={`image-${index}`} className="relative">
@@ -446,10 +448,7 @@ export const RenderedMessageItem: React.FC<{
                               ) : (
                                 <div className="flex items-center justify-center h-24 rounded-lg border border-dashed border-red-400/50 bg-red-50/50">
                                   <div className="text-center">
-                                    <FiPaperclip
-                                      size={24}
-                                      className="text-red-500 mx-auto mb-1"
-                                    />
+                                    <FiPaperclip size={24} className="text-red-500 mx-auto mb-1" />
                                     <p className="text-xs text-red-500">Error loading image</p>
                                   </div>
                                 </div>
@@ -471,20 +470,12 @@ export const RenderedMessageItem: React.FC<{
                                   rel="noopener noreferrer"
                                   className="flex items-center p-2.5 rounded-lg border border-primary/20 bg-gray-100 hover:bg-gray-200 transition-colors"
                                 >
-                                  <FaFilePdf
-                                    size={28}
-                                    className="text-red-500 mr-2.5 flex-shrink-0"
-                                  />
+                                  <FaFilePdf size={28} className="text-red-500 mr-2.5 flex-shrink-0" />
                                   <div className="flex-1 overflow-hidden">
-                                    <p
-                                      className="text-sm text-primary font-medium truncate"
-                                      title={att.name}
-                                    >
+                                    <p className="text-sm text-primary font-medium truncate" title={att.name}>
                                       {truncateFileName(att.name || 'document.pdf', 25)}
                                     </p>
-                                    {att.size && (
-                                      <p className="text-xs text-primary/60">PDF Document</p>
-                                    )}
+                                    {att.size && <p className="text-xs text-primary/60">PDF Document</p>}
                                   </div>
                                 </a>
                               ) : att.url ? (
@@ -494,34 +485,20 @@ export const RenderedMessageItem: React.FC<{
                                   rel="noopener noreferrer"
                                   className="flex items-center p-2.5 rounded-lg border border-primary/20 bg-gray-100 hover:bg-gray-200 transition-colors"
                                 >
-                                  <FiPaperclip
-                                    size={24}
-                                    className="text-primary/70 mr-2.5 flex-shrink-0"
-                                  />
-                                  <p
-                                    className="text-sm text-primary font-medium truncate"
-                                    title={att.name}
-                                  >
+                                  <FiPaperclip size={24} className="text-primary/70 mr-2.5 flex-shrink-0" />
+                                  <p className="text-sm text-primary font-medium truncate" title={att.name}>
                                     {truncateFileName(att.name || 'attachment', 25)}
                                   </p>
                                 </a>
                               ) : (
                                 <div className="flex items-center p-2.5 rounded-lg border border-dashed border-red-400/50 bg-red-50/50">
-                                  <FiPaperclip
-                                    size={24}
-                                    className="text-red-500 mr-2.5 flex-shrink-0"
-                                  />
+                                  <FiPaperclip size={24} className="text-red-500 mr-2.5 flex-shrink-0" />
                                   <div className="flex-1 overflow-hidden">
-                                    <p
-                                      className="text-sm text-red-700 font-medium truncate"
-                                      title={att.name}
-                                    >
+                                    <p className="text-sm text-red-700 font-medium truncate" title={att.name}>
                                       {truncateFileName(att.name || 'Attachment error', 25)}
                                     </p>
                                     <p className="text-xs text-red-500">
-                                      {att.type === 'error'
-                                        ? 'Error loading attachment'
-                                        : 'Cannot display attachment'}
+                                      {att.type === 'error' ? 'Error loading attachment' : 'Cannot display attachment'}
                                     </p>
                                   </div>
                                 </div>
@@ -571,33 +548,36 @@ export const RenderedMessageItem: React.FC<{
                       {isCopied ? (
                         <FiCheck size={14} className="text-primary" />
                       ) : (
-                        <FiCopy
-                          size={14}
-                          className="text-primary/60 hover:text-primary/80"
-                        />
+                        <FiCopy size={14} className="text-primary/60 hover:text-primary/80" />
+                      )}
+                    </button>
+                  )}
+                  {!isUser && message.content && onToggleStar && (
+                    <button
+                      onClick={handleToggleStar}
+                      className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
+                      title={isStarred ? 'Unstar message' : 'Star message'}
+                    >
+                      {isStarred ? (
+                        <FaStar size={13} className="text-primary" />
+                      ) : (
+                        <FiStar size={14} className="text-primary/60 hover:text-primary/80" />
                       )}
                     </button>
                   )}
                   {!isUser &&
                     message.attachments &&
-                    message.attachments.some(
-                      (att) => isImageAttachment(att) || isPdfAttachment(att),
-                    ) && (
+                    message.attachments.some((att) => isImageAttachment(att) || isPdfAttachment(att)) && (
                       <a
                         href={
-                          message.attachments.find(
-                            (att) => isImageAttachment(att) || isPdfAttachment(att),
-                          )?.url || '#'
+                          message.attachments.find((att) => isImageAttachment(att) || isPdfAttachment(att))?.url || '#'
                         }
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                         title="Download attachment"
                       >
-                        <FiDownload
-                          size={14}
-                          className="text-primary/60 hover:text-primary/80"
-                        />
+                        <FiDownload size={14} className="text-primary/60 hover:text-primary/80" />
                       </a>
                     )}
                   {isUser && message.failed && isLastFailedMessage && (
@@ -606,10 +586,7 @@ export const RenderedMessageItem: React.FC<{
                       className="p-0.5 rounded text-xs hover:bg-black/10 dark:hover:bg-white/10 transition-colors focus:outline-none cursor-pointer"
                       title="Retry sending"
                     >
-                      <FiRefreshCw
-                        size={14}
-                        className="text-background/60 hover:text-background/90"
-                      />
+                      <FiRefreshCw size={14} className="text-background/60 hover:text-background/90" />
                     </button>
                   )}
                   {isUser && showExpandButton && !isExpanded && (
@@ -632,11 +609,7 @@ export const RenderedMessageItem: React.FC<{
                   )}
                 </div>
 
-                <p
-                  className={`text-xs whitespace-nowrap ${
-                    isUser ? 'text-background/60' : 'text-primary/60'
-                  }`}
-                >
+                <p className={`text-xs whitespace-nowrap ${isUser ? 'text-background/60' : 'text-primary/60'}`}>
                   {(() => {
                     const timestamp = message.timestamp;
                     if (!timestamp) return '';
@@ -665,11 +638,7 @@ export const RenderedMessageItem: React.FC<{
         </div>
 
         {imageModalOpen && (
-          <ImageModal
-            isOpen={imageModalOpen}
-            onClose={() => setImageModalOpen(false)}
-            imageUrl={currentImageUrl}
-          />
+          <ImageModal isOpen={imageModalOpen} onClose={() => setImageModalOpen(false)} imageUrl={currentImageUrl} />
         )}
       </div>
     );
