@@ -96,15 +96,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       <aside className="hidden md:flex fixed left-0 top-0 h-screen z-40 bg-background border-r border-primary/15 flex-col w-[260px]">
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="w-4 h-4 rounded-full bg-primary flex-shrink-0" />
-              <span className="text-primary text-[16px] leading-none font-serif italic truncate">
-                {(process.env.NEXT_PUBLIC_APP_NAME || 'meera').toLowerCase()} os
-              </span>
-            </div>
-
+        <div className="px-4 pt-3 pb-1">
+          <div className="flex items-center justify-end">
             <button
               type="button"
               onClick={onToggleSidebar}
@@ -140,29 +133,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        <div className="p-4 border-t border-primary/15">
+        <div className="px-3 py-2.5 border-t border-primary/15">
           <button
             type="button"
             onClick={() => setIsProfileOpen((prev) => !prev)}
-            className="w-full flex items-center rounded-xl px-2.5 py-2 hover:bg-primary/10 transition-colors cursor-pointer gap-3"
+            className="w-full flex items-center rounded-xl px-2 py-1.5 hover:bg-primary/10 transition-colors cursor-pointer gap-2.5"
             aria-label="Open profile menu"
           >
             {userAvatar ? (
               <Image
                 src={userAvatar}
                 alt={displayName}
-                width={36}
-                height={36}
-                className="w-9 h-9 rounded-full object-cover border border-primary/20"
+                width={32}
+                height={32}
+                className="w-8 h-8 rounded-full object-cover border border-primary/20"
               />
             ) : (
-              <span className="w-9 h-9 rounded-full border border-primary/20 bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">
+              <span className="w-8 h-8 rounded-full border border-primary/20 bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">
                 {profileInitial}
               </span>
             )}
             <div className="min-w-0 text-left">
               <p className="text-sm text-primary truncate">{displayName}</p>
-              <p className="text-xs text-primary/60 truncate">{displayEmail || 'Profile'}</p>
+              {displayEmail ? <p className="text-xs text-primary/60 truncate">{displayEmail}</p> : null}
             </div>
           </button>
         </div>
