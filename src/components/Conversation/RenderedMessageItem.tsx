@@ -27,6 +27,7 @@ import {
   renderStandardInlineCode,
 } from '@/components/MessageRenderDesign/MarkdownComponents';
 import { ImageModal } from '@/components/ui/ImageModal';
+import { formatTime } from '@/lib/dateUtils';
 import { truncateFileName } from '@/lib/stringUtils';
 import { ChatMessageFromServer, GeneratedImage } from '@/types/chat';
 import Image from 'next/image';
@@ -617,19 +618,7 @@ export const RenderedMessageItem: React.FC<{
                       return '';
                     }
 
-                    try {
-                      const match = timestamp.match(/(\d{2}):(\d{2}):/);
-                      if (match) {
-                        const hours = parseInt(match[1], 10);
-                        const minutes = match[2];
-                        const ampm = hours >= 12 ? 'PM' : 'AM';
-                        const formattedHours = hours % 12 || 12;
-                        return `${formattedHours}:${minutes} ${ampm}`;
-                      }
-                      return '';
-                    } catch {
-                      return '';
-                    }
+                    return formatTime(timestamp);
                   })()}
                 </p>
               </div>

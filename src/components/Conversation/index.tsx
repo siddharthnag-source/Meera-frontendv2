@@ -13,7 +13,7 @@ import { useDragAndDrop } from '@/hooks/useDragAndDrop';
 import { useMessageSubmission } from '@/hooks/useMessageSubmission';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
-import { formatWhatsAppStyle } from '@/lib/dateUtils';
+import { formatWhatsAppStyle, getLocalDateKeyFromTimestamp } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
 import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
@@ -763,8 +763,7 @@ export const Conversation: React.FC = () => {
 
     displayItems.forEach((item) => {
       const timestamp = item.type === 'message' ? item.message.timestamp : item.timestamp;
-      const tsMatch = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      const dateKey = tsMatch ? tsMatch[0] : 'unknown';
+      const dateKey = getLocalDateKeyFromTimestamp(timestamp);
 
       if (!grouped[dateKey]) grouped[dateKey] = [];
       grouped[dateKey].push(item);

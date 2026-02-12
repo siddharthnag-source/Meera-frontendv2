@@ -5,6 +5,7 @@ import Image from 'next/image';
 import React, { useCallback, useMemo, useState } from 'react';
 import { FiImage } from 'react-icons/fi';
 import { TbLayoutSidebarLeftCollapse } from 'react-icons/tb';
+import { parseTimestamp } from '@/lib/dateUtils';
 import { ProfileMenu } from './ProfileMenu';
 import { SidebarItem } from './Sidebar/SidebarItem';
 
@@ -34,8 +35,8 @@ const getTimeValue = (timestamp: string): number => {
 };
 
 const getGroupLabel = (timestamp: string, now: Date): string => {
-  const ts = new Date(timestamp);
-  if (Number.isNaN(ts.getTime())) return 'Older';
+  const ts = parseTimestamp(timestamp);
+  if (!ts) return 'Older';
 
   const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const tsDay = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate()).getTime();

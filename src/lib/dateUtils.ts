@@ -2,23 +2,57 @@
  * Formats a date in WhatsApp-style format Returns empty string for today, "Yesterday" for yesterday, day name for dates
  * within the last week, and full date for older dates
  */
-export function formatWhatsAppStyle(dateKey: string): string {
+const getLocalYYYYMMDD = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseDateKey = (dateKey: string): Date | null => {
+  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const parsed = new Date(year, month, day);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+export const parseTimestamp = (timestamp: string | Date | null | undefined): Date | null => {
+  if (!timestamp) return null;
+
+  if (timestamp instanceof Date) {
+    return Number.isNaN(timestamp.getTime()) ? null : timestamp;
+  }
+
+  const raw = String(timestamp).trim();
+  if (!raw) return null;
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+
+  // Fallback for "YYYY-MM-DD HH:mm:ss" style values.
+  const normalized = raw.includes(' ') ? raw.replace(' ', 'T') : raw;
+  const fallback = new Date(normalized);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+};
+
+export const getLocalDateKeyFromTimestamp = (timestamp: string | Date | null | undefined): string => {
+  const parsed = parseTimestamp(timestamp);
+  if (!parsed) return 'unknown';
+  return getLocalYYYYMMDD(parsed);
+};
+
+export function formatWhatsAppStyle(dateKey: string, now: Date = new Date()): string {
   if (dateKey === 'unknown') return 'Unknown Date';
 
   try {
-    // Helper to get YYYY-MM-DD from a Date object in local time
-    const getLocalYYYYMMDD = (d: Date): string => {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
+    const localTodayKey = getLocalYYYYMMDD(now);
 
-    const today = new Date();
-    const localTodayKey = getLocalYYYYMMDD(today);
-
-    const yesterday = new Date();
-    yesterday.setDate(today.getDate() - 1);
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
     const localYesterdayKey = getLocalYYYYMMDD(yesterday);
 
     if (dateKey === localTodayKey) {
@@ -27,10 +61,11 @@ export function formatWhatsAppStyle(dateKey: string): string {
     } else if (dateKey === localYesterdayKey) {
       return 'Yesterday';
     } else {
-      const msgDate = new Date(dateKey + 'T00:00:00');
+      const msgDate = parseDateKey(dateKey);
+      if (!msgDate) return 'Unknown Date';
 
       const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(today.getDate() - 7);
+      sevenDaysAgo.setDate(now.getDate() - 7);
       sevenDaysAgo.setHours(0, 0, 0, 0);
       if (msgDate > sevenDaysAgo) {
         // Show day name for dates within the last week
@@ -87,8 +122,9 @@ export function createLocalTimestamp(date?: Date): string {
 
 export const formatTime = (timestamp: string | Date): string => {
   try {
-    const date = new Date(timestamp);
-    //
+    const date = parseTimestamp(timestamp);
+    if (!date) return '';
+
     const hours = date.getHours();
     const minutes = date.getMinutes();
     const ampm = hours >= 12 ? 'PM' : 'AM';
