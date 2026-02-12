@@ -17,7 +17,7 @@ import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { FiArrowUp, FiGlobe, FiPaperclip } from 'react-icons/fi';
+import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
 import { AttachmentInputArea, AttachmentInputAreaRef } from './AttachmentInputArea';
@@ -110,6 +110,8 @@ export const Conversation: React.FC = () => {
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
+  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
 
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
@@ -793,6 +795,23 @@ export const Conversation: React.FC = () => {
     setShowUserProfile(false);
   }, []);
 
+  const handleToggleSidebarExpand = useCallback(() => {
+    setIsSidebarExpanded((prev) => !prev);
+  }, []);
+
+  const handleCloseSidebar = useCallback(() => {
+    setIsSidebarVisible(false);
+  }, []);
+
+  const handleOpenSidebar = useCallback(() => {
+    setIsSidebarVisible(true);
+  }, []);
+
+  const desktopSidebarMarginClass = useMemo(() => {
+    if (!isSidebarVisible) return 'md:ml-0';
+    return isSidebarExpanded ? 'md:ml-[260px]' : 'md:ml-[80px]';
+  }, [isSidebarExpanded, isSidebarVisible]);
+
   return (
     <div className="relative bg-background">
       <Sidebar
@@ -802,11 +821,17 @@ export const Conversation: React.FC = () => {
         userName={profileName}
         userEmail={profileEmail}
         userAvatar={profileImage}
+        isExpanded={isSidebarExpanded}
+        isVisible={isSidebarVisible}
+        onToggleExpand={handleToggleSidebarExpand}
+        onCloseSidebar={handleCloseSidebar}
         onOpenSettings={handleOpenSettings}
         onSignOut={handleSignOut}
       />
 
-      <div className="grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative md:ml-[260px]">
+      <div
+        className={`grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
+      >
         {isDraggingOver && (
           <div className="fixed inset-0 bg-primary/10 backdrop-blur-[2px] z-50 flex items-center justify-center">
             <div className="bg-background px-8 py-5 rounded-lg shadow-md border border-primary/20">
@@ -820,7 +845,18 @@ export const Conversation: React.FC = () => {
           className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20"
         >
           <div className="w-full mx-auto flex items-center justify-between">
-            <div className="w-9 h-9" />
+            {!isSidebarVisible ? (
+              <button
+                onClick={handleOpenSidebar}
+                className="hidden md:flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
+                aria-label="Open sidebar"
+                title="Open sidebar"
+              >
+                <FiMenu size={18} className="text-primary" />
+              </button>
+            ) : (
+              <div className="w-9 h-9 hidden md:block" />
+            )}
 
             <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
               <h1 className="text-lg text-primary md:text-xl font-sans">{process.env.NEXT_PUBLIC_APP_NAME}</h1>
