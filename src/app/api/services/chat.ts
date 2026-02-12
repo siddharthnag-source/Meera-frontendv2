@@ -53,6 +53,12 @@ type DbMessageRow = {
   system_prompt?: string | null;
 };
 
+type StarredMessageRow = {
+  message_id: string;
+  user_id: string;
+  created_at: string;
+};
+
 type LLMHistoryMessage = {
   role: 'user' | 'assistant';
   content: string;
@@ -104,6 +110,22 @@ function base64ToBlobUrl(base64: string, mimeType: string): string {
   return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 }
 
+function mapDbRowToChatMessage(row: DbMessageRow) {
+  return {
+    message_id: row.message_id,
+    content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
+    content: row.content,
+    timestamp: row.timestamp,
+    session_id: row.session_id || undefined,
+    is_call: row.is_call ?? false,
+    attachments: (row.attachments as ImageAttachment[] | null) ?? [],
+    message_type: row.message_type ?? 'text',
+    image_url: row.image_url ?? undefined,
+    failed: false,
+    finish_reason: null,
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /*                             CHAT SERVICE                                   */
 /* -------------------------------------------------------------------------- */
@@ -138,25 +160,101 @@ export const chatService = {
       }
 
       const rows = ((data ?? []) as DbMessageRow[]).slice().reverse();
-
-      const mapped = rows.map((row) => ({
-        message_id: row.message_id,
-        content_type: row.content_type === 'assistant' ? 'assistant' : 'user',
-        content: row.content,
-        timestamp: row.timestamp,
-        session_id: row.session_id || undefined,
-        is_call: row.is_call ?? false,
-        attachments: (row.attachments as ImageAttachment[] | null) ?? [],
-        message_type: row.message_type ?? 'text',
-        image_url: row.image_url ?? undefined,
-        failed: false,
-        finish_reason: null,
-      }));
+      const mapped = rows.map(mapDbRowToChatMessage);
 
       return { message: 'ok', data: mapped };
     } catch (e) {
       console.error('getChatHistory outer error', e);
       return { message: 'error', data: [] };
+    }
+  },
+
+  /* ---------- Starred Messages ---------- */
+  async getStarredMessages() {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) return { message: 'unauthorized', data: [] };
+      const userId = session.user.id;
+
+      const { data: starredRows, error: starredError } = await supabase
+        .from('starred_messages')
+        .select('message_id, user_id, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (starredError) {
+        console.error('getStarredMessages error', starredError);
+        return { message: 'error', data: [] };
+      }
+
+      const orderedIds = Array.from(
+        new Set(((starredRows ?? []) as StarredMessageRow[]).map((row) => row.message_id).filter(Boolean)),
+      );
+
+      if (orderedIds.length === 0) return { message: 'ok', data: [] };
+
+      const { data: messageRows, error: messagesError } = await supabase
+        .from('messages')
+        .select(
+          'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
+        )
+        .eq('user_id', userId)
+        .in('message_id', orderedIds);
+
+      if (messagesError) {
+        console.error('getStarredMessages messages lookup error', messagesError);
+        return { message: 'error', data: [] };
+      }
+
+      const mappedById = new Map(
+        ((messageRows ?? []) as DbMessageRow[]).map((row) => [row.message_id, mapDbRowToChatMessage(row)]),
+      );
+
+      const orderedMessages = orderedIds
+        .map((messageId) => mappedById.get(messageId))
+        .filter((msg): msg is ReturnType<typeof mapDbRowToChatMessage> => Boolean(msg));
+
+      return { message: 'ok', data: orderedMessages };
+    } catch (e) {
+      console.error('getStarredMessages outer error', e);
+      return { message: 'error', data: [] };
+    }
+  },
+
+  async setMessageStar(messageId: string, shouldStar: boolean) {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) throw new SessionExpiredError('Session expired');
+      const userId = session.user.id;
+
+      if (shouldStar) {
+        const { error } = await supabase.from('starred_messages').insert([
+          {
+            user_id: userId,
+            message_id: messageId,
+          },
+        ]);
+
+        // Duplicate rows are acceptable for idempotent retries; unique constraint may exist in some environments.
+        if (error && error.code !== '23505') {
+          throw error;
+        }
+      } else {
+        const { error } = await supabase.from('starred_messages').delete().eq('user_id', userId).eq('message_id', messageId);
+
+        if (error) throw error;
+      }
+
+      return { message: 'ok' };
+    } catch (e) {
+      console.error('setMessageStar error', e);
+      return { message: 'error' };
     }
   },
 

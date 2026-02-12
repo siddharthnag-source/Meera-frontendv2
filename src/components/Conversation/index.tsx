@@ -62,6 +62,24 @@ type LegacyMessageRow = {
   is_call: boolean | null;
 };
 
+const prependUniqueId = (ids: string[], targetId: string): string[] => {
+  if (ids.includes(targetId)) return ids;
+  return [targetId, ...ids];
+};
+
+const removeId = (ids: string[], targetId: string): string[] => {
+  return ids.filter((id) => id !== targetId);
+};
+
+const upsertSnapshot = (messages: ChatMessageFromServer[], target: ChatMessageFromServer): ChatMessageFromServer[] => {
+  const withoutTarget = messages.filter((message) => message.message_id !== target.message_id);
+  return [target, ...withoutTarget];
+};
+
+const removeSnapshot = (messages: ChatMessageFromServer[], targetId: string): ChatMessageFromServer[] => {
+  return messages.filter((message) => message.message_id !== targetId);
+};
+
 const MemoizedRenderedMessageItem = React.memo(RenderedMessageItem, (prevProps, nextProps) => {
   const prevAttachments = prevProps.message.attachments ?? [];
   const nextAttachments = nextProps.message.attachments ?? [];
@@ -111,7 +129,8 @@ export const Conversation: React.FC = () => {
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
-  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+  const [starredMessageSnapshots, setStarredMessageSnapshots] = useState<ChatMessageFromServer[]>([]);
+  const [isSidebarVisible, setIsSidebarVisible] = useState(false);
 
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
@@ -157,6 +176,7 @@ export const Conversation: React.FC = () => {
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
   const cleanupFunctions = useRef<Array<() => void>>([]);
   const chatMessagesRef = useRef<ChatMessageFromServer[]>(chatMessages);
+  const starMutationInFlightRef = useRef<Set<string>>(new Set());
 
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastScrollTop = useRef(0);
@@ -195,24 +215,80 @@ export const Conversation: React.FC = () => {
 
   const starredMessageIdSet = useMemo(() => new Set(starredMessageIds), [starredMessageIds]);
 
-  const starredMessages = useMemo(() => {
-    const messageMap = new Map(chatMessages.map((msg) => [msg.message_id, msg]));
-    return [...starredMessageIds]
-      .reverse()
-      .map((messageId) => messageMap.get(messageId))
-      .filter((msg): msg is ChatMessageFromServer => Boolean(msg));
-  }, [chatMessages, starredMessageIds]);
-
-  const toggleStarForMessage = useCallback((target: ChatMessageFromServer) => {
-    if (!target.content.trim()) return;
-
-    setStarredMessageIds((prev) => {
-      if (prev.includes(target.message_id)) {
-        return prev.filter((id) => id !== target.message_id);
+  const loadPersistedStarredMessages = useCallback(
+    async (showErrorToast: boolean) => {
+      const response = await chatService.getStarredMessages();
+      if (response.message !== 'ok') {
+        if (showErrorToast) {
+          showToast('Unable to sync starred messages right now.', {
+            type: 'error',
+            position: 'conversation',
+          });
+        }
+        return;
       }
-      return [...prev, target.message_id];
-    });
-  }, []);
+
+      const persistedMessages = response.data as ChatMessageFromServer[];
+      const persistedIds = persistedMessages.map((messageItem) => messageItem.message_id);
+
+      setStarredMessageIds(persistedIds);
+      setStarredMessageSnapshots(persistedMessages);
+    },
+    [showToast],
+  );
+
+  const starredMessages = useMemo(() => {
+    const loadedMessageMap = new Map(chatMessages.map((msg) => [msg.message_id, msg]));
+    const snapshotMap = new Map(starredMessageSnapshots.map((msg) => [msg.message_id, msg]));
+
+    return [...starredMessageIds]
+      .map((messageId) => loadedMessageMap.get(messageId) ?? snapshotMap.get(messageId))
+      .filter((msg): msg is ChatMessageFromServer => Boolean(msg));
+  }, [chatMessages, starredMessageIds, starredMessageSnapshots]);
+
+  const toggleStarForMessage = useCallback(
+    async (target: ChatMessageFromServer) => {
+      if (!target.content.trim()) return;
+      if (starMutationInFlightRef.current.has(target.message_id)) return;
+
+      const isCurrentlyStarred = starredMessageIdSet.has(target.message_id);
+      starMutationInFlightRef.current.add(target.message_id);
+
+      setStarredMessageIds((prev) =>
+        isCurrentlyStarred ? removeId(prev, target.message_id) : prependUniqueId(prev, target.message_id),
+      );
+      setStarredMessageSnapshots((prev) =>
+        isCurrentlyStarred ? removeSnapshot(prev, target.message_id) : upsertSnapshot(prev, target),
+      );
+
+      try {
+        const response = await chatService.setMessageStar(target.message_id, !isCurrentlyStarred);
+
+        if (response.message !== 'ok') {
+          throw new Error('Star persistence failed');
+        }
+
+        await loadPersistedStarredMessages(false);
+      } catch (error) {
+        console.error('Failed to update starred message', error);
+
+        setStarredMessageIds((prev) =>
+          isCurrentlyStarred ? prependUniqueId(prev, target.message_id) : removeId(prev, target.message_id),
+        );
+        setStarredMessageSnapshots((prev) =>
+          isCurrentlyStarred ? upsertSnapshot(prev, target) : removeSnapshot(prev, target.message_id),
+        );
+
+        showToast('Failed to update starred message. Please try again.', {
+          type: 'error',
+          position: 'conversation',
+        });
+      } finally {
+        starMutationInFlightRef.current.delete(target.message_id);
+      }
+    },
+    [loadPersistedStarredMessages, showToast, starredMessageIdSet],
+  );
 
   const handleSelectStarredMessage = useCallback(
     (messageId: string) => {
@@ -708,6 +784,11 @@ export const Conversation: React.FC = () => {
       initialLoadDone.current = true;
     }
   }, [loadChatHistory]);
+
+  useEffect(() => {
+    if (!sessionData?.user?.email) return;
+    loadPersistedStarredMessages(false);
+  }, [loadPersistedStarredMessages, sessionData?.user?.email]);
 
   useEffect(() => {
     if (justSentMessageRef.current) {
