@@ -34,7 +34,7 @@ const SCROLL_THROTTLE_MS = 16; // 60fps
 const INPUT_DEBOUNCE_MS = 16;
 const RESIZE_DEBOUNCE_MS = 100;
 const JUMP_DOM_POLL_INTERVAL_MS = 250;
-const JUMP_DOM_POLL_TIMEOUT_MS = 10000;
+const JUMP_MAX_PAGE_LOADS = 200;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
 
 type ChatDisplayItem =
@@ -674,27 +674,35 @@ export const Conversation: React.FC = () => {
           persist: true,
         });
 
-        const startedAt = Date.now();
         let didJump = false;
-        let targetMessageId = assistantMessageId;
+        let pageLoads = 0;
 
-        const assistantIndex = chatMessages.findIndex((msg) => msg.message_id === assistantMessageId);
-        if (assistantIndex > 0) {
-          const contextMessage = chatMessages[assistantIndex - 1];
-          if (contextMessage?.content_type === 'user') {
-            targetMessageId = contextMessage.message_id;
+        while (true) {
+          const assistantDomId = `message-${assistantMessageId}`;
+          const escapedAssistantDomId =
+            typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+              ? CSS.escape(assistantDomId)
+              : assistantDomId;
+          const assistantElement = document.querySelector<HTMLElement>(`#${escapedAssistantDomId}`);
+
+          let targetElement: HTMLElement | null = assistantElement;
+          if (assistantElement) {
+            let previousMessageElement = assistantElement.previousElementSibling as HTMLElement | null;
+            while (previousMessageElement && !previousMessageElement.id.startsWith('message-')) {
+              previousMessageElement = previousMessageElement.previousElementSibling as HTMLElement | null;
+            }
+
+            if (previousMessageElement?.dataset.contentType === 'user') {
+              targetElement = previousMessageElement;
+            }
           }
-        }
-
-        while (Date.now() - startedAt < JUMP_DOM_POLL_TIMEOUT_MS) {
-          const domId = `message-${targetMessageId}`;
-          const escapedDomId =
-            typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(domId) : domId;
-          const targetElement = document.querySelector<HTMLElement>(`#${escapedDomId}`);
 
           if (targetElement) {
+            const targetMessageId = targetElement.id.startsWith('message-')
+              ? targetElement.id.slice('message-'.length)
+              : assistantMessageId;
             clearToasts('conversation');
-            targetElement.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            targetElement.scrollIntoView({ block: 'start', behavior: 'smooth', inline: 'nearest' });
             flashJumpTarget(targetMessageId);
             suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
             didJump = true;
@@ -703,8 +711,12 @@ export const Conversation: React.FC = () => {
 
           const state = fetchStateRef.current;
           if (state.hasMore && !state.isLoading) {
+            if (pageLoads >= JUMP_MAX_PAGE_LOADS) break;
             const nextPage = Math.max(1, state.currentPage + 1);
             await loadChatHistory(nextPage, false);
+            pageLoads += 1;
+          } else if (!state.hasMore && !state.isLoading) {
+            break;
           }
 
           await new Promise((resolve) => setTimeout(resolve, JUMP_DOM_POLL_INTERVAL_MS));
@@ -732,7 +744,6 @@ export const Conversation: React.FC = () => {
     },
     [
       clearToasts,
-      chatMessages,
       flashJumpTarget,
       loadChatHistory,
       showToast,
@@ -1198,6 +1209,7 @@ export const Conversation: React.FC = () => {
                           return (
                             <div
                               id={`message-${msg.message_id}`}
+                              data-content-type={msg.content_type}
                               key={msg.message_id}
                               ref={
                                 isLatestUserMessage
