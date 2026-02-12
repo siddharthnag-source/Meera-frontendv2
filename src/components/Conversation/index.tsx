@@ -1036,6 +1036,10 @@ export const Conversation: React.FC = () => {
     setShowUserProfile(true);
   }, []);
 
+  const handleOpenUpgrade = useCallback(() => {
+    openModal('upgrade_button', true);
+  }, [openModal]);
+
   const handleSignOut = useCallback(async () => {
     try {
       localStorage.clear();
@@ -1082,6 +1086,7 @@ export const Conversation: React.FC = () => {
         userEmail={profileEmail}
         userAvatar={profileImage}
         onToggleSidebar={handleToggleSidebar}
+        onUpgrade={handleOpenUpgrade}
         onOpenSettings={handleOpenSettings}
         onSignOut={handleSignOut}
       />

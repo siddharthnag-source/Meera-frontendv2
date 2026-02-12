@@ -16,6 +16,7 @@ interface SidebarProps {
   userEmail: string;
   userAvatar?: string | null;
   onToggleSidebar: () => void;
+  onUpgrade: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
 }
@@ -49,6 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userEmail,
   userAvatar,
   onToggleSidebar,
+  onUpgrade,
   onOpenSettings,
   onSignOut,
 }) => {
@@ -85,6 +87,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setIsProfileOpen(false);
     onOpenSettings();
   }, [onOpenSettings]);
+
+  const handleUpgrade = useCallback(() => {
+    setIsProfileOpen(false);
+    onUpgrade();
+  }, [onUpgrade]);
 
   const handleSignOut = useCallback(() => {
     setIsProfileOpen(false);
@@ -164,12 +171,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <ProfileMenu
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
-        userName={displayName}
-        userEmail={displayEmail}
-        userAvatar={userAvatar}
         tokensLeft={tokensLeft}
-        starredMessages={starredMessages}
-        onSelectStarredMessage={handleSelectStarredMessage}
+        onUpgrade={handleUpgrade}
         onOpenSettings={handleOpenSettings}
         onSignOut={handleSignOut}
         anchor="sidebar-bottom"
