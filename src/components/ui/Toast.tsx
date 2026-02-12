@@ -22,8 +22,14 @@ export const Toast = ({ position, className }: ToastProps) => {
     warning: 'border-yellow-500',
   };
 
+  const positionStyles: Record<string, string> = {
+    conversation: 'fixed top-[20px] left-1/2 -translate-x-1/2 z-[9999] w-[min(92vw,560px)]',
+  };
+
+  const containerClassName = `flex flex-col space-y-2 ${positionStyles[position] ?? ''} ${className ?? ''}`.trim();
+
   return (
-    <div className={`flex flex-col space-y-2 ${className}`}>
+    <div className={containerClassName}>
       {toastsForPosition.map((toastData) => (
         <div
           key={toastData.id}

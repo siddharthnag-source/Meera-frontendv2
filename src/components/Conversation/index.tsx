@@ -35,7 +35,6 @@ const INPUT_DEBOUNCE_MS = 16;
 const RESIZE_DEBOUNCE_MS = 100;
 const JUMP_WAIT_MAX_FRAMES = 300;
 const JUMP_HISTORY_PAGE_LIMIT = 20;
-const JUMP_LOCATE_TIMEOUT_MS = 8000;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
 
 type ChatDisplayItem =
@@ -367,6 +366,14 @@ export const Conversation: React.FC = () => {
     [showToast, starredMessageIdSet],
   );
 
+  const waitForRenderCommit = useCallback(async (): Promise<void> => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+  }, []);
+
   const waitForMessageElement = useCallback(
     async (messageId: string, maxFrames: number = JUMP_WAIT_MAX_FRAMES): Promise<HTMLElement | null> => {
       for (let frame = 0; frame < maxFrames; frame += 1) {
@@ -379,6 +386,19 @@ export const Conversation: React.FC = () => {
     },
     [],
   );
+
+  const waitForActiveHistoryLoad = useCallback(async (): Promise<void> => {
+    while (fetchStateRef.current.isLoading) {
+      const activeLoads = Array.from(requestCache.current.values());
+
+      if (activeLoads.length === 0) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        continue;
+      }
+
+      await Promise.race(activeLoads.map((loadPromise) => Promise.resolve(loadPromise).catch(() => undefined)));
+    }
+  }, []);
 
   const flashJumpTarget = useCallback((messageId: string) => {
     setHighlightedMessageId(messageId);
@@ -679,6 +699,37 @@ export const Conversation: React.FC = () => {
     ],
   );
 
+  const ensureAssistantMessageLoaded = useCallback(
+    async (
+      assistantMessageId: string,
+    ): Promise<{ sourceMessages: ChatMessageFromServer[]; assistantIndex: number }> => {
+      let pagesLoaded = 0;
+
+      while (true) {
+        const sourceMessages = chatMessagesRef.current;
+        const assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
+        if (assistantIndex >= 0) return { sourceMessages, assistantIndex };
+
+        const state = fetchStateRef.current;
+        if (!state.hasMore || pagesLoaded >= JUMP_HISTORY_PAGE_LIMIT) {
+          return { sourceMessages, assistantIndex: -1 };
+        }
+
+        if (state.isLoading) {
+          await waitForActiveHistoryLoad();
+          await waitForRenderCommit();
+          continue;
+        }
+
+        const nextPage = Math.max(1, state.currentPage + 1);
+        await loadChatHistory(nextPage, false);
+        pagesLoaded += 1;
+        await waitForRenderCommit();
+      }
+    },
+    [loadChatHistory, waitForActiveHistoryLoad, waitForRenderCommit],
+  );
+
   const handleJumpToMessage = useCallback(
     (assistantMessageId: string) => {
       if (isJumpingRef.current) return;
@@ -689,8 +740,6 @@ export const Conversation: React.FC = () => {
 
         let sourceMessages = chatMessagesRef.current;
         let assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
-        let pagesLoaded = 0;
-        const locateDeadline = Date.now() + JUMP_LOCATE_TIMEOUT_MS;
 
         if (assistantIndex < 0) {
           showToast('Locating message in history...', {
@@ -699,41 +748,9 @@ export const Conversation: React.FC = () => {
           });
         }
 
-        while (
-          assistantIndex < 0 &&
-          pagesLoaded < JUMP_HISTORY_PAGE_LIMIT &&
-          Date.now() < locateDeadline
-        ) {
-          const state = fetchStateRef.current;
-
-          if (state.isLoading) {
-            await new Promise((resolve) => setTimeout(resolve, 90));
-            sourceMessages = chatMessagesRef.current;
-            assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
-            continue;
-          }
-
-          if (!state.hasMore) break;
-
-          const nextPage = Math.max(1, state.currentPage + 1);
-          await loadChatHistory(nextPage, false);
-          pagesLoaded += 1;
-
-          await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => resolve());
-            });
-          });
-
-          sourceMessages = chatMessagesRef.current;
-          assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
-        }
-
-        while (assistantIndex < 0 && Date.now() < locateDeadline) {
-          await new Promise((resolve) => setTimeout(resolve, 90));
-          sourceMessages = chatMessagesRef.current;
-          assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
-        }
+        const resolved = await ensureAssistantMessageLoaded(assistantMessageId);
+        sourceMessages = resolved.sourceMessages;
+        assistantIndex = resolved.assistantIndex;
 
         if (assistantIndex < 0) {
           showToast('Message is too far back or deleted.', {
@@ -745,15 +762,15 @@ export const Conversation: React.FC = () => {
 
         if (assistantIndex === 0) {
           const state = fetchStateRef.current;
-          if (!state.isLoading && state.hasMore) {
-            const nextPage = Math.max(1, state.currentPage + 1);
-            await loadChatHistory(nextPage, false);
+          if (state.hasMore) {
+            if (state.isLoading) {
+              await waitForActiveHistoryLoad();
+            } else {
+              const nextPage = Math.max(1, state.currentPage + 1);
+              await loadChatHistory(nextPage, false);
+            }
 
-            await new Promise<void>((resolve) => {
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => resolve());
-              });
-            });
+            await waitForRenderCommit();
 
             sourceMessages = chatMessagesRef.current;
             assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
@@ -783,7 +800,7 @@ export const Conversation: React.FC = () => {
           return;
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await waitForRenderCommit();
         const targetElement = (document.getElementById(`message-${targetMessageId}`) as HTMLElement | null) ??
           (await waitForMessageElement(targetMessageId, JUMP_WAIT_MAX_FRAMES));
         if (!targetElement) {
@@ -809,7 +826,15 @@ export const Conversation: React.FC = () => {
           isJumpingRef.current = false;
         });
     },
-    [flashJumpTarget, loadChatHistory, showToast, waitForMessageElement],
+    [
+      ensureAssistantMessageLoaded,
+      flashJumpTarget,
+      loadChatHistory,
+      showToast,
+      waitForActiveHistoryLoad,
+      waitForMessageElement,
+      waitForRenderCommit,
+    ],
   );
 
   const handleScrollInternal = useCallback(
