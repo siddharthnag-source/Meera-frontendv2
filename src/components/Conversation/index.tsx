@@ -20,10 +20,9 @@ import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { FiArrowUp, FiGlobe, FiPaperclip } from 'react-icons/fi';
+import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
-import { TbLayoutSidebarLeftExpand } from 'react-icons/tb';
 import { AttachmentInputArea, AttachmentInputAreaRef } from './AttachmentInputArea';
 import { AttachmentPreview } from './AttachmentPreview';
 import { CallSessionItem } from './CallSessionItem';
@@ -1305,24 +1304,24 @@ export const Conversation: React.FC = () => {
           <div className="w-full mx-auto flex items-center justify-between">
             <button
               onClick={handleOpenMobileSidebar}
-              className="md:hidden flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
+              className="md:hidden flex items-center justify-center w-12 h-12 rounded-full border-[3px] border-primary/20 hover:border-primary/45 transition-colors text-primary bg-background/95"
               aria-label="Open sidebar"
               title="Open sidebar"
             >
-              <TbLayoutSidebarLeftExpand size={18} className="text-primary" />
+              <FiMenu size={26} className="text-primary" />
             </button>
 
             {!isSidebarVisible ? (
               <button
                 onClick={handleToggleDesktopSidebar}
-                className="hidden md:flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
+                className="hidden md:flex items-center justify-center w-12 h-12 rounded-full border-[3px] border-primary/20 hover:border-primary/45 transition-colors text-primary bg-background/95"
                 aria-label="Open sidebar"
                 title="Open sidebar"
               >
-                <TbLayoutSidebarLeftExpand size={18} className="text-primary" />
+                <FiMenu size={26} className="text-primary" />
               </button>
             ) : (
-              <div className="w-9 h-9 hidden md:block" />
+              <div className="w-12 h-12 hidden md:block" />
             )}
 
             <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
