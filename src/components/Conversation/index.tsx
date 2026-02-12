@@ -33,6 +33,9 @@ const FETCH_DEBOUNCE_MS = 300;
 const SCROLL_THROTTLE_MS = 16; // 60fps
 const INPUT_DEBOUNCE_MS = 16;
 const RESIZE_DEBOUNCE_MS = 100;
+const JUMP_WAIT_MAX_FRAMES = 36;
+const JUMP_HISTORY_PAGE_LIMIT = 10;
+const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
 
 type ChatDisplayItem =
   | { type: 'message'; message: ChatMessageFromServer; id: string }
@@ -78,6 +81,25 @@ const upsertSnapshot = (messages: ChatMessageFromServer[], target: ChatMessageFr
 
 const removeSnapshot = (messages: ChatMessageFromServer[], targetId: string): ChatMessageFromServer[] => {
   return messages.filter((message) => message.message_id !== targetId);
+};
+
+const normalizeContextText = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+const getUserContextForStar = (messages: ChatMessageFromServer[], targetMessageId: string): string => {
+  const targetIndex = messages.findIndex((item) => item.message_id === targetMessageId);
+  if (targetIndex <= 0) return '';
+
+  const previousMessage = messages[targetIndex - 1];
+  if (!previousMessage || previousMessage.content_type !== 'user') return '';
+
+  return normalizeContextText(previousMessage.content);
+};
+
+const withUserContext = (message: ChatMessageFromServer, userContext: string): ChatMessageFromServer => {
+  return {
+    ...message,
+    user_context: userContext,
+  };
 };
 
 const MemoizedRenderedMessageItem = React.memo(RenderedMessageItem, (prevProps, nextProps) => {
@@ -131,6 +153,7 @@ export const Conversation: React.FC = () => {
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
   const [starredMessageSnapshots, setStarredMessageSnapshots] = useState<ChatMessageFromServer[]>([]);
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
@@ -176,12 +199,16 @@ export const Conversation: React.FC = () => {
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
   const cleanupFunctions = useRef<Array<() => void>>([]);
   const chatMessagesRef = useRef<ChatMessageFromServer[]>(chatMessages);
+  const fetchStateRef = useRef(fetchState);
   const starMutationInFlightRef = useRef<Set<string>>(new Set());
 
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastScrollTop = useRef(0);
   const isScrollingUp = useRef(false);
   const previousScrollHeight = useRef(0);
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isJumpingRef = useRef(false);
+  const suppressAutoLoadUntilRef = useRef(0);
 
   const lastScrollTopRef = useRef(0);
   const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
@@ -198,6 +225,10 @@ export const Conversation: React.FC = () => {
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
+
+  useEffect(() => {
+    fetchStateRef.current = fetchState;
+  }, [fetchState]);
 
   const debouncedSetMessage = useMemo(() => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS), []);
 
@@ -252,97 +283,96 @@ export const Conversation: React.FC = () => {
     const snapshotMap = new Map(starredMessageSnapshots.map((msg) => [msg.message_id, msg]));
 
     return [...starredMessageIds]
-      .map((messageId) => loadedMessageMap.get(messageId) ?? snapshotMap.get(messageId))
+      .map((messageId) => {
+        const loaded = loadedMessageMap.get(messageId);
+        const snapshot = snapshotMap.get(messageId);
+
+        if (!loaded) return snapshot;
+        if (!snapshot) return loaded;
+
+        const snapshotContext = (snapshot.user_context ?? '').trim();
+        if (!snapshotContext) return loaded;
+
+        return withUserContext(loaded, snapshotContext);
+      })
       .filter((msg): msg is ChatMessageFromServer => Boolean(msg));
   }, [chatMessages, starredMessageIds, starredMessageSnapshots]);
 
   const toggleStarForMessage = useCallback(
-    async (target: ChatMessageFromServer) => {
+    (target: ChatMessageFromServer) => {
       if (!target.content.trim()) return;
       if (starMutationInFlightRef.current.has(target.message_id)) return;
 
       const isCurrentlyStarred = starredMessageIdSet.has(target.message_id);
+      const userContext =
+        target.content_type === 'assistant'
+          ? getUserContextForStar(chatMessagesRef.current, target.message_id)
+          : '';
+      const optimisticSnapshot = withUserContext(target, userContext);
+
       starMutationInFlightRef.current.add(target.message_id);
 
       setStarredMessageIds((prev) =>
         isCurrentlyStarred ? removeId(prev, target.message_id) : prependUniqueId(prev, target.message_id),
       );
       setStarredMessageSnapshots((prev) =>
-        isCurrentlyStarred ? removeSnapshot(prev, target.message_id) : upsertSnapshot(prev, target),
+        isCurrentlyStarred ? removeSnapshot(prev, target.message_id) : upsertSnapshot(prev, optimisticSnapshot),
       );
 
-      try {
-        const response = await chatService.setMessageStar(target.message_id, !isCurrentlyStarred, {
+      void chatService
+        .setMessageStar(target.message_id, !isCurrentlyStarred, {
           content: target.content,
           content_type: target.content_type,
           timestamp: target.timestamp,
-        });
+          user_context: userContext,
+        })
+        .then((response) => {
+          if (response.message !== 'ok') {
+            throw new Error('Star persistence failed');
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to update starred message', error);
 
-        if (response.message !== 'ok') {
-          throw new Error('Star persistence failed');
-        }
+          setStarredMessageIds((prev) =>
+            isCurrentlyStarred ? prependUniqueId(prev, target.message_id) : removeId(prev, target.message_id),
+          );
+          setStarredMessageSnapshots((prev) =>
+            isCurrentlyStarred ? upsertSnapshot(prev, optimisticSnapshot) : removeSnapshot(prev, target.message_id),
+          );
 
-        await loadPersistedStarredMessages(false);
-      } catch (error) {
-        console.error('Failed to update starred message', error);
-
-        setStarredMessageIds((prev) =>
-          isCurrentlyStarred ? prependUniqueId(prev, target.message_id) : removeId(prev, target.message_id),
-        );
-        setStarredMessageSnapshots((prev) =>
-          isCurrentlyStarred ? upsertSnapshot(prev, target) : removeSnapshot(prev, target.message_id),
-        );
-
-        showToast('Failed to update starred message. Please try again.', {
-          type: 'error',
-          position: 'conversation',
-        });
-      } finally {
-        starMutationInFlightRef.current.delete(target.message_id);
-      }
-    },
-    [loadPersistedStarredMessages, showToast, starredMessageIdSet],
-  );
-
-  const handleSelectStarredMessage = useCallback(
-    (messageId: string) => {
-      const scrollToMessage = (): boolean => {
-        const target = document.getElementById(`message-${messageId}`);
-        if (!target) return false;
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return true;
-      };
-
-      if (scrollToMessage()) return;
-
-      const fallbackMessage = starredMessages.find((msg) => msg.message_id === messageId);
-      if (fallbackMessage) {
-        setChatMessages((prev) => {
-          if (prev.some((msg) => msg.message_id === messageId)) return prev;
-          const merged = [...prev, fallbackMessage];
-          merged.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-          return merged;
-        });
-
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (scrollToMessage()) return;
-            showToast('Unable to locate this message in the current view.', {
-              type: 'error',
-              position: 'conversation',
-            });
+          showToast('Failed to update starred message. Please try again.', {
+            type: 'error',
+            position: 'conversation',
           });
+        })
+        .finally(() => {
+          starMutationInFlightRef.current.delete(target.message_id);
         });
-        return;
+    },
+    [showToast, starredMessageIdSet],
+  );
+
+  const waitForMessageElement = useCallback(
+    async (messageId: string, maxFrames: number = JUMP_WAIT_MAX_FRAMES): Promise<HTMLElement | null> => {
+      for (let frame = 0; frame < maxFrames; frame += 1) {
+        const element = document.getElementById(`message-${messageId}`);
+        if (element instanceof HTMLElement) return element;
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
 
-      showToast('Unable to locate this message in the current view.', {
-        type: 'error',
-        position: 'conversation',
-      });
+      return null;
     },
-    [showToast, starredMessages],
+    [],
   );
+
+  const flashJumpTarget = useCallback((messageId: string) => {
+    setHighlightedMessageId(messageId);
+    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedMessageId((current) => (current === messageId ? null : current));
+    }, 2000);
+  }, []);
 
   const calculateMinHeight = useCallback(() => {
     const viewportHeight = window.innerHeight;
@@ -521,9 +551,10 @@ export const Conversation: React.FC = () => {
       const cacheKey = `${page}-${isInitial}`;
 
       if (requestCache.current.has(cacheKey)) return requestCache.current.get(cacheKey);
-      if (fetchState.isLoading && !isInitial) return;
+      const currentFetchState = fetchStateRef.current;
+      if (currentFetchState.isLoading && !isInitial) return;
 
-      if (fetchState.abortController && !isInitial) fetchState.abortController.abort();
+      if (currentFetchState.abortController && !isInitial) currentFetchState.abortController.abort();
       const abortController = new AbortController();
 
       const loadPromise = (async () => {
@@ -628,17 +659,136 @@ export const Conversation: React.FC = () => {
       return loadPromise;
     },
     [
-      fetchState.isLoading,
-      fetchState.abortController,
       showToast,
       scrollToBottom,
       hasLoadedLegacyHistory,
     ],
   );
 
+  const handleJumpToMessage = useCallback(
+    (assistantMessageId: string) => {
+      if (isJumpingRef.current) return;
+
+      void (async () => {
+        isJumpingRef.current = true;
+        suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
+
+        let sourceMessages = chatMessagesRef.current;
+        let assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
+        let pagesLoaded = 0;
+
+        if (assistantIndex < 0) {
+          showToast('Locating message in history...', {
+            type: 'info',
+            position: 'conversation',
+          });
+        }
+
+        while (assistantIndex < 0 && pagesLoaded < JUMP_HISTORY_PAGE_LIMIT) {
+          const state = fetchStateRef.current;
+
+          if (state.isLoading) {
+            await new Promise((resolve) => setTimeout(resolve, 60));
+            continue;
+          }
+
+          if (!state.hasMore) break;
+
+          const nextPage = Math.max(1, state.currentPage + 1);
+          await loadChatHistory(nextPage, false);
+          pagesLoaded += 1;
+
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => resolve());
+            });
+          });
+
+          sourceMessages = chatMessagesRef.current;
+          assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
+        }
+
+        if (assistantIndex < 0) {
+          showToast('Message is too far back or deleted.', {
+            type: 'error',
+            position: 'conversation',
+          });
+          return;
+        }
+
+        if (assistantIndex === 0) {
+          const state = fetchStateRef.current;
+          if (!state.isLoading && state.hasMore) {
+            const nextPage = Math.max(1, state.currentPage + 1);
+            await loadChatHistory(nextPage, false);
+
+            await new Promise<void>((resolve) => {
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => resolve());
+              });
+            });
+
+            sourceMessages = chatMessagesRef.current;
+            assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
+          }
+        }
+
+        if (assistantIndex < 0) {
+          showToast('Message is too far back or deleted.', {
+            type: 'error',
+            position: 'conversation',
+          });
+          return;
+        }
+
+        let targetMessageId = assistantMessageId;
+        const contextMessage = sourceMessages[assistantIndex - 1];
+        if (contextMessage?.content_type === 'user') {
+          targetMessageId = contextMessage.message_id;
+        }
+
+        const scrollContainer = mainScrollRef.current;
+        if (!scrollContainer) {
+          showToast('Unable to locate this message in the current view.', {
+            type: 'error',
+            position: 'conversation',
+          });
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const targetElement = (document.getElementById(`message-${targetMessageId}`) as HTMLElement | null) ??
+          (await waitForMessageElement(targetMessageId, JUMP_WAIT_MAX_FRAMES));
+        if (!targetElement) {
+          showToast('Unable to locate this message in the current view.', {
+            type: 'error',
+            position: 'conversation',
+          });
+          return;
+        }
+
+        targetElement.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        flashJumpTarget(targetMessageId);
+        suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
+      })()
+        .catch((error) => {
+          console.error('Failed to jump to starred message context', error);
+          showToast('Unable to locate this message in the current view.', {
+            type: 'error',
+            position: 'conversation',
+          });
+        })
+        .finally(() => {
+          isJumpingRef.current = false;
+        });
+    },
+    [flashJumpTarget, loadChatHistory, showToast, waitForMessageElement],
+  );
+
   const handleScrollInternal = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+      const currentFetchState = fetchStateRef.current;
 
       if (!showDateSticky) setShowDateSticky(true);
       if (hideDateStickyTimeoutRef.current) clearTimeout(hideDateStickyTimeoutRef.current);
@@ -667,23 +817,24 @@ export const Conversation: React.FC = () => {
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       setIsUserNearTop(scrollTop < SCROLL_THRESHOLD);
+      const isAutoLoadSuppressed =
+        isJumpingRef.current || Date.now() < suppressAutoLoadUntilRef.current;
 
       if (
+        !isAutoLoadSuppressed &&
         isScrollingUp.current &&
         scrollTop < SCROLL_THRESHOLD &&
-        fetchState.hasMore &&
-        !fetchState.isLoading &&
+        currentFetchState.hasMore &&
+        !currentFetchState.isLoading &&
         !isInitialLoading
       ) {
         scrollTimeoutRef.current = setTimeout(() => {
-          loadChatHistory(fetchState.currentPage + 1, false);
+          const nextPage = Math.max(1, fetchStateRef.current.currentPage + 1);
+          loadChatHistory(nextPage, false);
         }, FETCH_DEBOUNCE_MS);
       }
     },
     [
-      fetchState.hasMore,
-      fetchState.isLoading,
-      fetchState.currentPage,
       isInitialLoading,
       loadChatHistory,
       showDateSticky,
@@ -887,6 +1038,7 @@ export const Conversation: React.FC = () => {
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
       if (hideDateStickyTimeoutRef.current) clearTimeout(hideDateStickyTimeoutRef.current);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
 
       cleanupFunctions.current.forEach((cleanup) => cleanup());
       cleanupFunctions.current = [];
@@ -960,7 +1112,7 @@ export const Conversation: React.FC = () => {
         isVisible={isSidebarVisible}
         tokensLeft={subscriptionData?.tokens_left ?? null}
         starredMessages={starredMessages}
-        onSelectStarredMessage={handleSelectStarredMessage}
+        onJumpToMessage={handleJumpToMessage}
         userName={profileName}
         userEmail={profileEmail}
         userAvatar={profileImage}
@@ -1101,6 +1253,16 @@ export const Conversation: React.FC = () => {
                                     : null
                               }
                               className="message-item-wrapper w-full transform-gpu will-change-transform"
+                              style={
+                                highlightedMessageId === msg.message_id
+                                  ? {
+                                      backgroundColor: 'color-mix(in oklab, var(--primary) 12%, transparent)',
+                                      boxShadow: '0 0 0 1px color-mix(in oklab, var(--primary) 30%, transparent)',
+                                      borderRadius: '12px',
+                                      transition: 'background-color 240ms ease, box-shadow 240ms ease',
+                                    }
+                                  : undefined
+                              }
                             >
                               <MemoizedRenderedMessageItem
                                 message={msg}

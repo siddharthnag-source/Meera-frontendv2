@@ -59,6 +59,7 @@ type StarredMessageRow = {
   snapshot_content: string | null;
   snapshot_content_type: 'user' | 'assistant' | string | null;
   snapshot_timestamp: string | null;
+  user_context: string | null;
   starred_at: string | null;
 };
 
@@ -66,6 +67,7 @@ type StarredMessageSnapshotInput = {
   content?: string | null;
   content_type?: 'user' | 'assistant' | 'system';
   timestamp?: string | null;
+  user_context?: string | null;
 };
 
 type StarredMessageSnapshot = {
@@ -73,6 +75,7 @@ type StarredMessageSnapshot = {
   content: string;
   content_type: 'user' | 'assistant';
   timestamp: string;
+  user_context: string;
 };
 
 type LLMHistoryMessage = {
@@ -155,6 +158,7 @@ function mapStarredRowToChatMessage(row: StarredMessageRow) {
     content_type: row.snapshot_content_type === 'user' ? 'user' : 'assistant',
     content: row.snapshot_content ?? '',
     timestamp,
+    user_context: row.user_context ?? '',
     session_id: undefined,
     is_call: false,
     attachments: [],
@@ -220,7 +224,9 @@ export const chatService = {
 
       const { data, error } = await supabase
         .from('starred_messages')
-        .select('message_id,user_id,snapshot_content,snapshot_content_type,snapshot_timestamp,starred_at')
+        .select(
+          'message_id,user_id,snapshot_content,snapshot_content_type,snapshot_timestamp,user_context,starred_at',
+        )
         .eq('user_id', userId)
         .order('starred_at', { ascending: false });
 
@@ -262,6 +268,8 @@ export const chatService = {
           content_type: snapshot?.content_type === 'user' ? 'user' : 'assistant',
           timestamp:
             typeof snapshot?.timestamp === 'string' && snapshot.timestamp ? snapshot.timestamp : new Date().toISOString(),
+          user_context:
+            typeof snapshot?.user_context === 'string' ? snapshot.user_context.replace(/\s+/g, ' ').trim() : '',
         };
 
         const { error } = await supabase.from('starred_messages').upsert(
@@ -272,6 +280,7 @@ export const chatService = {
               snapshot_content: snapshotPayload.content,
               snapshot_content_type: snapshotPayload.content_type,
               snapshot_timestamp: snapshotPayload.timestamp,
+              user_context: snapshotPayload.user_context,
               starred_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             },

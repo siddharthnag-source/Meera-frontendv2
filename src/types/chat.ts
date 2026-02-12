@@ -66,6 +66,7 @@ export interface ChatMessageFromServer {
   content: string;
   content_type: 'user' | 'assistant' | 'system';
   timestamp: string;
+  user_context?: string;
   attachments?: ChatAttachmentFromServer[];
   is_call?: boolean;
   session_id?: string;

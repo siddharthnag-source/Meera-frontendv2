@@ -5,12 +5,13 @@ import Image from 'next/image';
 import React, { useCallback, useMemo, useState } from 'react';
 import { TbLayoutSidebarLeftCollapse } from 'react-icons/tb';
 import { ProfileMenu } from './ProfileMenu';
+import { SidebarItem } from './Sidebar/SidebarItem';
 
 interface SidebarProps {
   isVisible: boolean;
   tokensLeft?: number | null;
   starredMessages: ChatMessageFromServer[];
-  onSelectStarredMessage: (messageId: string) => void;
+  onJumpToMessage: (messageId: string) => void;
   userName: string;
   userEmail: string;
   userAvatar?: string | null;
@@ -18,13 +19,6 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onSignOut: () => void;
 }
-
-const truncatePreview = (content: string): string => {
-  const normalized = content.replace(/\s+/g, ' ').trim();
-  if (!normalized) return 'Untitled message';
-  if (normalized.length <= 42) return normalized;
-  return `${normalized.slice(0, 42)}...`;
-};
 
 const getTimeValue = (timestamp: string): number => {
   const parsed = new Date(timestamp).getTime();
@@ -50,7 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isVisible,
   tokensLeft,
   starredMessages,
-  onSelectStarredMessage,
+  onJumpToMessage,
   userName,
   userEmail,
   userAvatar,
@@ -82,9 +76,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleSelectStarredMessage = useCallback(
     (messageId: string) => {
       setIsProfileOpen(false);
-      onSelectStarredMessage(messageId);
+      onJumpToMessage(messageId);
     },
-    [onSelectStarredMessage],
+    [onJumpToMessage],
   );
 
   const handleOpenSettings = useCallback(() => {
@@ -133,15 +127,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <p className="text-xs font-medium text-primary/45 mb-2 px-2">{label}</p>
                   <div className="space-y-1">
                     {messages.map((message) => (
-                      <button
+                      <SidebarItem
                         key={message.message_id}
-                        type="button"
-                        onClick={() => handleSelectStarredMessage(message.message_id)}
-                        className="w-full rounded-lg px-2 py-2 text-left text-[15px] text-primary/90 hover:bg-primary/5 transition-colors truncate"
-                        title={message.content}
-                      >
-                        {truncatePreview(message.content)}
-                      </button>
+                        message={message}
+                        onSelect={handleSelectStarredMessage}
+                      />
                     ))}
                   </div>
                 </div>
