@@ -2,7 +2,7 @@
 
 import { chatService } from '@/app/api/services/chat';
 import { MeeraVoice } from '@/components/MeeraVoice';
-import { Sidebar } from '@/components/Sidebar';
+import { ProfileMenu } from '@/components/ProfileMenu';
 import { Toast } from '@/components/ui/Toast';
 import { useToast } from '@/components/ui/ToastProvider';
 import { UserProfile } from '@/components/ui/UserProfile';
@@ -16,8 +16,9 @@ import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
+import Image from 'next/image';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
+import { FiArrowUp, FiGlobe, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
 import { AttachmentInputArea, AttachmentInputAreaRef } from './AttachmentInputArea';
@@ -109,7 +110,7 @@ export const Conversation: React.FC = () => {
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
 
   const [showUserProfile, setShowUserProfile] = useState(false);
@@ -165,7 +166,7 @@ export const Conversation: React.FC = () => {
   const lastScrollTopRef = useRef(0);
   const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
 
-  const { data: sessionData, status: sessionStatus } = useSession();
+  const { data: sessionData } = useSession();
   const {
     data: subscriptionData,
     isLoading: isSubscriptionLoading,
@@ -215,6 +216,7 @@ export const Conversation: React.FC = () => {
 
   const handleSelectStarredMessage = useCallback(
     (messageId: string) => {
+      setIsProfileOpen(false);
       const target = document.getElementById(`message-${messageId}`);
       if (!target) {
         showToast('Unable to locate this message in the current view.', {
@@ -764,19 +766,64 @@ export const Conversation: React.FC = () => {
     ],
   );
 
+  const handleOpenSettings = useCallback(() => {
+    setIsProfileOpen(false);
+    setShowUserProfile(true);
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      setIsProfileOpen(false);
+      localStorage.clear();
+      await supabase.auth.signOut();
+      window.location.href = '/sign-in';
+    } catch (error) {
+      console.error('Failed to sign out:', error);
+      showToast('Failed to sign out. Please try again.', {
+        type: 'error',
+        position: 'conversation',
+      });
+    }
+  }, [showToast]);
+
+  const profileName = sessionData?.user?.name || sessionData?.user?.email || 'Profile';
+  const profileEmail = sessionData?.user?.email || '';
+  const profileInitial = profileName.trim().charAt(0).toUpperCase() || 'P';
+  const profileImage = sessionData?.user?.image || null;
+
+  const handleProfileToggle = useCallback(() => {
+    setIsProfileOpen((prev) => !prev);
+  }, []);
+
+  const closeProfileMenu = useCallback(() => {
+    setIsProfileOpen(false);
+  }, []);
+
+  const handleOpenVoiceAssistant = useCallback(() => {
+    setIsProfileOpen(false);
+    setShowMeeraVoice(true);
+  }, []);
+
+  const handleCloseProfilePanel = useCallback(() => {
+    setShowUserProfile(false);
+  }, []);
+
   return (
     <div className="relative bg-background">
-      <Sidebar
+      <ProfileMenu
+        isOpen={isProfileOpen}
+        onClose={closeProfileMenu}
         tokensLeft={subscriptionData?.tokens_left ?? null}
         starredMessages={starredMessages}
-        onSelectMessage={handleSelectStarredMessage}
-        userName={sessionData?.user?.name || sessionData?.user?.email || 'Profile'}
-        userAvatar={sessionData?.user?.image || null}
-        isMobileOpen={isSidebarOpen}
-        onCloseMobile={() => setIsSidebarOpen(false)}
+        onSelectStarredMessage={handleSelectStarredMessage}
+        userName={profileName}
+        userEmail={profileEmail}
+        userAvatar={profileImage}
+        onOpenSettings={handleOpenSettings}
+        onSignOut={handleSignOut}
       />
 
-      <div className="grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative md:ml-[260px]">
+      <div className="grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative">
         {isDraggingOver && (
           <div className="fixed inset-0 bg-primary/10 backdrop-blur-[2px] z-50 flex items-center justify-center">
             <div className="bg-background px-8 py-5 rounded-lg shadow-md border border-primary/20">
@@ -791,20 +838,21 @@ export const Conversation: React.FC = () => {
         >
           <div className="w-full mx-auto flex items-center justify-between">
             <button
-              onClick={() => setIsSidebarOpen(true)}
-              className="flex md:hidden items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary p-2"
-              aria-label="Open sidebar"
+              onClick={handleProfileToggle}
+              className="flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary bg-background overflow-hidden"
+              aria-label="Open profile menu"
             >
-              <FiMenu size={20} className="text-primary" />
-            </button>
-            <button
-              onClick={() => setShowUserProfile(true)}
-              className={`hidden md:flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary ${
-                sessionStatus === 'authenticated' && sessionData?.user?.image ? '' : 'p-2'
-              }`}
-              aria-label="Open profile"
-            >
-              <FiMenu size={20} className="text-primary" />
+              {profileImage ? (
+                <Image
+                  src={profileImage}
+                  alt={profileName}
+                  width={36}
+                  height={36}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-xs font-semibold text-primary">{profileInitial}</span>
+              )}
             </button>
 
             <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
@@ -812,7 +860,7 @@ export const Conversation: React.FC = () => {
             </div>
 
             <button
-              onClick={() => setShowMeeraVoice(true)}
+              onClick={handleOpenVoiceAssistant}
               className="flex items-center justify-center w-9 p-2 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
               aria-label="Open voice assistant"
             >
@@ -1080,7 +1128,7 @@ export const Conversation: React.FC = () => {
           </div>
         </footer>
 
-        <UserProfile isOpen={showUserProfile} onClose={() => setShowUserProfile(false)} />
+        <UserProfile isOpen={showUserProfile} onClose={handleCloseProfilePanel} />
         <MeeraVoice
           isOpen={showMeeraVoice}
           onClose={(wasConnected) => {
