@@ -1304,24 +1304,24 @@ export const Conversation: React.FC = () => {
           <div className="w-full mx-auto flex items-center justify-between">
             <button
               onClick={handleOpenMobileSidebar}
-              className="md:hidden flex items-center justify-center w-12 h-12 rounded-full border-[3px] border-primary/20 hover:border-primary/45 transition-colors text-primary bg-background/95"
+              className="md:hidden flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
               aria-label="Open sidebar"
               title="Open sidebar"
             >
-              <FiMenu size={26} className="text-primary" />
+              <FiMenu size={18} className="text-primary" />
             </button>
 
             {!isSidebarVisible ? (
               <button
                 onClick={handleToggleDesktopSidebar}
-                className="hidden md:flex items-center justify-center w-12 h-12 rounded-full border-[3px] border-primary/20 hover:border-primary/45 transition-colors text-primary bg-background/95"
+                className="hidden md:flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
                 aria-label="Open sidebar"
                 title="Open sidebar"
               >
-                <FiMenu size={26} className="text-primary" />
+                <FiMenu size={18} className="text-primary" />
               </button>
             ) : (
-              <div className="w-12 h-12 hidden md:block" />
+              <div className="w-9 h-9 hidden md:block" />
             )}
 
             <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
