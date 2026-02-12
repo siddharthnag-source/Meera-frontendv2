@@ -27,6 +27,12 @@
 body {
   background: var(--background);
   color: var(--primary);
+  min-height: 100%;
+  overscroll-behavior-y: none;
+}
+
+html {
+  height: 100%;
 }
 
 /* Improved scrollbar styling that matches our theme */

@@ -93,6 +93,55 @@ export const useMessageSubmission = ({
 
   const messageRelationshipMapRef = useRef<Map<string, string>>(new Map());
   const mostRecentAssistantMessageIdRef = useRef<string | null>(null);
+  const deltaBufferRef = useRef('');
+  const flushFrameRef = useRef<number | null>(null);
+
+  const flushBufferedAssistantDelta = useCallback(
+    (assistantId: string | undefined, tryNumber: number) => {
+      if (!assistantId) {
+        deltaBufferRef.current = '';
+        return;
+      }
+
+      const buffered = deltaBufferRef.current;
+      if (!buffered) return;
+
+      deltaBufferRef.current = '';
+      setChatMessages((prev) =>
+        prev.map((msg) =>
+          msg.message_id === assistantId
+            ? {
+                ...msg,
+                content: (msg.content || '') + buffered,
+                failed: false,
+                try_number: tryNumber,
+              }
+            : msg,
+        ),
+      );
+    },
+    [setChatMessages],
+  );
+
+  const scheduleBufferedAssistantFlush = useCallback(
+    (assistantId: string | undefined, tryNumber: number) => {
+      if (!assistantId) return;
+      if (flushFrameRef.current !== null) return;
+
+      flushFrameRef.current = requestAnimationFrame(() => {
+        flushFrameRef.current = null;
+        flushBufferedAssistantDelta(assistantId, tryNumber);
+
+        if (deltaBufferRef.current && flushFrameRef.current === null) {
+          flushFrameRef.current = requestAnimationFrame(() => {
+            flushFrameRef.current = null;
+            flushBufferedAssistantDelta(assistantId, tryNumber);
+          });
+        }
+      });
+    },
+    [flushBufferedAssistantDelta],
+  );
 
   const createOptimisticMessage = useCallback(
     (
@@ -298,6 +347,7 @@ export const useMessageSubmission = ({
       }
 
       const assistantId = messageRelationshipMapRef.current.get(optimisticId);
+      deltaBufferRef.current = '';
 
       try {
         let fullAssistantText = '';
@@ -308,20 +358,16 @@ export const useMessageSubmission = ({
             fullAssistantText += delta;
             if (!assistantId) return;
 
-            setChatMessages((prev) =>
-              prev.map((msg) =>
-                msg.message_id === assistantId
-                  ? {
-                      ...msg,
-                      content: (msg.content || '') + delta,
-                      failed: false,
-                      try_number: tryNumber,
-                    }
-                  : msg,
-              ),
-            );
+            deltaBufferRef.current += delta;
+            scheduleBufferedAssistantFlush(assistantId, tryNumber);
           },
           onDone: async () => {
+            if (flushFrameRef.current !== null) {
+              cancelAnimationFrame(flushFrameRef.current);
+              flushFrameRef.current = null;
+            }
+            flushBufferedAssistantDelta(assistantId, tryNumber);
+
             if (assistantId) {
               setChatMessages((prev) =>
                 prev.map((msg) =>
@@ -368,6 +414,11 @@ export const useMessageSubmission = ({
           }),
         );
       } finally {
+        if (flushFrameRef.current !== null) {
+          cancelAnimationFrame(flushFrameRef.current);
+          flushFrameRef.current = null;
+        }
+        deltaBufferRef.current = '';
         setIsSending(false);
         setIsAssistantTyping(false);
         lastOptimisticMessageIdRef.current = null;
@@ -390,6 +441,8 @@ export const useMessageSubmission = ({
       showToast,
       onMessageSent,
       refreshLatestMessagesFromServer,
+      scheduleBufferedAssistantFlush,
+      flushBufferedAssistantDelta,
     ],
   );
 

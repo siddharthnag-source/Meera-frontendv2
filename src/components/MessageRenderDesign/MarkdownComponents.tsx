@@ -142,44 +142,44 @@ export const MyCustomParagraph: React.FC<CustomComponentProps<HTMLParagraphEleme
   node,
   ...rest
 }) => (
-  <p className="text-[15px] font-sans leading-relaxed mt-2" {...rest}>
+  <p className="text-[15px] font-sans leading-relaxed mt-2 break-words [overflow-wrap:anywhere]" {...rest}>
     {children}
   </p>
 );
 
 // Heading components
 export const MyCustomH1: React.FC<CustomComponentProps<HTMLHeadingElement>> = ({ children, node, ...rest }) => (
-  <h1 className="text-2xl font-sans font-semibold pt-4 pb-2 border-b border-gray-300" {...rest}>
+  <h1 className="text-2xl font-sans font-semibold pt-4 pb-2 border-b border-gray-300 break-words [overflow-wrap:anywhere]" {...rest}>
     {children}
   </h1>
 );
 
 export const MyCustomH2: React.FC<CustomComponentProps<HTMLHeadingElement>> = ({ children, node, ...rest }) => (
-  <h2 className="text-xl font-sans font-semibold pt-4 pb-2 border-b border-gray-300" {...rest}>
+  <h2 className="text-xl font-sans font-semibold pt-4 pb-2 border-b border-gray-300 break-words [overflow-wrap:anywhere]" {...rest}>
     {children}
   </h2>
 );
 
 export const MyCustomH3: React.FC<CustomComponentProps<HTMLHeadingElement>> = ({ children, node, ...rest }) => (
-  <h3 className="text-lg font-sans font-semibold pt-2 pb-2 border-b border-gray-300" {...rest}>
+  <h3 className="text-lg font-sans font-semibold pt-2 pb-2 border-b border-gray-300 break-words [overflow-wrap:anywhere]" {...rest}>
     {children}
   </h3>
 );
 
 export const MyCustomH4: React.FC<CustomComponentProps<HTMLHeadingElement>> = ({ children, node, ...rest }) => (
-  <h4 className="text-base font-sans font-semibold pt-2 pb-2" {...rest}>
+  <h4 className="text-base font-sans font-semibold pt-2 pb-2 break-words [overflow-wrap:anywhere]" {...rest}>
     {children}
   </h4>
 );
 
 export const MyCustomH5: React.FC<CustomComponentProps<HTMLHeadingElement>> = ({ children, node, ...rest }) => (
-  <h5 className="text-sm font-sans font-semibold pt-2 pb-2" {...rest}>
+  <h5 className="text-sm font-sans font-semibold pt-2 pb-2 break-words [overflow-wrap:anywhere]" {...rest}>
     {children}
   </h5>
 );
 
 export const MyCustomH6: React.FC<CustomComponentProps<HTMLHeadingElement>> = ({ children, node, ...rest }) => (
-  <h6 className="text-xs font-sans font-semibold pt-2 pb-2" {...rest}>
+  <h6 className="text-xs font-sans font-semibold pt-2 pb-2 break-words [overflow-wrap:anywhere]" {...rest}>
     {children}
   </h6>
 );
@@ -196,7 +196,7 @@ export const MyCustomBlockquote: React.FC<CustomComponentProps<HTMLQuoteElement>
   return (
     <div className="my-4">
       <blockquote
-        className="border-l-4 font-sans border-primary pl-4 italic bg-primary/10 p-4 pb-2 rounded-md text-[15px] relative"
+        className="border-l-4 font-sans border-primary pl-4 italic bg-primary/10 p-4 pb-2 rounded-md text-[15px] relative break-words [overflow-wrap:anywhere]"
         {...rest}
       >
         <div className="flex justify-between items-start">
@@ -232,7 +232,7 @@ export const MyCustomOl: React.FC<CustomComponentProps<HTMLOListElement>> = ({ c
 );
 
 export const MyCustomLi: React.FC<CustomComponentProps<HTMLLIElement>> = ({ children, node, ...rest }) => (
-  <li className="font-sans text-[15px]" {...rest}>
+  <li className="font-sans text-[15px] break-words [overflow-wrap:anywhere]" {...rest}>
     {children}
   </li>
 );
@@ -246,7 +246,7 @@ export const MyCustomHr: React.FC<CustomComponentProps<HTMLHRElement>> = ({ node
 export const MyCustomA: React.FC<CustomComponentProps<HTMLAnchorElement>> = ({ children, node, href, ...rest }) => (
   <a
     href={href}
-    className="font-sans text-primary underline hover:no-underline focus:outline-none focus:ring-1 focus:ring-primary-focus"
+    className="font-sans text-primary underline hover:no-underline focus:outline-none focus:ring-1 focus:ring-primary-focus break-words [overflow-wrap:anywhere]"
     target="_blank"
     rel="noopener noreferrer"
     {...rest}
@@ -386,6 +386,7 @@ export const MyCustomTd: React.FC<CustomComponentProps<HTMLTableCellElement> & {
       className={`whitespace-normal align-top font-sans px-4 py-2 text-[15px] text-gray-700 ${
         isNumeric ? 'text-right' : ''
       }`}
+      style={{ overflowWrap: 'anywhere' }}
       {...rest}
     >
       {processedChildren}

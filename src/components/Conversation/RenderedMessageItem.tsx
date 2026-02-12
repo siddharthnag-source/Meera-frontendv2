@@ -268,7 +268,7 @@ export const RenderedMessageItem: React.FC<{
     const onlyThinking = showThinkingRow && !hasMainContent;
 
     const bubbleBase =
-      `px-4 py-4 shadow-sm relative ${bgColor} ${textColor} ` +
+      `px-4 py-4 shadow-sm relative overflow-hidden ${bgColor} ${textColor} ` +
       `after:content-[''] after:absolute after:w-0 after:h-0 after:border-solid after:top-0 ` +
       (isUser
         ? `rounded-l-lg rounded-br-lg after:right-0 after:border-t-[6px] after:border-l-[6px] after:border-l-transparent after:border-t-primary`
@@ -277,10 +277,10 @@ export const RenderedMessageItem: React.FC<{
     const bubbleClasses = onlyThinking ? `${bubbleBase} flex items-center justify-center` : bubbleBase;
 
     return (
-      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full mb-3 group`}>
+      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full min-w-0 mb-3 group`}>
         <div
           style={hasMinHeight && !isUser ? { minHeight: `${dynamicMinHeight || 500}px` } : undefined}
-          className={`flex flex-col md:pr-1 ${hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'}`}
+          className={`min-w-0 flex flex-col md:pr-1 ${hasAnyImages ? 'w-[80%] md:w-[50%]' : 'max-w-[99%] md:max-w-[99%]'}`}
         >
           <div className={bubbleClasses}>
             {/* Main content (only when there is content) */}
@@ -291,7 +291,7 @@ export const RenderedMessageItem: React.FC<{
                     ref={contentRef}
                     className={`font-sans text-[15px] ${textColor} ${
                       !isExpanded ? 'max-h-[34vh] overflow-hidden' : ''
-                    } whitespace-pre-wrap`}
+                    } whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
                   >
                     {message.content}
                   </div>
