@@ -307,12 +307,9 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
         typeof subscriptionError.message === 'string'
           ? subscriptionError.message
           : null;
-
-      showToast(subscriptionErrorMessage || 'Unable to verify your call plan. Please refresh and try again.', {
-        type: 'error',
-        position: 'meera-voice',
+      console.warn('[MeeraVoice] Subscription verification unavailable. Continuing with fallback.', {
+        subscriptionErrorMessage,
       });
-      return;
     }
 
     if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
@@ -329,22 +326,24 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
       setCallEndedDueToTalktime(false);
       pricingModalShownRef.current = false;
 
-      const isPaidUser = subscriptionData.plan_type !== 'free_trial';
-      const isSubscriptionActive =
-        !!subscriptionData.subscription_end_date && new Date(subscriptionData.subscription_end_date) >= new Date();
-      const talkTimeAvailable = currentTotalTalkTime > 0;
+      if (subscriptionData) {
+        const isPaidUser = subscriptionData.plan_type !== 'free_trial';
+        const isSubscriptionActive =
+          !!subscriptionData.subscription_end_date && new Date(subscriptionData.subscription_end_date) >= new Date();
+        const talkTimeAvailable = currentTotalTalkTime > 0;
 
-      const isCallPossible = isPaidUser ? isSubscriptionActive : talkTimeAvailable && isSubscriptionActive;
+        const isCallPossible = isPaidUser ? isSubscriptionActive : talkTimeAvailable && isSubscriptionActive;
 
-      if (!isCallPossible) {
-        if (isPaidUser && !isSubscriptionActive) {
-          openModal('plan_expired_still_calling', true);
-        } else if (!isPaidUser) {
-          openModal('plan_expired_still_calling', false);
+        if (!isCallPossible) {
+          if (isPaidUser && !isSubscriptionActive) {
+            openModal('plan_expired_still_calling', true);
+          } else if (!isPaidUser) {
+            openModal('plan_expired_still_calling', false);
+          }
+          setIsConnecting(false);
+          isConnectingRef.current = false;
+          return;
         }
-        setIsConnecting(false);
-        isConnectingRef.current = false;
-        return;
       }
 
       // Check if component is still mounted before proceeding
