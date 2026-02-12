@@ -57,6 +57,13 @@ type UserEssenceRow = {
   user_essence: Record<string, unknown> | null;
 };
 
+type PersistedStarredSnapshot = {
+  message_id: string;
+  content: string;
+  content_type: 'user' | 'assistant';
+  timestamp: string;
+};
+
 type LLMHistoryMessage = {
   role: 'user' | 'assistant';
   content: string;
@@ -141,6 +148,52 @@ function normalizeStarredMessageIds(value: unknown): string[] {
   return result;
 }
 
+function normalizeStarredSnapshots(value: unknown): PersistedStarredSnapshot[] {
+  if (!Array.isArray(value)) return [];
+
+  const result: PersistedStarredSnapshot[] = [];
+  const seen = new Set<string>();
+
+  value.forEach((item) => {
+    if (!item || typeof item !== 'object') return;
+
+    const raw = item as Record<string, unknown>;
+    const messageId = typeof raw.message_id === 'string' ? raw.message_id.trim() : '';
+    if (!messageId || seen.has(messageId)) return;
+
+    const content = typeof raw.content === 'string' ? raw.content : '';
+    const timestampRaw = typeof raw.timestamp === 'string' ? raw.timestamp : '';
+    const timestamp = timestampRaw || new Date(0).toISOString();
+    const contentType = raw.content_type === 'user' ? 'user' : 'assistant';
+
+    seen.add(messageId);
+    result.push({
+      message_id: messageId,
+      content,
+      timestamp,
+      content_type: contentType,
+    });
+  });
+
+  return result;
+}
+
+function mapSnapshotToChatMessage(snapshot: PersistedStarredSnapshot) {
+  return {
+    message_id: snapshot.message_id,
+    content_type: snapshot.content_type,
+    content: snapshot.content,
+    timestamp: snapshot.timestamp,
+    session_id: undefined,
+    is_call: false,
+    attachments: [],
+    message_type: 'text',
+    image_url: undefined,
+    failed: false,
+    finish_reason: null,
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /*                             CHAT SERVICE                                   */
 /* -------------------------------------------------------------------------- */
@@ -207,6 +260,8 @@ export const chatService = {
 
       const essence = ((essenceRow as UserEssenceRow | null)?.user_essence ?? {}) as Record<string, unknown>;
       const orderedIds = normalizeStarredMessageIds(essence.starred_message_ids);
+      const persistedSnapshots = normalizeStarredSnapshots(essence.starred_message_snapshots);
+      const snapshotById = new Map(persistedSnapshots.map((snapshot) => [snapshot.message_id, snapshot]));
 
       const messageIds = Array.from(
         new Set(orderedIds),
@@ -214,7 +269,8 @@ export const chatService = {
 
       if (messageIds.length === 0) return { message: 'ok', data: [], ids: [] as string[] };
 
-      const { data: messageRows, error: messagesError } = await supabase
+      let messageRows: DbMessageRow[] = [];
+      const { data, error: messagesError } = await supabase
         .from('messages')
         .select(
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
@@ -223,15 +279,24 @@ export const chatService = {
 
       if (messagesError) {
         console.error('getStarredMessages messages lookup error', messagesError);
-        return { message: 'error', data: [], ids: orderedIds };
+      } else {
+        messageRows = (data ?? []) as DbMessageRow[];
       }
 
       const mappedById = new Map(
-        ((messageRows ?? []) as DbMessageRow[]).map((row) => [row.message_id, mapDbRowToChatMessage(row)]),
+        messageRows.map((row) => [row.message_id, mapDbRowToChatMessage(row)]),
       );
 
       const orderedMessages = orderedIds
-        .map((messageId) => mappedById.get(messageId))
+        .map((messageId) => {
+          const fromMessagesTable = mappedById.get(messageId);
+          if (fromMessagesTable) return fromMessagesTable;
+
+          const fromSnapshot = snapshotById.get(messageId);
+          if (fromSnapshot) return mapSnapshotToChatMessage(fromSnapshot);
+
+          return undefined;
+        })
         .filter((msg): msg is ReturnType<typeof mapDbRowToChatMessage> => Boolean(msg));
 
       return { message: 'ok', data: orderedMessages, ids: orderedIds };
@@ -241,7 +306,15 @@ export const chatService = {
     }
   },
 
-  async setMessageStar(messageId: string, shouldStar: boolean) {
+  async setMessageStar(
+    messageId: string,
+    shouldStar: boolean,
+    snapshot?: {
+      content?: string | null;
+      content_type?: 'user' | 'assistant' | 'system';
+      timestamp?: string | null;
+    },
+  ) {
     try {
       const normalizedMessageId = messageId.trim();
       if (!normalizedMessageId) return { message: 'error' };
@@ -262,6 +335,7 @@ export const chatService = {
 
       const existingEssence = ((essenceRow as UserEssenceRow | null)?.user_essence ?? {}) as Record<string, unknown>;
       const currentIds = normalizeStarredMessageIds(existingEssence.starred_message_ids);
+      const currentSnapshots = normalizeStarredSnapshots(existingEssence.starred_message_snapshots);
 
       const nextIds = shouldStar
         ? [normalizedMessageId, ...currentIds.filter((id) => id !== normalizedMessageId)]
@@ -269,9 +343,27 @@ export const chatService = {
 
       const dedupedNextIds = normalizeStarredMessageIds(nextIds);
 
+      const snapshotMap = new Map(currentSnapshots.map((item) => [item.message_id, item]));
+      if (shouldStar) {
+        const nextSnapshot: PersistedStarredSnapshot = {
+          message_id: normalizedMessageId,
+          content: typeof snapshot?.content === 'string' ? snapshot.content : '',
+          content_type: snapshot?.content_type === 'user' ? 'user' : 'assistant',
+          timestamp: typeof snapshot?.timestamp === 'string' && snapshot.timestamp ? snapshot.timestamp : new Date().toISOString(),
+        };
+        snapshotMap.set(normalizedMessageId, nextSnapshot);
+      } else {
+        snapshotMap.delete(normalizedMessageId);
+      }
+
+      const orderedSnapshots = dedupedNextIds
+        .map((id) => snapshotMap.get(id))
+        .filter((item): item is PersistedStarredSnapshot => Boolean(item));
+
       const nextEssence: Record<string, unknown> = {
         ...existingEssence,
         starred_message_ids: dedupedNextIds,
+        starred_message_snapshots: orderedSnapshots,
       };
 
       const { error: upsertError } = await supabase.from('user_essence').upsert(

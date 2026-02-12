@@ -272,7 +272,11 @@ export const Conversation: React.FC = () => {
       );
 
       try {
-        const response = await chatService.setMessageStar(target.message_id, !isCurrentlyStarred);
+        const response = await chatService.setMessageStar(target.message_id, !isCurrentlyStarred, {
+          content: target.content,
+          content_type: target.content_type,
+          timestamp: target.timestamp,
+        });
 
         if (response.message !== 'ok') {
           throw new Error('Star persistence failed');
@@ -839,10 +843,10 @@ export const Conversation: React.FC = () => {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         void hydrateStarred();
-      } else {
+      } else if (event === 'SIGNED_OUT') {
         setStarredMessageIds([]);
         setStarredMessageSnapshots([]);
       }
