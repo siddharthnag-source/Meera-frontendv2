@@ -85,6 +85,15 @@ const removeSnapshot = (messages: ChatMessageFromServer[], targetId: string): Ch
 
 const normalizeContextText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
+const generateStarSummary = (text: string): string => {
+  const normalized = normalizeContextText(text);
+  if (!normalized) return 'Saved Memory';
+
+  const words = normalized.split(' ');
+  const summary = words.slice(0, 5).join(' ');
+  return words.length > 5 ? `${summary}...` : summary;
+};
+
 const getUserContextForStar = (messages: ChatMessageFromServer[], targetMessageId: string): string => {
   const targetIndex = messages.findIndex((item) => item.message_id === targetMessageId);
   if (targetIndex <= 0) return '';
@@ -95,10 +104,11 @@ const getUserContextForStar = (messages: ChatMessageFromServer[], targetMessageI
   return normalizeContextText(previousMessage.content);
 };
 
-const withUserContext = (message: ChatMessageFromServer, userContext: string): ChatMessageFromServer => {
+const withStarMetadata = (message: ChatMessageFromServer, userContext: string, summary: string): ChatMessageFromServer => {
   return {
     ...message,
     user_context: userContext,
+    summary,
   };
 };
 
@@ -290,10 +300,11 @@ export const Conversation: React.FC = () => {
         if (!loaded) return snapshot;
         if (!snapshot) return loaded;
 
-        const snapshotContext = (snapshot.user_context ?? '').trim();
-        if (!snapshotContext) return loaded;
-
-        return withUserContext(loaded, snapshotContext);
+        return {
+          ...loaded,
+          user_context: (snapshot.user_context ?? '').trim() || loaded.user_context,
+          summary: (snapshot.summary ?? '').trim() || loaded.summary,
+        };
       })
       .filter((msg): msg is ChatMessageFromServer => Boolean(msg));
   }, [chatMessages, starredMessageIds, starredMessageSnapshots]);
@@ -308,7 +319,8 @@ export const Conversation: React.FC = () => {
         target.content_type === 'assistant'
           ? getUserContextForStar(chatMessagesRef.current, target.message_id)
           : '';
-      const optimisticSnapshot = withUserContext(target, userContext);
+      const summary = generateStarSummary(userContext || target.content);
+      const optimisticSnapshot = withStarMetadata(target, userContext, summary);
 
       starMutationInFlightRef.current.add(target.message_id);
 
@@ -325,6 +337,7 @@ export const Conversation: React.FC = () => {
           content_type: target.content_type,
           timestamp: target.timestamp,
           user_context: userContext,
+          summary,
         })
         .then((response) => {
           if (response.message !== 'ok') {

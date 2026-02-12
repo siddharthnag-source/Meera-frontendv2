@@ -60,6 +60,7 @@ type StarredMessageRow = {
   snapshot_content_type: 'user' | 'assistant' | string | null;
   snapshot_timestamp: string | null;
   user_context: string | null;
+  summary: string | null;
   starred_at: string | null;
 };
 
@@ -68,6 +69,7 @@ type StarredMessageSnapshotInput = {
   content_type?: 'user' | 'assistant' | 'system';
   timestamp?: string | null;
   user_context?: string | null;
+  summary?: string | null;
 };
 
 type StarredMessageSnapshot = {
@@ -76,6 +78,7 @@ type StarredMessageSnapshot = {
   content_type: 'user' | 'assistant';
   timestamp: string;
   user_context: string;
+  summary: string;
 };
 
 type LLMHistoryMessage = {
@@ -129,6 +132,15 @@ function base64ToBlobUrl(base64: string, mimeType: string): string {
   return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 }
 
+function generateSummary(text: string): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return 'Saved Memory';
+
+  const words = normalized.split(' ');
+  const title = words.slice(0, 5).join(' ');
+  return words.length > 5 ? `${title}...` : title;
+}
+
 function mapDbRowToChatMessage(row: DbMessageRow) {
   return {
     message_id: row.message_id,
@@ -159,6 +171,7 @@ function mapStarredRowToChatMessage(row: StarredMessageRow) {
     content: row.snapshot_content ?? '',
     timestamp,
     user_context: row.user_context ?? '',
+    summary: row.summary ?? generateSummary((row.user_context ?? '').trim() || (row.snapshot_content ?? '').trim()),
     session_id: undefined,
     is_call: false,
     attachments: [],
@@ -225,7 +238,7 @@ export const chatService = {
       const { data, error } = await supabase
         .from('starred_messages')
         .select(
-          'message_id,user_id,snapshot_content,snapshot_content_type,snapshot_timestamp,user_context,starred_at',
+          'message_id,user_id,snapshot_content,snapshot_content_type,snapshot_timestamp,user_context,summary,starred_at',
         )
         .eq('user_id', userId)
         .order('starred_at', { ascending: false });
@@ -270,6 +283,13 @@ export const chatService = {
             typeof snapshot?.timestamp === 'string' && snapshot.timestamp ? snapshot.timestamp : new Date().toISOString(),
           user_context:
             typeof snapshot?.user_context === 'string' ? snapshot.user_context.replace(/\s+/g, ' ').trim() : '',
+          summary:
+            typeof snapshot?.summary === 'string' && snapshot.summary.trim()
+              ? snapshot.summary.trim()
+              : generateSummary(
+                  (typeof snapshot?.user_context === 'string' ? snapshot.user_context : '') ||
+                    (typeof snapshot?.content === 'string' ? snapshot.content : ''),
+                ),
         };
 
         const { error } = await supabase.from('starred_messages').upsert(
@@ -281,6 +301,7 @@ export const chatService = {
               snapshot_content_type: snapshotPayload.content_type,
               snapshot_timestamp: snapshotPayload.timestamp,
               user_context: snapshotPayload.user_context,
+              summary: snapshotPayload.summary,
               starred_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             },
