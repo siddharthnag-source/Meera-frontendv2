@@ -53,11 +53,22 @@ type DbMessageRow = {
   system_prompt?: string | null;
 };
 
-type UserEssenceRow = {
-  user_essence: Record<string, unknown> | null;
+type StarredMessageRow = {
+  message_id: string;
+  user_id: string;
+  snapshot_content: string | null;
+  snapshot_content_type: 'user' | 'assistant' | string | null;
+  snapshot_timestamp: string | null;
+  starred_at: string | null;
 };
 
-type PersistedStarredSnapshot = {
+type StarredMessageSnapshotInput = {
+  content?: string | null;
+  content_type?: 'user' | 'assistant' | 'system';
+  timestamp?: string | null;
+};
+
+type StarredMessageSnapshot = {
   message_id: string;
   content: string;
   content_type: 'user' | 'assistant';
@@ -131,59 +142,19 @@ function mapDbRowToChatMessage(row: DbMessageRow) {
   };
 }
 
-function normalizeStarredMessageIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
+function mapStarredRowToChatMessage(row: StarredMessageRow) {
+  const timestamp =
+    typeof row.snapshot_timestamp === 'string' && row.snapshot_timestamp
+      ? row.snapshot_timestamp
+      : typeof row.starred_at === 'string' && row.starred_at
+        ? row.starred_at
+        : new Date(0).toISOString();
 
-  const result: string[] = [];
-  const seen = new Set<string>();
-
-  value.forEach((item) => {
-    if (typeof item !== 'string') return;
-    const trimmed = item.trim();
-    if (!trimmed || seen.has(trimmed)) return;
-    seen.add(trimmed);
-    result.push(trimmed);
-  });
-
-  return result;
-}
-
-function normalizeStarredSnapshots(value: unknown): PersistedStarredSnapshot[] {
-  if (!Array.isArray(value)) return [];
-
-  const result: PersistedStarredSnapshot[] = [];
-  const seen = new Set<string>();
-
-  value.forEach((item) => {
-    if (!item || typeof item !== 'object') return;
-
-    const raw = item as Record<string, unknown>;
-    const messageId = typeof raw.message_id === 'string' ? raw.message_id.trim() : '';
-    if (!messageId || seen.has(messageId)) return;
-
-    const content = typeof raw.content === 'string' ? raw.content : '';
-    const timestampRaw = typeof raw.timestamp === 'string' ? raw.timestamp : '';
-    const timestamp = timestampRaw || new Date(0).toISOString();
-    const contentType = raw.content_type === 'user' ? 'user' : 'assistant';
-
-    seen.add(messageId);
-    result.push({
-      message_id: messageId,
-      content,
-      timestamp,
-      content_type: contentType,
-    });
-  });
-
-  return result;
-}
-
-function mapSnapshotToChatMessage(snapshot: PersistedStarredSnapshot) {
   return {
-    message_id: snapshot.message_id,
-    content_type: snapshot.content_type,
-    content: snapshot.content,
-    timestamp: snapshot.timestamp,
+    message_id: row.message_id,
+    content_type: row.snapshot_content_type === 'user' ? 'user' : 'assistant',
+    content: row.snapshot_content ?? '',
+    timestamp,
     session_id: undefined,
     is_call: false,
     attachments: [],
@@ -210,7 +181,7 @@ export const chatService = {
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (!session?.user) return { message: 'unauthorized', data: [], ids: [] as string[] };
+      if (!session?.user) return { message: 'unauthorized', data: [] };
       const userId = session.user.id;
 
       const { data, error } = await supabase
@@ -244,60 +215,23 @@ export const chatService = {
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (!session?.user) return { message: 'unauthorized', data: [] };
+      if (!session?.user) return { message: 'unauthorized', data: [], ids: [] as string[] };
       const userId = session.user.id;
 
-      const { data: essenceRow, error: essenceError } = await supabase
-        .from('user_essence')
-        .select('user_essence')
+      const { data, error } = await supabase
+        .from('starred_messages')
+        .select('message_id,user_id,snapshot_content,snapshot_content_type,snapshot_timestamp,starred_at')
         .eq('user_id', userId)
-        .maybeSingle();
+        .order('starred_at', { ascending: false });
 
-      if (essenceError) {
-        console.error('getStarredMessages essence fetch error', essenceError);
+      if (error) {
+        console.error('getStarredMessages error', error);
         return { message: 'error', data: [], ids: [] as string[] };
       }
 
-      const essence = ((essenceRow as UserEssenceRow | null)?.user_essence ?? {}) as Record<string, unknown>;
-      const orderedIds = normalizeStarredMessageIds(essence.starred_message_ids);
-      const persistedSnapshots = normalizeStarredSnapshots(essence.starred_message_snapshots);
-      const snapshotById = new Map(persistedSnapshots.map((snapshot) => [snapshot.message_id, snapshot]));
-
-      const messageIds = Array.from(
-        new Set(orderedIds),
-      );
-
-      if (messageIds.length === 0) return { message: 'ok', data: [], ids: [] as string[] };
-
-      let messageRows: DbMessageRow[] = [];
-      const { data, error: messagesError } = await supabase
-        .from('messages')
-        .select(
-          'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
-        )
-        .in('message_id', messageIds);
-
-      if (messagesError) {
-        console.error('getStarredMessages messages lookup error', messagesError);
-      } else {
-        messageRows = (data ?? []) as DbMessageRow[];
-      }
-
-      const mappedById = new Map(
-        messageRows.map((row) => [row.message_id, mapDbRowToChatMessage(row)]),
-      );
-
-      const orderedMessages = orderedIds
-        .map((messageId) => {
-          const fromMessagesTable = mappedById.get(messageId);
-          if (fromMessagesTable) return fromMessagesTable;
-
-          const fromSnapshot = snapshotById.get(messageId);
-          if (fromSnapshot) return mapSnapshotToChatMessage(fromSnapshot);
-
-          return undefined;
-        })
-        .filter((msg): msg is ReturnType<typeof mapDbRowToChatMessage> => Boolean(msg));
+      const rows = (data ?? []) as StarredMessageRow[];
+      const orderedIds = rows.map((row) => row.message_id);
+      const orderedMessages = rows.map(mapStarredRowToChatMessage);
 
       return { message: 'ok', data: orderedMessages, ids: orderedIds };
     } catch (e) {
@@ -309,11 +243,7 @@ export const chatService = {
   async setMessageStar(
     messageId: string,
     shouldStar: boolean,
-    snapshot?: {
-      content?: string | null;
-      content_type?: 'user' | 'assistant' | 'system';
-      timestamp?: string | null;
-    },
+    snapshot?: StarredMessageSnapshotInput,
   ) {
     try {
       const normalizedMessageId = messageId.trim();
@@ -325,59 +255,42 @@ export const chatService = {
 
       if (!session?.user) throw new SessionExpiredError('Session expired');
       const userId = session.user.id;
-      const { data: essenceRow, error: essenceError } = await supabase
-        .from('user_essence')
-        .select('user_essence')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (essenceError) throw essenceError;
-
-      const existingEssence = ((essenceRow as UserEssenceRow | null)?.user_essence ?? {}) as Record<string, unknown>;
-      const currentIds = normalizeStarredMessageIds(existingEssence.starred_message_ids);
-      const currentSnapshots = normalizeStarredSnapshots(existingEssence.starred_message_snapshots);
-
-      const nextIds = shouldStar
-        ? [normalizedMessageId, ...currentIds.filter((id) => id !== normalizedMessageId)]
-        : currentIds.filter((id) => id !== normalizedMessageId);
-
-      const dedupedNextIds = normalizeStarredMessageIds(nextIds);
-
-      const snapshotMap = new Map(currentSnapshots.map((item) => [item.message_id, item]));
       if (shouldStar) {
-        const nextSnapshot: PersistedStarredSnapshot = {
+        const snapshotPayload: StarredMessageSnapshot = {
           message_id: normalizedMessageId,
           content: typeof snapshot?.content === 'string' ? snapshot.content : '',
           content_type: snapshot?.content_type === 'user' ? 'user' : 'assistant',
-          timestamp: typeof snapshot?.timestamp === 'string' && snapshot.timestamp ? snapshot.timestamp : new Date().toISOString(),
+          timestamp:
+            typeof snapshot?.timestamp === 'string' && snapshot.timestamp ? snapshot.timestamp : new Date().toISOString(),
         };
-        snapshotMap.set(normalizedMessageId, nextSnapshot);
-      } else {
-        snapshotMap.delete(normalizedMessageId);
-      }
 
-      const orderedSnapshots = dedupedNextIds
-        .map((id) => snapshotMap.get(id))
-        .filter((item): item is PersistedStarredSnapshot => Boolean(item));
-
-      const nextEssence: Record<string, unknown> = {
-        ...existingEssence,
-        starred_message_ids: dedupedNextIds,
-        starred_message_snapshots: orderedSnapshots,
-      };
-
-      const { error: upsertError } = await supabase.from('user_essence').upsert(
-        [
+        const { error } = await supabase.from('starred_messages').upsert(
+          [
+            {
+              user_id: userId,
+              message_id: normalizedMessageId,
+              snapshot_content: snapshotPayload.content,
+              snapshot_content_type: snapshotPayload.content_type,
+              snapshot_timestamp: snapshotPayload.timestamp,
+              starred_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
           {
-            user_id: userId,
-            user_essence: nextEssence,
-            updated_at: new Date().toISOString(),
+            onConflict: 'user_id,message_id',
           },
-        ],
-        { onConflict: 'user_id' },
-      );
+        );
 
-      if (upsertError) throw upsertError;
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('starred_messages')
+          .delete()
+          .eq('user_id', userId)
+          .eq('message_id', normalizedMessageId);
+
+        if (error) throw error;
+      }
 
       return { message: 'ok' };
     } catch (e) {
