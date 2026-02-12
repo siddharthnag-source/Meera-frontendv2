@@ -3,35 +3,32 @@
 import { ChatMessageFromServer } from '@/types/chat';
 import Image from 'next/image';
 import React, { useCallback, useState } from 'react';
-import { FiChevronLeft, FiChevronRight, FiPlus, FiX } from 'react-icons/fi';
+import { FiPlus } from 'react-icons/fi';
+import { TbLayoutSidebarLeftCollapse } from 'react-icons/tb';
 import { ProfileMenu } from './ProfileMenu';
 
 interface SidebarProps {
+  isVisible: boolean;
   tokensLeft?: number | null;
   starredMessages: ChatMessageFromServer[];
   onSelectStarredMessage: (messageId: string) => void;
   userName: string;
   userEmail: string;
   userAvatar?: string | null;
-  isExpanded: boolean;
-  isVisible: boolean;
-  onToggleExpand: () => void;
-  onCloseSidebar: () => void;
+  onToggleSidebar: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  isVisible,
   tokensLeft,
   starredMessages,
   onSelectStarredMessage,
   userName,
   userEmail,
   userAvatar,
-  isExpanded,
-  isVisible,
-  onToggleExpand,
-  onCloseSidebar,
+  onToggleSidebar,
   onOpenSettings,
   onSignOut,
 }) => {
@@ -61,67 +58,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   if (!isVisible) return null;
 
-  const sidebarWidthClass = isExpanded ? 'w-[260px]' : 'w-[80px]';
-
   return (
     <>
-      <aside
-        className={`hidden md:flex fixed left-0 top-0 h-screen z-40 bg-black border-r border-white/20 flex-col transition-[width] duration-200 ${sidebarWidthClass}`}
-      >
+      <aside className="hidden md:flex fixed left-0 top-0 h-screen z-40 bg-black border-r border-white/20 flex-col w-[260px]">
         <div className="p-4 border-b border-white/20">
           <div className="flex items-center justify-between mb-3">
-            {isExpanded ? (
-              <div className="text-white text-base font-semibold truncate">
-                {process.env.NEXT_PUBLIC_APP_NAME || 'Meera'}
-              </div>
-            ) : (
-              <div className="text-white text-base font-semibold">M</div>
-            )}
-
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={onToggleExpand}
-                className="w-7 h-7 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors flex items-center justify-center"
-                aria-label={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-                title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-              >
-                {isExpanded ? <FiChevronLeft size={16} /> : <FiChevronRight size={16} />}
-              </button>
-              <button
-                type="button"
-                onClick={onCloseSidebar}
-                className="w-7 h-7 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors flex items-center justify-center"
-                aria-label="Close sidebar"
-                title="Close sidebar"
-              >
-                <FiX size={16} />
-              </button>
+            <div className="text-white text-base font-semibold truncate">
+              {process.env.NEXT_PUBLIC_APP_NAME || 'Meera'}
             </div>
+
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="w-7 h-7 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors flex items-center justify-center"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+            >
+              <TbLayoutSidebarLeftCollapse size={17} />
+            </button>
           </div>
 
           <button
             type="button"
-            className={`w-full rounded-xl border border-white/20 bg-white/5 py-2 text-sm text-white hover:bg-white/10 transition-colors flex items-center ${
-              isExpanded ? 'px-3 justify-start gap-2' : 'justify-center'
-            }`}
+            className="w-full rounded-xl border border-white/20 bg-white/5 py-2 text-sm text-white hover:bg-white/10 transition-colors flex items-center px-3 justify-start gap-2"
           >
             <FiPlus size={15} />
-            {isExpanded && <span>New chat</span>}
+            <span>New chat</span>
           </button>
         </div>
 
-        <div className={`flex-1 overflow-y-auto ${isExpanded ? 'p-4' : 'p-2'}`}>
-          <p className={`text-white/50 ${isExpanded ? 'text-sm' : 'text-xs text-center'}`}>Chat history coming soon.</p>
+        <div className="flex-1 overflow-y-auto p-4">
+          <p className="text-white/50 text-sm">Chat history coming soon.</p>
         </div>
 
         <div className="p-4 border-t border-white/20">
           <button
             type="button"
             onClick={() => setIsProfileOpen((prev) => !prev)}
-            className={`w-full flex items-center rounded-xl px-2.5 py-2 hover:bg-white/10 transition-colors cursor-pointer ${
-              isExpanded ? 'gap-3' : 'justify-center'
-            }`}
+            className="w-full flex items-center rounded-xl px-2.5 py-2 hover:bg-white/10 transition-colors cursor-pointer gap-3"
             aria-label="Open profile menu"
           >
             {userAvatar ? (
@@ -137,12 +111,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {profileInitial}
               </span>
             )}
-            {isExpanded && (
-              <div className="min-w-0 text-left">
-                <p className="text-sm text-white truncate">{displayName}</p>
-                <p className="text-xs text-white/60 truncate">{displayEmail || 'Profile'}</p>
-              </div>
-            )}
+            <div className="min-w-0 text-left">
+              <p className="text-sm text-white truncate">{displayName}</p>
+              <p className="text-xs text-white/60 truncate">{displayEmail || 'Profile'}</p>
+            </div>
           </button>
         </div>
       </aside>

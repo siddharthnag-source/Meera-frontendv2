@@ -17,9 +17,10 @@ import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
+import { FiArrowUp, FiGlobe, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
 import { MdKeyboardArrowDown } from 'react-icons/md';
+import { TbLayoutSidebarLeftExpand } from 'react-icons/tb';
 import { AttachmentInputArea, AttachmentInputAreaRef } from './AttachmentInputArea';
 import { AttachmentPreview } from './AttachmentPreview';
 import { CallSessionItem } from './CallSessionItem';
@@ -111,7 +112,6 @@ export const Conversation: React.FC = () => {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
 
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
@@ -795,36 +795,26 @@ export const Conversation: React.FC = () => {
     setShowUserProfile(false);
   }, []);
 
-  const handleToggleSidebarExpand = useCallback(() => {
-    setIsSidebarExpanded((prev) => !prev);
-  }, []);
-
-  const handleCloseSidebar = useCallback(() => {
-    setIsSidebarVisible(false);
-  }, []);
-
-  const handleOpenSidebar = useCallback(() => {
-    setIsSidebarVisible(true);
+  const handleToggleSidebar = useCallback(() => {
+    setIsSidebarVisible((prev) => !prev);
   }, []);
 
   const desktopSidebarMarginClass = useMemo(() => {
     if (!isSidebarVisible) return 'md:ml-0';
-    return isSidebarExpanded ? 'md:ml-[260px]' : 'md:ml-[80px]';
-  }, [isSidebarExpanded, isSidebarVisible]);
+    return 'md:ml-[260px]';
+  }, [isSidebarVisible]);
 
   return (
     <div className="relative bg-background">
       <Sidebar
+        isVisible={isSidebarVisible}
         tokensLeft={subscriptionData?.tokens_left ?? null}
         starredMessages={starredMessages}
         onSelectStarredMessage={handleSelectStarredMessage}
         userName={profileName}
         userEmail={profileEmail}
         userAvatar={profileImage}
-        isExpanded={isSidebarExpanded}
-        isVisible={isSidebarVisible}
-        onToggleExpand={handleToggleSidebarExpand}
-        onCloseSidebar={handleCloseSidebar}
+        onToggleSidebar={handleToggleSidebar}
         onOpenSettings={handleOpenSettings}
         onSignOut={handleSignOut}
       />
@@ -847,12 +837,12 @@ export const Conversation: React.FC = () => {
           <div className="w-full mx-auto flex items-center justify-between">
             {!isSidebarVisible ? (
               <button
-                onClick={handleOpenSidebar}
+                onClick={handleToggleSidebar}
                 className="hidden md:flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
                 aria-label="Open sidebar"
                 title="Open sidebar"
               >
-                <FiMenu size={18} className="text-primary" />
+                <TbLayoutSidebarLeftExpand size={18} className="text-primary" />
               </button>
             ) : (
               <div className="w-9 h-9 hidden md:block" />
