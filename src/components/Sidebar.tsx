@@ -212,7 +212,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             aria-label="Close sidebar backdrop"
           />
 
-          <aside className="absolute left-0 top-0 h-screen w-[84vw] max-w-[320px] bg-background border-r border-primary/15 flex flex-col shadow-xl">
+          <aside
+            className="absolute left-0 top-0 h-screen w-[84vw] max-w-[320px] bg-background border-r border-primary/15 flex flex-col shadow-xl"
+            style={{
+              paddingTop: 'env(safe-area-inset-top)',
+              paddingBottom: 'env(safe-area-inset-bottom)',
+            }}
+          >
             <div className="px-4 pt-3 pb-1">
               <div className="flex items-center justify-end">
                 <button

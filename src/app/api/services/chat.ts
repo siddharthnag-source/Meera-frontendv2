@@ -275,6 +275,88 @@ export const chatService = {
     }
   },
 
+  async getMessageContextWindow(messageId: string, before: number = 24, after: number = 24) {
+    try {
+      const normalizedId = messageId.trim();
+      if (!normalizedId) return { message: 'error', data: [] };
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) return { message: 'unauthorized', data: [] };
+      const userId = session.user.id;
+
+      const { data: anchor, error: anchorError } = await supabase
+        .from('messages')
+        .select(
+          'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
+        )
+        .eq('user_id', userId)
+        .eq('message_id', normalizedId)
+        .maybeSingle();
+
+      if (anchorError) {
+        console.error('getMessageContextWindow anchor error', anchorError);
+        return { message: 'error', data: [] };
+      }
+
+      if (!anchor) return { message: 'not_found', data: [] };
+
+      const anchorRow = anchor as DbMessageRow;
+      const anchorTimestamp = anchorRow.timestamp;
+
+      const [olderResult, newerResult] = await Promise.all([
+        supabase
+          .from('messages')
+          .select(
+            'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
+          )
+          .eq('user_id', userId)
+          .lt('timestamp', anchorTimestamp)
+          .order('timestamp', { ascending: false })
+          .limit(before),
+        supabase
+          .from('messages')
+          .select(
+            'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
+          )
+          .eq('user_id', userId)
+          .gte('timestamp', anchorTimestamp)
+          .order('timestamp', { ascending: true })
+          .limit(after + 1),
+      ]);
+
+      if (olderResult.error) {
+        console.error('getMessageContextWindow older error', olderResult.error);
+        return { message: 'error', data: [] };
+      }
+
+      if (newerResult.error) {
+        console.error('getMessageContextWindow newer error', newerResult.error);
+        return { message: 'error', data: [] };
+      }
+
+      const olderRows = ((olderResult.data ?? []) as DbMessageRow[]).slice().reverse();
+      const newerRows = (newerResult.data ?? []) as DbMessageRow[];
+
+      const orderedMap = new Map<string, DbMessageRow>();
+      [...olderRows, anchorRow, ...newerRows].forEach((row) => {
+        orderedMap.set(row.message_id, row);
+      });
+
+      const mapped = Array.from(orderedMap.values()).map(mapDbRowToChatMessage);
+
+      return {
+        message: 'ok',
+        data: mapped,
+      };
+    } catch (e) {
+      console.error('getMessageContextWindow outer error', e);
+      return { message: 'error', data: [] };
+    }
+  },
+
   /* ---------- Starred Messages ---------- */
   async getStarredMessages() {
     try {

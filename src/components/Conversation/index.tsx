@@ -17,7 +17,7 @@ import { formatWhatsAppStyle } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
 import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
-import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
+import { ChatAttachmentFromServer, ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
@@ -38,6 +38,8 @@ const RESIZE_DEBOUNCE_MS = 100;
 const JUMP_DOM_POLL_INTERVAL_MS = 250;
 const JUMP_MAX_PAGE_LOADS = 200;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
+const JUMP_MAX_WAIT_MS = 9000;
+const JUMP_RENDER_WAIT_TIMEOUT_MS = 1800;
 const IMAGE_HISTORY_PAGE_SIZE = 48;
 
 type SidebarView = 'chat' | 'images';
@@ -89,10 +91,98 @@ const removeSnapshot = (messages: ChatMessageFromServer[], targetId: string): Ch
 };
 
 const normalizeContextText = (value: string): string => value.replace(/\s+/g, ' ').trim();
+const waitForMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isImageAttachment = (attachment: { type?: string; url?: string }): boolean => {
   const type = String(attachment.type || '').toLowerCase();
   return Boolean(attachment.url && (type === 'image' || type.startsWith('image/')));
+};
+
+const normalizeAttachments = (value: unknown): ChatAttachmentFromServer[] => {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const source = item as Record<string, unknown>;
+      const url = typeof source.url === 'string' ? source.url : '';
+      if (!url) return null;
+
+      const type = typeof source.type === 'string' ? source.type : 'image';
+      const name = typeof source.name === 'string' ? source.name : 'attachment';
+      const size = typeof source.size === 'number' ? source.size : undefined;
+
+      return {
+        type,
+        url,
+        name,
+        size,
+      } as ChatAttachmentFromServer;
+    })
+    .filter((item): item is ChatAttachmentFromServer => Boolean(item));
+};
+
+const mapRealtimeMessageRow = (row: unknown): ChatMessageFromServer | null => {
+  if (!row || typeof row !== 'object') return null;
+  const source = row as Record<string, unknown>;
+
+  const messageId = typeof source.message_id === 'string' ? source.message_id : '';
+  if (!messageId) return null;
+
+  const rawContentType = typeof source.content_type === 'string' ? source.content_type : 'user';
+  const contentType =
+    rawContentType === 'assistant' || rawContentType === 'system' ? rawContentType : 'user';
+
+  const timestamp =
+    typeof source.timestamp === 'string' && source.timestamp
+      ? source.timestamp
+      : new Date().toISOString();
+
+  return {
+    message_id: messageId,
+    content_type: contentType,
+    content: typeof source.content === 'string' ? source.content : '',
+    timestamp,
+    session_id: typeof source.session_id === 'string' ? source.session_id : undefined,
+    is_call: Boolean(source.is_call),
+    attachments: normalizeAttachments(source.attachments),
+    failed: false,
+    finish_reason: null,
+  };
+};
+
+const mapRealtimeStarredRow = (row: unknown): ChatMessageFromServer | null => {
+  if (!row || typeof row !== 'object') return null;
+  const source = row as Record<string, unknown>;
+
+  const messageId = typeof source.message_id === 'string' ? source.message_id : '';
+  if (!messageId) return null;
+
+  const snapshotTimestamp =
+    typeof source.snapshot_timestamp === 'string' && source.snapshot_timestamp
+      ? source.snapshot_timestamp
+      : typeof source.starred_at === 'string' && source.starred_at
+        ? source.starred_at
+        : new Date(0).toISOString();
+
+  const snapshotContentType = source.snapshot_content_type === 'user' ? 'user' : 'assistant';
+
+  const userContext = typeof source.user_context === 'string' ? source.user_context : '';
+  const summary = typeof source.summary === 'string' ? source.summary : '';
+
+  return {
+    message_id: messageId,
+    content_type: snapshotContentType,
+    content: typeof source.snapshot_content === 'string' ? source.snapshot_content : '',
+    timestamp: snapshotTimestamp,
+    user_context: userContext,
+    summary,
+    session_id: undefined,
+    is_call: false,
+    attachments: [],
+    failed: false,
+    finish_reason: null,
+  };
 };
 
 const extractGalleryImagesFromMessages = (messages: ChatMessageFromServer[]): GalleryImageItem[] => {
@@ -294,6 +384,7 @@ export const Conversation: React.FC = () => {
   const requestCache = useRef<Map<string, Promise<unknown>>>(new Map());
   const cleanupFunctions = useRef<Array<() => void>>([]);
   const fetchStateRef = useRef(fetchState);
+  const chatMessagesRef = useRef<ChatMessageFromServer[]>(chatMessages);
   const starMutationInFlightRef = useRef<Set<string>>(new Set());
 
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -321,6 +412,10 @@ export const Conversation: React.FC = () => {
   useEffect(() => {
     fetchStateRef.current = fetchState;
   }, [fetchState]);
+
+  useEffect(() => {
+    chatMessagesRef.current = chatMessages;
+  }, [chatMessages]);
 
   const debouncedSetMessage = useMemo(() => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS), []);
 
@@ -391,6 +486,98 @@ export const Conversation: React.FC = () => {
       .filter((msg): msg is ChatMessageFromServer => Boolean(msg));
   }, [chatMessages, starredMessageIds, starredMessageSnapshots]);
 
+  const mergeMessagesIntoState = useCallback((incoming: ChatMessageFromServer[]) => {
+    if (!incoming.length) return;
+
+    setChatMessages((prev) => {
+      const map = new Map(prev.map((message) => [message.message_id, message]));
+
+      incoming.forEach((message) => {
+        const existing = map.get(message.message_id);
+        if (existing) {
+          map.set(message.message_id, {
+            ...existing,
+            ...message,
+            attachments: message.attachments ?? existing.attachments ?? [],
+            user_context: message.user_context ?? existing.user_context,
+            summary: message.summary ?? existing.summary,
+          });
+          return;
+        }
+
+        map.set(message.message_id, {
+          ...message,
+          attachments: message.attachments ?? [],
+        });
+      });
+
+      return Array.from(map.values()).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    });
+  }, []);
+
+  const mergeGalleryItems = useCallback((incoming: GalleryImageItem[], reset: boolean = false) => {
+    if (!incoming.length && !reset) return;
+
+    setGalleryImages((prev) => {
+      const merged = reset ? [] : [...prev];
+      const seen = new Set(merged.map((item) => item.id));
+
+      incoming.forEach((item) => {
+        if (seen.has(item.id)) return;
+        seen.add(item.id);
+        merged.push(item);
+      });
+
+      return merged.sort((a, b) => {
+        const aTime = new Date(a.timestamp).getTime();
+        const bTime = new Date(b.timestamp).getTime();
+        return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+      });
+    });
+  }, []);
+
+  const resolveJumpTargetId = useCallback((assistantMessageId: string, messages: ChatMessageFromServer[]) => {
+    const assistantIndex = messages.findIndex((message) => message.message_id === assistantMessageId);
+    if (assistantIndex === -1) {
+      return {
+        found: false as const,
+        targetId: assistantMessageId,
+        requiresOlderContext: false,
+      };
+    }
+
+    if (assistantIndex > 0) {
+      const previousMessage = messages[assistantIndex - 1];
+      if (previousMessage?.content_type === 'user') {
+        return {
+          found: true as const,
+          targetId: previousMessage.message_id,
+          requiresOlderContext: false,
+        };
+      }
+    }
+
+    return {
+      found: true as const,
+      targetId: assistantMessageId,
+      requiresOlderContext: assistantIndex === 0,
+    };
+  }, []);
+
+  const waitForMessageElement = useCallback(async (messageId: string, timeoutMs = JUMP_RENDER_WAIT_TIMEOUT_MS) => {
+    const domId = `message-${messageId}`;
+    const started = Date.now();
+
+    while (Date.now() - started < timeoutMs) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const element = document.getElementById(domId);
+      if (element) return element;
+      await waitForMs(50);
+    }
+
+    return null;
+  }, []);
+
   const loadGeneratedImages = useCallback(
     async (force = false) => {
       if (isGalleryLoading) return;
@@ -418,22 +605,7 @@ export const Conversation: React.FC = () => {
         const pageMessages = (response.data as ChatMessageFromServer[]) || [];
         const pageImages = extractGalleryImagesFromMessages(pageMessages);
 
-        setGalleryImages((prev) => {
-          const next = force ? [] : [...prev];
-          const seen = new Set(next.map((item) => item.id));
-
-          pageImages.forEach((item) => {
-            if (seen.has(item.id)) return;
-            seen.add(item.id);
-            next.push(item);
-          });
-
-          return next.sort((a, b) => {
-            const aTime = new Date(a.timestamp).getTime();
-            const bTime = new Date(b.timestamp).getTime();
-            return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
-          });
-        });
+        mergeGalleryItems(pageImages, force);
 
         const responseWithMeta = response as { hasMore?: boolean };
         setGalleryHasMore(Boolean(responseWithMeta.hasMore));
@@ -449,7 +621,7 @@ export const Conversation: React.FC = () => {
         setIsGalleryLoading(false);
       }
     },
-    [galleryHasMore, galleryPage, isGalleryLoading, showToast],
+    [galleryHasMore, galleryPage, isGalleryLoading, mergeGalleryItems, showToast],
   );
 
   const handleLoadMoreImages = useCallback(() => {
@@ -464,22 +636,7 @@ export const Conversation: React.FC = () => {
       if (view === 'images') {
         const inMemoryImages = extractGalleryImagesFromMessages(chatMessages);
         if (inMemoryImages.length > 0) {
-          setGalleryImages((prev) => {
-            const merged = [...prev];
-            const seen = new Set(merged.map((item) => item.id));
-
-            inMemoryImages.forEach((item) => {
-              if (seen.has(item.id)) return;
-              seen.add(item.id);
-              merged.push(item);
-            });
-
-            return merged.sort((a, b) => {
-              const aTime = new Date(a.timestamp).getTime();
-              const bTime = new Date(b.timestamp).getTime();
-              return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
-            });
-          });
+          mergeGalleryItems(inMemoryImages);
         }
       }
 
@@ -487,7 +644,7 @@ export const Conversation: React.FC = () => {
         void loadGeneratedImages(true);
       }
     },
-    [chatMessages, hasLoadedGallery, loadGeneratedImages],
+    [chatMessages, hasLoadedGallery, loadGeneratedImages, mergeGalleryItems],
   );
 
   const toggleStarForMessage = useCallback(
@@ -772,11 +929,7 @@ export const Conversation: React.FC = () => {
               const scrollContainer = mainScrollRef.current;
               if (scrollContainer) previousScrollHeight.current = scrollContainer.scrollHeight;
 
-              setChatMessages((prev) => {
-                const existingIds = new Set(prev.map((m) => m.message_id));
-                const newMessages = messages.filter((m) => !existingIds.has(m.message_id));
-                return [...newMessages, ...prev];
-              });
+              mergeMessagesIntoState(messages);
             }
 
             setFetchState((prev) => ({
@@ -842,6 +995,7 @@ export const Conversation: React.FC = () => {
     [
       showToast,
       scrollToBottom,
+      mergeMessagesIntoState,
       hasLoadedLegacyHistory,
     ],
   );
@@ -849,6 +1003,7 @@ export const Conversation: React.FC = () => {
   const handleJumpToMessage = useCallback(
     (assistantMessageId: string) => {
       if (isJumpingRef.current) return;
+      if (!assistantMessageId) return;
 
       void (async () => {
         isJumpingRef.current = true;
@@ -862,37 +1017,48 @@ export const Conversation: React.FC = () => {
 
         let didJump = false;
         let pageLoads = 0;
+        let usedContextFetch = false;
+        const startedAt = Date.now();
 
-        while (true) {
-          const assistantDomId = `message-${assistantMessageId}`;
-          const escapedAssistantDomId =
-            typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
-              ? CSS.escape(assistantDomId)
-              : assistantDomId;
-          const assistantElement = document.querySelector<HTMLElement>(`#${escapedAssistantDomId}`);
+        while (Date.now() - startedAt <= JUMP_MAX_WAIT_MS) {
+          const resolution = resolveJumpTargetId(assistantMessageId, chatMessagesRef.current);
 
-          let targetElement: HTMLElement | null = assistantElement;
-          if (assistantElement) {
-            let previousMessageElement = assistantElement.previousElementSibling as HTMLElement | null;
-            while (previousMessageElement && !previousMessageElement.id.startsWith('message-')) {
-              previousMessageElement = previousMessageElement.previousElementSibling as HTMLElement | null;
-            }
-
-            if (previousMessageElement?.dataset.contentType === 'user') {
-              targetElement = previousMessageElement;
+          if (resolution.found && resolution.requiresOlderContext) {
+            const state = fetchStateRef.current;
+            if (state.hasMore && !state.isLoading) {
+              if (pageLoads >= JUMP_MAX_PAGE_LOADS) break;
+              const nextPage = Math.max(1, state.currentPage + 1);
+              await loadChatHistory(nextPage, false);
+              pageLoads += 1;
+              await waitForMs(50);
+              continue;
             }
           }
 
-          if (targetElement) {
-            const targetMessageId = targetElement.id.startsWith('message-')
-              ? targetElement.id.slice('message-'.length)
-              : assistantMessageId;
-            clearToasts('conversation');
-            targetElement.scrollIntoView({ block: 'start', behavior: 'smooth', inline: 'nearest' });
-            flashJumpTarget(targetMessageId);
-            suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
-            didJump = true;
-            break;
+          if (resolution.found) {
+            const targetElement = await waitForMessageElement(resolution.targetId);
+            if (targetElement) {
+              clearToasts('conversation');
+              targetElement.scrollIntoView({ block: 'start', behavior: 'smooth', inline: 'nearest' });
+              flashJumpTarget(resolution.targetId);
+              suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
+              didJump = true;
+              break;
+            }
+          }
+
+          if (!usedContextFetch) {
+            const response = await chatService.getMessageContextWindow(assistantMessageId, 30, 30);
+            usedContextFetch = true;
+
+            if (response.message === 'ok') {
+              const windowMessages = (response.data as ChatMessageFromServer[]) || [];
+              if (windowMessages.length > 0) {
+                mergeMessagesIntoState(windowMessages);
+                await waitForMs(100);
+                continue;
+              }
+            }
           }
 
           const state = fetchStateRef.current;
@@ -901,16 +1067,21 @@ export const Conversation: React.FC = () => {
             const nextPage = Math.max(1, state.currentPage + 1);
             await loadChatHistory(nextPage, false);
             pageLoads += 1;
-          } else if (!state.hasMore && !state.isLoading) {
-            break;
+            await waitForMs(JUMP_DOM_POLL_INTERVAL_MS);
+            continue;
           }
 
-          await new Promise((resolve) => setTimeout(resolve, JUMP_DOM_POLL_INTERVAL_MS));
+          if (state.isLoading) {
+            await waitForMs(120);
+            continue;
+          }
+
+          break;
         }
 
+        clearToasts('conversation');
         if (!didJump) {
-          clearToasts('conversation');
-          showToast('Message is too far back or deleted.', {
+          showToast('Unable to locate this message in the current history.', {
             type: 'error',
             position: 'conversation',
           });
@@ -919,7 +1090,7 @@ export const Conversation: React.FC = () => {
         .catch((error) => {
           console.error('Failed to jump to starred message context', error);
           clearToasts('conversation');
-          showToast('Message is too far back or deleted.', {
+          showToast('Unable to locate this message in the current history.', {
             type: 'error',
             position: 'conversation',
           });
@@ -932,7 +1103,10 @@ export const Conversation: React.FC = () => {
       clearToasts,
       flashJumpTarget,
       loadChatHistory,
+      mergeMessagesIntoState,
+      resolveJumpTargetId,
       showToast,
+      waitForMessageElement,
     ],
   );
 
@@ -1162,6 +1336,104 @@ export const Conversation: React.FC = () => {
   }, [loadPersistedStarredMessages]);
 
   useEffect(() => {
+    if (!supabaseUserId) return;
+
+    const messagesChannel = supabase
+      .channel(`conversation-messages:${supabaseUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `user_id=eq.${supabaseUserId}`,
+        },
+        (payload) => {
+          const mapped = mapRealtimeMessageRow(payload.new);
+          if (!mapped) return;
+          mergeMessagesIntoState([mapped]);
+          mergeGalleryItems(extractGalleryImagesFromMessages([mapped]));
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `user_id=eq.${supabaseUserId}`,
+        },
+        (payload) => {
+          const mapped = mapRealtimeMessageRow(payload.new);
+          if (!mapped) return;
+          mergeMessagesIntoState([mapped]);
+          mergeGalleryItems(extractGalleryImagesFromMessages([mapped]));
+        },
+      )
+      .subscribe();
+
+    const starredChannel = supabase
+      .channel(`conversation-stars:${supabaseUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'starred_messages',
+          filter: `user_id=eq.${supabaseUserId}`,
+        },
+        (payload) => {
+          const mapped = mapRealtimeStarredRow(payload.new);
+          if (!mapped) return;
+          setStarredMessageIds((prev) =>
+            prependUniqueId(removeId(prev, mapped.message_id), mapped.message_id),
+          );
+          setStarredMessageSnapshots((prev) => upsertSnapshot(prev, mapped));
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'starred_messages',
+          filter: `user_id=eq.${supabaseUserId}`,
+        },
+        (payload) => {
+          const mapped = mapRealtimeStarredRow(payload.new);
+          if (!mapped) return;
+          setStarredMessageIds((prev) =>
+            prependUniqueId(removeId(prev, mapped.message_id), mapped.message_id),
+          );
+          setStarredMessageSnapshots((prev) => upsertSnapshot(prev, mapped));
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'starred_messages',
+          filter: `user_id=eq.${supabaseUserId}`,
+        },
+        (payload) => {
+          const oldRow = payload.old as { message_id?: unknown } | null;
+          const messageId = typeof oldRow?.message_id === 'string' ? oldRow.message_id : '';
+          if (!messageId) return;
+
+          setStarredMessageIds((prev) => removeId(prev, messageId));
+          setStarredMessageSnapshots((prev) => removeSnapshot(prev, messageId));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(messagesChannel);
+      supabase.removeChannel(starredChannel);
+    };
+  }, [mergeGalleryItems, mergeMessagesIntoState, supabaseUserId]);
+
+  useEffect(() => {
     if (justSentMessageRef.current) {
       scrollToBottom(true, true);
       justSentMessageRef.current = false;
@@ -1300,6 +1572,7 @@ export const Conversation: React.FC = () => {
         <header
           ref={headerRef}
           className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}
         >
           <div className="w-full mx-auto flex items-center justify-between">
             <button
@@ -1501,7 +1774,11 @@ export const Conversation: React.FC = () => {
         ) : null}
 
         {!isImagesView ? (
-        <footer ref={footerRef} className="w-full z-40 p-2 md:pr-[13px] bg-transparent">
+        <footer
+          ref={footerRef}
+          className="w-full z-40 p-2 md:pr-[13px] bg-transparent"
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
+        >
           <div className="relative">
             <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
               {!isSubscriptionLoading &&
