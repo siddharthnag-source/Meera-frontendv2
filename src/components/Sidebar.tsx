@@ -9,7 +9,7 @@ import { SidebarItem } from './Sidebar/SidebarItem';
 
 interface SidebarProps {
   isVisible: boolean;
-  tokensLeft?: number | null;
+  tokensConsumed?: string | null;
   starredMessages: ChatMessageFromServer[];
   onJumpToMessage: (messageId: string) => void;
   userName: string;
@@ -43,7 +43,7 @@ const getGroupLabel = (timestamp: string, now: Date): string => {
 
 export const Sidebar: React.FC<SidebarProps> = ({
   isVisible,
-  tokensLeft,
+  tokensConsumed,
   starredMessages,
   onJumpToMessage,
   userName,
@@ -140,11 +140,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        <div className="px-3 py-2.5 border-t border-primary/15">
+        <div className="px-3 py-2 border-t border-primary/15">
           <button
             type="button"
             onClick={() => setIsProfileOpen((prev) => !prev)}
-            className="w-full flex items-center rounded-xl px-2 py-1.5 hover:bg-primary/10 transition-colors cursor-pointer gap-2.5"
+            className="w-full flex items-center rounded-xl px-2 py-1 hover:bg-primary/10 transition-colors cursor-pointer gap-2"
             aria-label="Open profile menu"
           >
             {userAvatar ? (
@@ -160,7 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {profileInitial}
               </span>
             )}
-            <div className="min-w-0 text-left">
+            <div className="min-w-0 text-left leading-tight">
               <p className="text-sm text-primary truncate">{displayName}</p>
               {displayEmail ? <p className="text-xs text-primary/60 truncate">{displayEmail}</p> : null}
             </div>
@@ -171,7 +171,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <ProfileMenu
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
-        tokensLeft={tokensLeft}
+        tokensConsumed={tokensConsumed}
         onUpgrade={handleUpgrade}
         onOpenSettings={handleOpenSettings}
         onSignOut={handleSignOut}

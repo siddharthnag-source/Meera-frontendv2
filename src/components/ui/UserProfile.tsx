@@ -4,6 +4,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { usePricingModal } from '@/contexts/PricingModalContext';
 // import { usePWAInstall } from '@/contexts/PWAInstallContext';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
+import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
 import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
@@ -17,30 +18,6 @@ import type { User } from '@supabase/supabase-js';
 interface UserProfileProps {
   isOpen: boolean;
   onClose: () => void;
-}
-
-function coercePostgresInt(value: unknown): string | null {
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!/^-?\d+$/.test(trimmed)) return null;
-    return trimmed;
-  }
-
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    // PostgREST may return bigint as number; truncate defensively.
-    return Math.trunc(value).toString(10);
-  }
-
-  // supabase-js can surface bigint as bigint when using custom type parsers
-  if (typeof value === 'bigint') return value.toString(10);
-
-  return null;
-}
-
-function formatIntStringWithCommas(value: string): string {
-  const sign = value.startsWith('-') ? '-' : '';
-  const digits = sign ? value.slice(1) : value;
-  return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 // Faster transitions for improved UX
@@ -63,10 +40,9 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
   const { data: subscription } = useSubscriptionStatus();
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [totalCostTokens, setTotalCostTokens] = useState<string>('0');
-  const [isLoadingTotalCostTokens, setIsLoadingTotalCostTokens] = useState(false);
   // const { installPrompt, isStandalone, isIOS, handleInstallClick } = usePWAInstall();
   const { openModal } = usePricingModal();
+  const { formattedTotalCostTokens, isLoadingTotalCostTokens } = useTotalCostTokens(user?.id ?? null);
 
   // Load Supabase user and listen for auth state changes
   useEffect(() => {
@@ -87,62 +63,6 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
       subscription.unsubscribe();
     };
   }, []);
-
-  // Token ledger: load initial total + keep it live via Realtime (RLS-filtered by user_id).
-  useEffect(() => {
-    if (!user?.id) {
-      setTotalCostTokens('0');
-      return;
-    }
-
-    let cancelled = false;
-    setIsLoadingTotalCostTokens(true);
-
-    const load = async () => {
-      const { data, error } = await supabase
-        .from('user_token_ledger')
-        .select('total_tokens')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (cancelled) return;
-
-      if (error) {
-        console.error('Failed to load user_token_ledger:', error);
-        setIsLoadingTotalCostTokens(false);
-        return;
-      }
-
-      setTotalCostTokens(coercePostgresInt(data?.total_tokens) ?? '0');
-      setIsLoadingTotalCostTokens(false);
-    };
-
-    load();
-
-    const channel = supabase
-      .channel(`user-token-ledger:${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'user_token_ledger',
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload) => {
-          const next = coercePostgresInt(
-            (payload.new as { total_tokens?: unknown } | null)?.total_tokens,
-          );
-          if (next != null) setTotalCostTokens(next);
-        },
-      )
-      .subscribe();
-
-    return () => {
-      cancelled = true;
-      supabase.removeChannel(channel);
-    };
-  }, [user?.id]);
 
   // Check if user is guest (has guest token but no Supabase user)
   const isGuest =
@@ -262,13 +182,13 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
 	                          <span className="text-[15px] text-primary">
 	                            Total Cost of Consciousness
 	                          </span>
-	                          <span className="text-[15px] font-mono font-medium text-primary bg-primary/10 px-3 sm:px-4 py-1 rounded-md">
-	                            {isLoadingTotalCostTokens
-	                              ? '...'
-	                              : `${formatIntStringWithCommas(totalCostTokens)} tokens`}
-	                          </span>
-	                        </div>
-	                      </div>
+                            <span className="text-[15px] font-mono font-medium text-primary bg-primary/10 px-3 sm:px-4 py-1 rounded-md">
+                              {isLoadingTotalCostTokens
+                                ? '...'
+                                : `${formattedTotalCostTokens} tokens`}
+                            </span>
+                          </div>
+                        </div>
 	                    )}
 
 	                    {subscription?.plan_type === 'free_trial' && (

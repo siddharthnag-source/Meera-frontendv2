@@ -3,13 +3,15 @@
 import { chatService } from '@/app/api/services/chat';
 import { MeeraVoice } from '@/components/MeeraVoice';
 import { Sidebar } from '@/components/Sidebar';
+import { SupportPanel } from '@/components/ui/SupportPanel';
 import { Toast } from '@/components/ui/Toast';
 import { useToast } from '@/components/ui/ToastProvider';
-import { UserProfile } from '@/components/ui/UserProfile';
 import { usePricingModal } from '@/contexts/PricingModalContext';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useDragAndDrop } from '@/hooks/useDragAndDrop';
 import { useMessageSubmission } from '@/hooks/useMessageSubmission';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
+import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
 import { formatWhatsAppStyle } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
 import { supabase } from '@/lib/supabaseClient';
@@ -165,7 +167,7 @@ export const Conversation: React.FC = () => {
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
-  const [showUserProfile, setShowUserProfile] = useState(false);
+  const [showSupportPanel, setShowSupportPanel] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
 
   const [legacyUserId, setLegacyUserId] = useState<string | null>(null);
@@ -223,6 +225,8 @@ export const Conversation: React.FC = () => {
   const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
 
   const { data: sessionData } = useSession();
+  const { userId: supabaseUserId } = useCurrentUser();
+  const { formattedTotalCostTokens } = useTotalCostTokens(supabaseUserId);
   const {
     data: subscriptionData,
     isLoading: isSubscriptionLoading,
@@ -1033,7 +1037,7 @@ export const Conversation: React.FC = () => {
   );
 
   const handleOpenSettings = useCallback(() => {
-    setShowUserProfile(true);
+    setShowSupportPanel(true);
   }, []);
 
   const handleOpenUpgrade = useCallback(() => {
@@ -1062,8 +1066,8 @@ export const Conversation: React.FC = () => {
     setShowMeeraVoice(true);
   }, []);
 
-  const handleCloseProfilePanel = useCallback(() => {
-    setShowUserProfile(false);
+  const handleCloseSupportPanel = useCallback(() => {
+    setShowSupportPanel(false);
   }, []);
 
   const handleToggleSidebar = useCallback(() => {
@@ -1079,7 +1083,7 @@ export const Conversation: React.FC = () => {
     <div className="relative bg-background">
       <Sidebar
         isVisible={isSidebarVisible}
-        tokensLeft={subscriptionData?.tokens_left ?? null}
+        tokensConsumed={formattedTotalCostTokens}
         starredMessages={starredMessages}
         onJumpToMessage={handleJumpToMessage}
         userName={profileName}
@@ -1404,7 +1408,7 @@ export const Conversation: React.FC = () => {
           </div>
         </footer>
 
-        <UserProfile isOpen={showUserProfile} onClose={handleCloseProfilePanel} />
+        <SupportPanel isOpen={showSupportPanel} onClose={handleCloseSupportPanel} />
         <MeeraVoice
           isOpen={showMeeraVoice}
           onClose={(wasConnected) => {

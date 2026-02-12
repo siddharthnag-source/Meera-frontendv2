@@ -7,7 +7,7 @@ import { FiLogOut, FiSettings } from 'react-icons/fi';
 interface ProfileMenuProps {
   isOpen: boolean;
   onClose: () => void;
-  tokensLeft?: number | null;
+  tokensConsumed?: string | null;
   onUpgrade: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
@@ -17,7 +17,7 @@ interface ProfileMenuProps {
 export const ProfileMenu: React.FC<ProfileMenuProps> = ({
   isOpen,
   onClose,
-  tokensLeft,
+  tokensConsumed,
   onUpgrade,
   onOpenSettings,
   onSignOut,
@@ -25,7 +25,7 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const tokenText = typeof tokensLeft === 'number' ? tokensLeft.toLocaleString() : '0';
+  const tokenText = tokensConsumed?.trim() || '0';
 
   const menuPositionClass =
     anchor === 'top-left' ? 'top-16 left-4 w-[min(92vw,340px)]' : 'bottom-16 left-2 w-[244px]';
