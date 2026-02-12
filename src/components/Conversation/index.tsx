@@ -292,17 +292,42 @@ export const Conversation: React.FC = () => {
 
   const handleSelectStarredMessage = useCallback(
     (messageId: string) => {
-      const target = document.getElementById(`message-${messageId}`);
-      if (!target) {
-        showToast('Unable to locate this message in the current view.', {
-          type: 'error',
-          position: 'conversation',
+      const scrollToMessage = (): boolean => {
+        const target = document.getElementById(`message-${messageId}`);
+        if (!target) return false;
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return true;
+      };
+
+      if (scrollToMessage()) return;
+
+      const fallbackMessage = starredMessages.find((msg) => msg.message_id === messageId);
+      if (fallbackMessage) {
+        setChatMessages((prev) => {
+          if (prev.some((msg) => msg.message_id === messageId)) return prev;
+          const merged = [...prev, fallbackMessage];
+          merged.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+          return merged;
+        });
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (scrollToMessage()) return;
+            showToast('Unable to locate this message in the current view.', {
+              type: 'error',
+              position: 'conversation',
+            });
+          });
         });
         return;
       }
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      showToast('Unable to locate this message in the current view.', {
+        type: 'error',
+        position: 'conversation',
+      });
     },
-    [showToast],
+    [showToast, starredMessages],
   );
 
   const calculateMinHeight = useCallback(() => {
