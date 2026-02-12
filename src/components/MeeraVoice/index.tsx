@@ -300,7 +300,23 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
     }
 
     if (!subscriptionData) {
-      showToast('Something went wrong. Please try again later.', {
+      const subscriptionErrorMessage =
+        typeof subscriptionError === 'object' &&
+        subscriptionError !== null &&
+        'message' in subscriptionError &&
+        typeof subscriptionError.message === 'string'
+          ? subscriptionError.message
+          : null;
+
+      showToast(subscriptionErrorMessage || 'Unable to verify your call plan. Please refresh and try again.', {
+        type: 'error',
+        position: 'meera-voice',
+      });
+      return;
+    }
+
+    if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+      showToast('Voice is not configured. Missing NEXT_PUBLIC_GEMINI_API_KEY.', {
         type: 'error',
         position: 'meera-voice',
       });
@@ -334,7 +350,8 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
       // Check if component is still mounted before proceeding
       if (!componentMountedRef.current) return;
 
-      const { model_name, temperature, max_tokens, system_prompt, google_search } = MEERA_VOICE_CONFIG;
+      const { model_name, model_fallbacks, temperature, max_tokens, system_prompt, google_search } =
+        MEERA_VOICE_CONFIG;
 
       const tools: Tool[] = [];
       if (google_search) {
@@ -367,7 +384,23 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
         outputAudioTranscription: {},
       };
 
-      await connect(model_name, config);
+      const modelsToTry = Array.from(new Set([
+        model_name,
+        ...(model_fallbacks || []),
+      ]));
+
+      let didConnect = false;
+      for (const modelCandidate of modelsToTry) {
+        didConnect = await connect(modelCandidate, config);
+        if (didConnect) {
+          break;
+        }
+      }
+
+      if (!didConnect) {
+        throw new Error('Unable to connect to voice model. Please try again in a moment.');
+      }
+
       client.sendText('');
       start({ audio: { mic: true, system: false }, video: false });
     } catch (err) {
@@ -390,6 +423,7 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
     openModal,
     showToast,
     subscriptionData,
+    subscriptionError,
     currentTotalTalkTime,
     client,
     endCall,

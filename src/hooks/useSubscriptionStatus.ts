@@ -40,9 +40,7 @@ export const useSubscriptionStatus = () => {
     },
     retry: false,
     staleTime: 0,
-    enabled:
-      sessionStatus !== 'loading' &&
-      ((sessionStatus === 'authenticated' && !hasGuestToken) || (sessionStatus !== 'authenticated' && hasGuestToken)),
+    enabled: sessionStatus !== 'loading' && (sessionStatus === 'authenticated' || hasGuestToken),
     refetchOnMount: false,
   });
 };

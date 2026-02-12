@@ -24,7 +24,7 @@ export type UseLiveAPIResults = {
   setModel: (model: string) => void;
   connected: boolean;
   isSpeaking: boolean;
-  connect: (model: string, config: LiveConnectConfig) => Promise<void>;
+  connect: (model: string, config: LiveConnectConfig) => Promise<boolean>;
   disconnect: () => Promise<void>;
   volume: number;
   outputDevices: MediaDeviceInfo[];
@@ -190,12 +190,12 @@ export function useLiveAPI(options: LiveClientOptions): UseLiveAPIResults {
   const connect = useCallback(
     async (model: string, config: LiveConnectConfig) => {
       if (client.status === 'connected' || client.status === 'connecting') {
-        return;
+        return false;
       }
       setModel(model);
       setConfig(config);
       await client.disconnect();
-      await client.connect(model, config);
+      return client.connect(model, config);
     },
     [client],
   );
