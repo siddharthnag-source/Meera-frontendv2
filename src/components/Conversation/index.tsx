@@ -22,6 +22,7 @@ import { useSession } from 'next-auth/react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
+import { MdKeyboardArrowDown } from 'react-icons/md';
 import { AttachmentInputArea, AttachmentInputAreaRef } from './AttachmentInputArea';
 import { AttachmentPreview } from './AttachmentPreview';
 import { CallSessionItem } from './CallSessionItem';
@@ -326,6 +327,7 @@ export const Conversation: React.FC = () => {
   const [isSearchActive, setIsSearchActive] = useState(true);
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
   const [starredMessageSnapshots, setStarredMessageSnapshots] = useState<ChatMessageFromServer[]>([]);
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
@@ -392,6 +394,9 @@ export const Conversation: React.FC = () => {
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isJumpingRef = useRef(false);
   const suppressAutoLoadUntilRef = useRef(0);
+
+  const lastScrollTopRef = useRef(0);
+  const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
 
   const { data: sessionData } = useSession();
   const { userId: supabaseUserId } = useCurrentUser();
@@ -1106,7 +1111,7 @@ export const Conversation: React.FC = () => {
 
   const handleScrollInternal = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
-      const { scrollTop } = e.currentTarget;
+      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
       const currentFetchState = fetchStateRef.current;
 
       if (!showDateSticky) setShowDateSticky(true);
@@ -1119,6 +1124,20 @@ export const Conversation: React.FC = () => {
       const currentScrollTop = scrollTop;
       isScrollingUp.current = currentScrollTop < lastScrollTop.current;
       lastScrollTop.current = currentScrollTop;
+
+      const direction =
+        currentScrollTop > lastScrollTopRef.current
+          ? 'down'
+          : currentScrollTop < lastScrollTopRef.current
+            ? 'up'
+            : 'still';
+      lastScrollTopRef.current = currentScrollTop;
+
+      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
+
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      const isNotAtBottom = distanceFromBottom > 100;
+      setShowScrollToBottom(direction === 'up' && isNotAtBottom);
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       setIsUserNearTop(scrollTop < SCROLL_THRESHOLD);
@@ -1439,6 +1458,7 @@ export const Conversation: React.FC = () => {
       fetchState.abortController?.abort();
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
       if (hideDateStickyTimeoutRef.current) clearTimeout(hideDateStickyTimeoutRef.current);
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
 
@@ -1449,6 +1469,10 @@ export const Conversation: React.FC = () => {
       currentAttachments.forEach((att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl));
     };
   }, [fetchState.abortController, currentAttachments]);
+
+  const handleScrollToBottomClick = useCallback(() => {
+    scrollToBottom(true, true);
+  }, [scrollToBottom]);
 
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -1534,7 +1558,7 @@ export const Conversation: React.FC = () => {
       />
 
       <div
-        className={`grid grid-rows-[auto_1fr_auto] h-[100svh] md:h-[100dvh] overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
+        className={`grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
       >
         {isDraggingOver && (
           <div className="fixed inset-0 bg-primary/10 backdrop-blur-[2px] z-50 flex items-center justify-center">
@@ -1594,8 +1618,7 @@ export const Conversation: React.FC = () => {
 
         <main
           ref={mainScrollRef}
-          className="overflow-y-auto overflow-x-hidden touch-pan-y w-full scroll-pt-2.5"
-          style={{ WebkitOverflowScrolling: 'touch' }}
+          className="overflow-y-auto overflow-x-hidden w-full scroll-pt-2.5"
           onScroll={isImagesView ? undefined : handleScroll}
         >
           <div
@@ -1756,7 +1779,7 @@ export const Conversation: React.FC = () => {
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >
           <div className="relative">
-            <div className="w-full flex flex-col items-center mb-2">
+            <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
               {!isSubscriptionLoading &&
                 !isSubscriptionError &&
                 subscriptionData?.plan_type === 'paid' &&
@@ -1790,12 +1813,22 @@ export const Conversation: React.FC = () => {
                   </div>
                 )}
 
-              <div className="w-full pt-1 flex justify-center">
+              {showScrollToBottom && (
+                <button
+                  onClick={handleScrollToBottomClick}
+                  className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
+                  title="Scroll to bottom"
+                >
+                  <MdKeyboardArrowDown size={20} />
+                </button>
+              )}
+
+              <div className="w-full pt-1 flex justify_center">
                 <Toast position="conversation" />
               </div>
             </div>
 
-            <form onSubmit={handleFormSubmit} className="w-full max-w-3xl mx-auto bg-transparent">
+            <form onSubmit={handleFormSubmit} className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]">
               <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200 transform-gpu will-change-transform">
                 {currentAttachments.length > 0 && (
                   <div className="flex flex-wrap gap-2 px-4 pt-2.5 pb-1">
