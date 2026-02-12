@@ -157,7 +157,7 @@ export const chatService = {
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (!session?.user) return { message: 'unauthorized', data: [] };
+      if (!session?.user) return { message: 'unauthorized', data: [], ids: [] as string[] };
       const userId = session.user.id;
 
       const { data, error } = await supabase
@@ -202,7 +202,7 @@ export const chatService = {
 
       if (essenceError) {
         console.error('getStarredMessages essence fetch error', essenceError);
-        return { message: 'error', data: [] };
+        return { message: 'error', data: [], ids: [] as string[] };
       }
 
       const essence = ((essenceRow as UserEssenceRow | null)?.user_essence ?? {}) as Record<string, unknown>;
@@ -212,19 +212,18 @@ export const chatService = {
         new Set(orderedIds),
       );
 
-      if (messageIds.length === 0) return { message: 'ok', data: [] };
+      if (messageIds.length === 0) return { message: 'ok', data: [], ids: [] as string[] };
 
       const { data: messageRows, error: messagesError } = await supabase
         .from('messages')
         .select(
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
         )
-        .eq('user_id', userId)
         .in('message_id', messageIds);
 
       if (messagesError) {
         console.error('getStarredMessages messages lookup error', messagesError);
-        return { message: 'error', data: [] };
+        return { message: 'error', data: [], ids: orderedIds };
       }
 
       const mappedById = new Map(
@@ -235,10 +234,10 @@ export const chatService = {
         .map((messageId) => mappedById.get(messageId))
         .filter((msg): msg is ReturnType<typeof mapDbRowToChatMessage> => Boolean(msg));
 
-      return { message: 'ok', data: orderedMessages };
+      return { message: 'ok', data: orderedMessages, ids: orderedIds };
     } catch (e) {
       console.error('getStarredMessages outer error', e);
-      return { message: 'error', data: [] };
+      return { message: 'error', data: [], ids: [] as string[] };
     }
   },
 

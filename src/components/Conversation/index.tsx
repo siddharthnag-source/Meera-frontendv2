@@ -216,8 +216,13 @@ export const Conversation: React.FC = () => {
   const starredMessageIdSet = useMemo(() => new Set(starredMessageIds), [starredMessageIds]);
 
   const loadPersistedStarredMessages = useCallback(
-    async (showErrorToast: boolean) => {
+    async (showErrorToast: boolean): Promise<'ok' | 'unauthorized' | 'error'> => {
       const response = await chatService.getStarredMessages();
+
+      if (response.message === 'unauthorized') {
+        return 'unauthorized';
+      }
+
       if (response.message !== 'ok') {
         if (showErrorToast) {
           showToast('Unable to sync starred messages right now.', {
@@ -225,14 +230,19 @@ export const Conversation: React.FC = () => {
             position: 'conversation',
           });
         }
-        return;
+        return 'error';
       }
 
       const persistedMessages = response.data as ChatMessageFromServer[];
-      const persistedIds = persistedMessages.map((messageItem) => messageItem.message_id);
+      const responseWithIds = response as { ids?: string[] };
+      const persistedIds = Array.isArray(responseWithIds.ids)
+        ? responseWithIds.ids
+        : persistedMessages.map((messageItem) => messageItem.message_id);
 
       setStarredMessageIds(persistedIds);
       setStarredMessageSnapshots(persistedMessages);
+
+      return 'ok';
     },
     [showToast],
   );
@@ -811,13 +821,27 @@ export const Conversation: React.FC = () => {
   }, [loadChatHistory]);
 
   useEffect(() => {
-    loadPersistedStarredMessages(false);
+    let isMounted = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const hydrateStarred = async (attempt: number = 0) => {
+      const result = await loadPersistedStarredMessages(false);
+      if (!isMounted) return;
+
+      if (result === 'unauthorized' && attempt < 6) {
+        retryTimer = setTimeout(() => {
+          void hydrateStarred(attempt + 1);
+        }, 250 * (attempt + 1));
+      }
+    };
+
+    void hydrateStarred();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        loadPersistedStarredMessages(false);
+        void hydrateStarred();
       } else {
         setStarredMessageIds([]);
         setStarredMessageSnapshots([]);
@@ -825,6 +849,8 @@ export const Conversation: React.FC = () => {
     });
 
     return () => {
+      isMounted = false;
+      if (retryTimer) clearTimeout(retryTimer);
       subscription.unsubscribe();
     };
   }, [loadPersistedStarredMessages]);
