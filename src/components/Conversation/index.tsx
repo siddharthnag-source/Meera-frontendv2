@@ -22,6 +22,7 @@ import { useSession } from 'next-auth/react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
+import { MdKeyboardArrowDown } from 'react-icons/md';
 import { AttachmentInputArea, AttachmentInputAreaRef } from './AttachmentInputArea';
 import { AttachmentPreview } from './AttachmentPreview';
 import { CallSessionItem } from './CallSessionItem';
@@ -326,6 +327,7 @@ export const Conversation: React.FC = () => {
   const [isSearchActive, setIsSearchActive] = useState(true);
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
   const [starredMessageSnapshots, setStarredMessageSnapshots] = useState<ChatMessageFromServer[]>([]);
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
@@ -393,8 +395,8 @@ export const Conversation: React.FC = () => {
   const isJumpingRef = useRef(false);
   const suppressAutoLoadUntilRef = useRef(0);
 
-  const showDateStickyRef = useRef(false);
-  const isUserNearTopRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
+  const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
 
   const { data: sessionData } = useSession();
   const { userId: supabaseUserId } = useCurrentUser();
@@ -488,68 +490,28 @@ export const Conversation: React.FC = () => {
     if (!incoming.length) return;
 
     setChatMessages((prev) => {
-      const next = [...prev];
-      const indexById = new Map<string, number>();
-      next.forEach((message, index) => {
-        indexById.set(message.message_id, index);
-      });
-
-      const pendingInsertions: ChatMessageFromServer[] = [];
-      const seenPending = new Set<string>();
+      const map = new Map(prev.map((message) => [message.message_id, message]));
 
       incoming.forEach((message) => {
-        const normalized: ChatMessageFromServer = {
-          ...message,
-          attachments: message.attachments ?? [],
-        };
-
-        const existingIndex = indexById.get(normalized.message_id);
-        if (existingIndex !== undefined) {
-          const existing = next[existingIndex];
-          next[existingIndex] = {
+        const existing = map.get(message.message_id);
+        if (existing) {
+          map.set(message.message_id, {
             ...existing,
-            ...normalized,
-            attachments: normalized.attachments ?? existing.attachments ?? [],
-            user_context: normalized.user_context ?? existing.user_context,
-            summary: normalized.summary ?? existing.summary,
-          };
+            ...message,
+            attachments: message.attachments ?? existing.attachments ?? [],
+            user_context: message.user_context ?? existing.user_context,
+            summary: message.summary ?? existing.summary,
+          });
           return;
         }
 
-        if (seenPending.has(normalized.message_id)) return;
-        seenPending.add(normalized.message_id);
-        pendingInsertions.push(normalized);
+        map.set(message.message_id, {
+          ...message,
+          attachments: message.attachments ?? [],
+        });
       });
 
-      if (pendingInsertions.length === 0) {
-        return next;
-      }
-
-      pendingInsertions.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-
-      if (next.length === 0) {
-        return pendingInsertions;
-      }
-
-      const firstExisting = new Date(next[0].timestamp).getTime();
-      const lastExisting = new Date(next[next.length - 1].timestamp).getTime();
-      const firstIncoming = new Date(pendingInsertions[0].timestamp).getTime();
-      const lastIncoming = new Date(pendingInsertions[pendingInsertions.length - 1].timestamp).getTime();
-
-      const safeFirstExisting = Number.isFinite(firstExisting) ? firstExisting : 0;
-      const safeLastExisting = Number.isFinite(lastExisting) ? lastExisting : 0;
-      const safeFirstIncoming = Number.isFinite(firstIncoming) ? firstIncoming : 0;
-      const safeLastIncoming = Number.isFinite(lastIncoming) ? lastIncoming : 0;
-
-      if (safeLastIncoming <= safeFirstExisting) {
-        return [...pendingInsertions, ...next];
-      }
-
-      if (safeFirstIncoming >= safeLastExisting) {
-        return [...next, ...pendingInsertions];
-      }
-
-      return [...next, ...pendingInsertions].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      return Array.from(map.values()).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     });
   }, []);
 
@@ -1149,18 +1111,13 @@ export const Conversation: React.FC = () => {
 
   const handleScrollInternal = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
-      const { scrollTop } = e.currentTarget;
+      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
       const currentFetchState = fetchStateRef.current;
 
-      if (!showDateStickyRef.current) {
-        showDateStickyRef.current = true;
-        setShowDateSticky(true);
-      }
+      if (!showDateSticky) setShowDateSticky(true);
       if (hideDateStickyTimeoutRef.current) clearTimeout(hideDateStickyTimeoutRef.current);
 
       hideDateStickyTimeoutRef.current = setTimeout(() => {
-        if (!showDateStickyRef.current) return;
-        showDateStickyRef.current = false;
         setShowDateSticky(false);
       }, 900);
 
@@ -1168,12 +1125,22 @@ export const Conversation: React.FC = () => {
       isScrollingUp.current = currentScrollTop < lastScrollTop.current;
       lastScrollTop.current = currentScrollTop;
 
+      const direction =
+        currentScrollTop > lastScrollTopRef.current
+          ? 'down'
+          : currentScrollTop < lastScrollTopRef.current
+            ? 'up'
+            : 'still';
+      lastScrollTopRef.current = currentScrollTop;
+
+      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
+
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      const isNotAtBottom = distanceFromBottom > 100;
+      setShowScrollToBottom(direction === 'up' && isNotAtBottom);
+
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-      const nextIsNearTop = scrollTop < SCROLL_THRESHOLD;
-      if (nextIsNearTop !== isUserNearTopRef.current) {
-        isUserNearTopRef.current = nextIsNearTop;
-        setIsUserNearTop(nextIsNearTop);
-      }
+      setIsUserNearTop(scrollTop < SCROLL_THRESHOLD);
       const isAutoLoadSuppressed =
         isJumpingRef.current || Date.now() < suppressAutoLoadUntilRef.current;
 
@@ -1194,6 +1161,7 @@ export const Conversation: React.FC = () => {
     [
       isInitialLoading,
       loadChatHistory,
+      showDateSticky,
     ],
   );
 
@@ -1490,6 +1458,7 @@ export const Conversation: React.FC = () => {
       fetchState.abortController?.abort();
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
       if (hideDateStickyTimeoutRef.current) clearTimeout(hideDateStickyTimeoutRef.current);
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
 
@@ -1500,6 +1469,10 @@ export const Conversation: React.FC = () => {
       currentAttachments.forEach((att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl));
     };
   }, [fetchState.abortController, currentAttachments]);
+
+  const handleScrollToBottomClick = useCallback(() => {
+    scrollToBottom(true, true);
+  }, [scrollToBottom]);
 
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -1585,7 +1558,7 @@ export const Conversation: React.FC = () => {
       />
 
       <div
-        className={`grid grid-rows-[auto_1fr_auto] h-[100svh] md:h-[100dvh] overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
+        className={`grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
       >
         {isDraggingOver && (
           <div className="fixed inset-0 bg-primary/10 backdrop-blur-[2px] z-50 flex items-center justify-center">
@@ -1645,8 +1618,7 @@ export const Conversation: React.FC = () => {
 
         <main
           ref={mainScrollRef}
-          className="overflow-y-auto overscroll-contain touch-pan-y w-full scroll-pt-2.5"
-          style={{ WebkitOverflowScrolling: 'touch' }}
+          className="overflow-y-auto w-full scroll-pt-2.5"
           onScroll={isImagesView ? undefined : handleScroll}
         >
           <div
@@ -1703,7 +1675,7 @@ export const Conversation: React.FC = () => {
                   const dateHeader = formatWhatsAppStyle(dateKey);
 
                   return (
-                    <div key={dateKey} className="date-group relative w-full">
+                    <div key={dateKey} className="date-group relative w_full">
                       {dateHeader && showDateSticky && (
                         <div className="sticky pt-2 z-20 flex justify-center my-3 top-0 pointer-events-none">
                           <div className="bg-background text-primary text-xs px-4 py-1.5 rounded-full shadow-sm border border-primary/10">
@@ -1754,7 +1726,7 @@ export const Conversation: React.FC = () => {
                                     ? latestAssistantMessageRef
                                     : null
                               }
-                              className="message-item-wrapper w-full"
+                              className="message-item-wrapper w-full transform-gpu will-change-transform"
                               style={
                                 highlightedMessageId === msg.message_id
                                   ? {
@@ -1794,14 +1766,20 @@ export const Conversation: React.FC = () => {
           </div>
         </main>
 
+        {isImagesView ? (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-40">
+            <Toast position="conversation" />
+          </div>
+        ) : null}
+
         {!isImagesView ? (
         <footer
           ref={footerRef}
           className="w-full z-40 p-2 md:pr-[13px] bg-transparent"
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >
-          <div className="w-full max-w-3xl mx-auto">
-            <div className="mb-2 flex flex-col items-center gap-2">
+          <div className="relative">
+            <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
               {!isSubscriptionLoading &&
                 !isSubscriptionError &&
                 subscriptionData?.plan_type === 'paid' &&
@@ -1834,10 +1812,24 @@ export const Conversation: React.FC = () => {
                     </span>
                   </div>
                 )}
+
+              {showScrollToBottom && (
+                <button
+                  onClick={handleScrollToBottomClick}
+                  className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
+                  title="Scroll to bottom"
+                >
+                  <MdKeyboardArrowDown size={20} />
+                </button>
+              )}
+
+              <div className="w-full pt-1 flex justify_center">
+                <Toast position="conversation" />
+              </div>
             </div>
 
-            <form onSubmit={handleFormSubmit} className="w-full bg-transparent">
-              <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200">
+            <form onSubmit={handleFormSubmit} className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]">
+              <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200 transform-gpu will-change-transform">
                 {currentAttachments.length > 0 && (
                   <div className="flex flex-wrap gap-2 px-4 pt-2.5 pb-1">
                     {currentAttachments.map((att, index) => (
@@ -1859,7 +1851,7 @@ export const Conversation: React.FC = () => {
                     debouncedTextareaResize(e.target);
                   }}
                   placeholder="Ask Meera"
-                  className="w-full px-4 py-3 bg-transparent border-none resize-none outline-none text-primary placeholder-primary/50 text-base scrollbar-thin"
+                  className="w-full px-4 py-3 bg-transparent border-none resize-none outline-none text-primary placeholder-primary/50 text-base scrollbar-thin transform-gpu will-change-transform"
                   style={{
                     minHeight: '52px',
                     transition: 'height 0.1s ease-out',
@@ -1886,7 +1878,7 @@ export const Conversation: React.FC = () => {
                     <button
                       type="button"
                       onClick={stableCallbacks.toggleSearchActive}
-                      className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer ${
+                      className={`py-2 px-3 rounded-2xl flex items-center justify-center gap-2 border border-primary/20 focus:outline-none transition-all duration-150 ease-in-out text-sm font-medium cursor-pointer transform-gpu will-change-transform ${
                         isSearchActive ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-50'
                       }`}
                       title="Search"
@@ -1911,7 +1903,7 @@ export const Conversation: React.FC = () => {
 
                     <button
                       type="submit"
-                      className={`rounded-full flex items-center justify-center focus:outline-none transition-all duration-150 ease-in-out cursor-pointer min-w-[38px] min-h-[38px] ${
+                      className={`rounded-full flex items-center justify-center focus:outline-none transition-all duration-150 ease-in-out cursor-pointer min-w-[38px] min-h-[38px] transform-gpu will-change-transform ${
                         canSubmit
                           ? 'bg-primary text-background hover:bg-primary/90 hover:scale-105'
                           : 'bg-primary/20 text-primary/50 cursor-not-allowed'
@@ -1929,7 +1921,6 @@ export const Conversation: React.FC = () => {
         </footer>
         ) : null}
 
-        <Toast position="conversation" />
         <SupportPanel isOpen={showSupportPanel} onClose={handleCloseSupportPanel} />
         <MeeraVoice
           isOpen={showMeeraVoice}
