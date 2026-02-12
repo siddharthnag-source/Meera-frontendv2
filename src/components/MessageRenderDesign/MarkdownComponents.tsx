@@ -129,7 +129,7 @@ export const renderStandardInlineCode = (
   return (
     <code
       {...htmlElementProps}
-      className={`${className || ''} bg-primary/10 text-primary p-0.5 rounded-sm [font-family:inherit] [font-size:inherit]`}
+      className={`${className || ''} bg-primary/10 text-primary p-0.5 rounded-sm [font-family:inherit] [font-size:inherit] break-words [overflow-wrap:anywhere]`}
     >
       {children}
     </code>
@@ -142,7 +142,7 @@ export const MyCustomParagraph: React.FC<CustomComponentProps<HTMLParagraphEleme
   node,
   ...rest
 }) => (
-  <p className="text-[15px] font-sans leading-relaxed mt-2" {...rest}>
+  <p className="text-[15px] font-sans leading-relaxed mt-2 break-words [overflow-wrap:anywhere]" {...rest}>
     {children}
   </p>
 );
@@ -232,7 +232,7 @@ export const MyCustomOl: React.FC<CustomComponentProps<HTMLOListElement>> = ({ c
 );
 
 export const MyCustomLi: React.FC<CustomComponentProps<HTMLLIElement>> = ({ children, node, ...rest }) => (
-  <li className="font-sans text-[15px]" {...rest}>
+  <li className="font-sans text-[15px] break-words [overflow-wrap:anywhere]" {...rest}>
     {children}
   </li>
 );
@@ -246,7 +246,7 @@ export const MyCustomHr: React.FC<CustomComponentProps<HTMLHRElement>> = ({ node
 export const MyCustomA: React.FC<CustomComponentProps<HTMLAnchorElement>> = ({ children, node, href, ...rest }) => (
   <a
     href={href}
-    className="font-sans text-primary underline hover:no-underline focus:outline-none focus:ring-1 focus:ring-primary-focus"
+    className="font-sans text-primary underline hover:no-underline focus:outline-none focus:ring-1 focus:ring-primary-focus break-words [overflow-wrap:anywhere]"
     target="_blank"
     rel="noopener noreferrer"
     {...rest}

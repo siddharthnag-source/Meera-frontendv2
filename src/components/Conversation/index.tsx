@@ -1538,7 +1538,7 @@ export const Conversation: React.FC = () => {
   const isImagesView = activeSidebarView === 'images';
 
   return (
-    <div className="relative bg-background">
+    <div className="relative bg-background overflow-x-hidden">
       <Sidebar
         isVisible={isSidebarVisible}
         isMobileOpen={isMobileSidebarOpen}
@@ -1618,14 +1618,14 @@ export const Conversation: React.FC = () => {
 
         <main
           ref={mainScrollRef}
-          className="overflow-y-auto w-full scroll-pt-2.5"
+          className="overflow-y-auto overflow-x-hidden w-full scroll-pt-2.5"
           onScroll={isImagesView ? undefined : handleScroll}
         >
           <div
             className={
               isImagesView
-                ? 'px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-5xl xl:max-w-6xl mx-auto'
-                : 'px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto'
+                ? 'px-2 sm:px-0 py-6 w-full min-w-0 max-w-full sm:max-w-5xl xl:max-w-6xl mx-auto'
+                : 'px-2 sm:px-0 py-6 w-full min-w-0 max-w-full sm:max-w-2xl md:max-w-3xl mx-auto'
             }
           >
             {isImagesView ? (
@@ -1662,7 +1662,7 @@ export const Conversation: React.FC = () => {
             )}
 
             {!isInitialLoading && chatMessages.length > 0 && (
-              <div className="flex flex-col space-y-0 w-full">
+              <div className="flex flex-col space-y-0 w-full min-w-0">
                 {fetchState.isLoading && isUserNearTop && (
                   <div className="flex justify-center py-4 sticky top-0 z-10">
                     <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-sm border border-primary/10">
@@ -1675,7 +1675,7 @@ export const Conversation: React.FC = () => {
                   const dateHeader = formatWhatsAppStyle(dateKey);
 
                   return (
-                    <div key={dateKey} className="date-group relative w_full">
+                    <div key={dateKey} className="date-group relative w-full min-w-0">
                       {dateHeader && showDateSticky && (
                         <div className="sticky pt-2 z-20 flex justify-center my-3 top-0 pointer-events-none">
                           <div className="bg-background text-primary text-xs px-4 py-1.5 rounded-full shadow-sm border border-primary/10">
@@ -1684,7 +1684,7 @@ export const Conversation: React.FC = () => {
                         </div>
                       )}
 
-                      <div className="messages-container">
+                      <div className="messages-container min-w-0">
                         {messages.map((item) => {
                           if (item.type === 'call_session') {
                             return <MemoizedCallSessionItem key={item.id} messages={item.messages} />;
@@ -1726,7 +1726,7 @@ export const Conversation: React.FC = () => {
                                     ? latestAssistantMessageRef
                                     : null
                               }
-                              className="message-item-wrapper w-full transform-gpu will-change-transform"
+                              className="message-item-wrapper w-full min-w-0 transform-gpu will-change-transform"
                               style={
                                 highlightedMessageId === msg.message_id
                                   ? {
