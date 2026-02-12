@@ -1,6 +1,7 @@
 'use client';
 
 import { chatService } from '@/app/api/services/chat';
+import { ImagesView, type GalleryImageItem } from '@/components/ImagesView';
 import { MeeraVoice } from '@/components/MeeraVoice';
 import { Sidebar } from '@/components/Sidebar';
 import { SupportPanel } from '@/components/ui/SupportPanel';
@@ -38,6 +39,10 @@ const RESIZE_DEBOUNCE_MS = 100;
 const JUMP_DOM_POLL_INTERVAL_MS = 250;
 const JUMP_MAX_PAGE_LOADS = 200;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
+const IMAGE_HISTORY_PAGE_SIZE = 20;
+const IMAGE_HISTORY_MAX_PAGES = 200;
+
+type SidebarView = 'chat' | 'images';
 
 type ChatDisplayItem =
   | { type: 'message'; message: ChatMessageFromServer; id: string }
@@ -86,6 +91,65 @@ const removeSnapshot = (messages: ChatMessageFromServer[], targetId: string): Ch
 };
 
 const normalizeContextText = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+const isImageAttachment = (attachment: { type?: string; url?: string }): boolean => {
+  const type = String(attachment.type || '').toLowerCase();
+  return Boolean(attachment.url && (type === 'image' || type.startsWith('image/')));
+};
+
+const extractGalleryImagesFromMessages = (messages: ChatMessageFromServer[]): GalleryImageItem[] => {
+  const sortedMessages = [...messages].sort((a, b) => {
+    const aTime = new Date(a.timestamp).getTime();
+    const bTime = new Date(b.timestamp).getTime();
+    const safeA = Number.isFinite(aTime) ? aTime : 0;
+    const safeB = Number.isFinite(bTime) ? bTime : 0;
+    return safeA - safeB;
+  });
+
+  const items: GalleryImageItem[] = [];
+  const seen = new Set<string>();
+
+  sortedMessages.forEach((message, index) => {
+    if (message.content_type !== 'assistant') return;
+
+    const imageAttachments = (message.attachments ?? []).filter(isImageAttachment);
+    if (imageAttachments.length === 0) return;
+
+    let prompt = '';
+    for (let pointer = index - 1; pointer >= 0; pointer -= 1) {
+      const candidate = sortedMessages[pointer];
+      if (candidate.content_type === 'user' && candidate.content.trim()) {
+        prompt = normalizeContextText(candidate.content);
+        break;
+      }
+    }
+
+    imageAttachments.forEach((attachment, attachmentIndex) => {
+      const url = attachment.url?.trim();
+      if (!url) return;
+
+      const dedupeKey = `${message.message_id}:${url}:${attachmentIndex}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+
+      items.push({
+        id: dedupeKey,
+        url,
+        name: attachment.name || `image-${attachmentIndex + 1}`,
+        timestamp: message.timestamp,
+        prompt,
+      });
+    });
+  });
+
+  return items.sort((a, b) => {
+    const aTime = new Date(a.timestamp).getTime();
+    const bTime = new Date(b.timestamp).getTime();
+    const safeA = Number.isFinite(aTime) ? aTime : 0;
+    const safeB = Number.isFinite(bTime) ? bTime : 0;
+    return safeB - safeA;
+  });
+};
 
 const generateStarSummary = (text: string): string => {
   const normalized = normalizeContextText(text);
@@ -165,6 +229,10 @@ export const Conversation: React.FC = () => {
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
   const [starredMessageSnapshots, setStarredMessageSnapshots] = useState<ChatMessageFromServer[]>([]);
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
+  const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('chat');
+  const [galleryImages, setGalleryImages] = useState<GalleryImageItem[]>([]);
+  const [isGalleryLoading, setIsGalleryLoading] = useState(false);
+  const [hasLoadedGallery, setHasLoadedGallery] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
   const [showSupportPanel, setShowSupportPanel] = useState(false);
@@ -307,6 +375,68 @@ export const Conversation: React.FC = () => {
       })
       .filter((msg): msg is ChatMessageFromServer => Boolean(msg));
   }, [chatMessages, starredMessageIds, starredMessageSnapshots]);
+
+  const loadGeneratedImages = useCallback(
+    async (force = false) => {
+      if (isGalleryLoading) return;
+      if (hasLoadedGallery && !force) return;
+
+      setIsGalleryLoading(true);
+
+      try {
+        const collectedMessages: ChatMessageFromServer[] = [];
+
+        for (let page = 1; page <= IMAGE_HISTORY_MAX_PAGES; page += 1) {
+          const response = await chatService.getChatHistory(page);
+
+          if (response.message === 'unauthorized') {
+            setGalleryImages([]);
+            setHasLoadedGallery(true);
+            return;
+          }
+
+          if (response.message !== 'ok') {
+            throw new Error('Failed to load image history');
+          }
+
+          const pageMessages = (response.data as ChatMessageFromServer[]) || [];
+          if (pageMessages.length === 0) break;
+
+          collectedMessages.push(...pageMessages);
+          if (pageMessages.length < IMAGE_HISTORY_PAGE_SIZE) break;
+        }
+
+        const mergedMessagesMap = new Map<string, ChatMessageFromServer>();
+        [...collectedMessages, ...chatMessages].forEach((messageItem) => {
+          mergedMessagesMap.set(messageItem.message_id, messageItem);
+        });
+
+        const mergedMessages = Array.from(mergedMessagesMap.values());
+        setGalleryImages(extractGalleryImagesFromMessages(mergedMessages));
+        setHasLoadedGallery(true);
+      } catch (error) {
+        console.error('Unable to load generated images', error);
+        showToast('Unable to load generated images right now.', {
+          type: 'error',
+          position: 'conversation',
+        });
+      } finally {
+        setIsGalleryLoading(false);
+      }
+    },
+    [chatMessages, hasLoadedGallery, isGalleryLoading, showToast],
+  );
+
+  const handleSelectSidebarView = useCallback(
+    (view: SidebarView) => {
+      setActiveSidebarView(view);
+
+      if (view === 'images') {
+        void loadGeneratedImages(true);
+      }
+    },
+    [loadGeneratedImages],
+  );
 
   const toggleStarForMessage = useCallback(
     (target: ChatMessageFromServer) => {
@@ -1078,6 +1208,7 @@ export const Conversation: React.FC = () => {
     if (!isSidebarVisible) return 'md:ml-0';
     return 'md:ml-[260px]';
   }, [isSidebarVisible]);
+  const isImagesView = activeSidebarView === 'images';
 
   return (
     <div className="relative bg-background">
@@ -1086,6 +1217,8 @@ export const Conversation: React.FC = () => {
         tokensConsumed={formattedTotalCostTokens}
         starredMessages={starredMessages}
         onJumpToMessage={handleJumpToMessage}
+        activeView={activeSidebarView}
+        onSelectView={handleSelectSidebarView}
         userName={profileName}
         userEmail={profileEmail}
         userAvatar={profileImage}
@@ -1125,21 +1258,43 @@ export const Conversation: React.FC = () => {
             )}
 
             <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
-              <h1 className="text-lg text-primary md:text-xl font-sans">{process.env.NEXT_PUBLIC_APP_NAME}</h1>
+              <h1 className="text-lg text-primary md:text-xl font-sans">
+                {isImagesView ? 'My images' : process.env.NEXT_PUBLIC_APP_NAME}
+              </h1>
             </div>
 
-            <button
-              onClick={handleOpenVoiceAssistant}
-              className="flex items-center justify-center w-9 p-2 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
-              aria-label="Open voice assistant"
-            >
-              <IoCallSharp size={24} className="text-primary" />
-            </button>
+            {isImagesView ? (
+              <div className="w-9 h-9" />
+            ) : (
+              <button
+                onClick={handleOpenVoiceAssistant}
+                className="flex items-center justify-center w-9 p-2 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
+                aria-label="Open voice assistant"
+              >
+                <IoCallSharp size={24} className="text-primary" />
+              </button>
+            )}
           </div>
         </header>
 
-        <main ref={mainScrollRef} className="overflow-y-auto w-full scroll-pt-2.5" onScroll={handleScroll}>
-          <div className="px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto">
+        <main
+          ref={mainScrollRef}
+          className="overflow-y-auto w-full scroll-pt-2.5"
+          onScroll={isImagesView ? undefined : handleScroll}
+        >
+          <div
+            className={
+              isImagesView
+                ? 'px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-5xl xl:max-w-6xl mx-auto'
+                : 'px-2 sm:px-0 py-6 w-full max-w-full sm:max-w-2xl md:max-w-3xl mx-auto'
+            }
+          >
+            {isImagesView ? (
+              <div className="w-full max-w-6xl mx-auto">
+                <ImagesView images={galleryImages} isLoading={isGalleryLoading} />
+              </div>
+            ) : (
+              <>
             {isInitialLoading && (
               <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -1262,9 +1417,18 @@ export const Conversation: React.FC = () => {
                 <div ref={spacerRef} className="h-0" />
               </div>
             )}
+              </>
+            )}
           </div>
         </main>
 
+        {isImagesView ? (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-40">
+            <Toast position="conversation" />
+          </div>
+        ) : null}
+
+        {!isImagesView ? (
         <footer ref={footerRef} className="w-full z-40 p-2 md:pr-[13px] bg-transparent">
           <div className="relative">
             <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
@@ -1407,6 +1571,7 @@ export const Conversation: React.FC = () => {
             </form>
           </div>
         </footer>
+        ) : null}
 
         <SupportPanel isOpen={showSupportPanel} onClose={handleCloseSupportPanel} />
         <MeeraVoice

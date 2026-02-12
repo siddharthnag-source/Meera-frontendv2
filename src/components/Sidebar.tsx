@@ -3,15 +3,20 @@
 import { ChatMessageFromServer } from '@/types/chat';
 import Image from 'next/image';
 import React, { useCallback, useMemo, useState } from 'react';
+import { FiImage } from 'react-icons/fi';
 import { TbLayoutSidebarLeftCollapse } from 'react-icons/tb';
 import { ProfileMenu } from './ProfileMenu';
 import { SidebarItem } from './Sidebar/SidebarItem';
+
+type SidebarView = 'chat' | 'images';
 
 interface SidebarProps {
   isVisible: boolean;
   tokensConsumed?: string | null;
   starredMessages: ChatMessageFromServer[];
   onJumpToMessage: (messageId: string) => void;
+  activeView: SidebarView;
+  onSelectView: (view: SidebarView) => void;
   userName: string;
   userEmail: string;
   userAvatar?: string | null;
@@ -46,6 +51,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   tokensConsumed,
   starredMessages,
   onJumpToMessage,
+  activeView,
+  onSelectView,
   userName,
   userEmail,
   userAvatar,
@@ -78,10 +85,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleSelectStarredMessage = useCallback(
     (messageId: string) => {
       setIsProfileOpen(false);
+      onSelectView('chat');
       onJumpToMessage(messageId);
     },
-    [onJumpToMessage],
+    [onJumpToMessage, onSelectView],
   );
+
+  const handleToggleImagesView = useCallback(() => {
+    onSelectView(activeView === 'images' ? 'chat' : 'images');
+  }, [activeView, onSelectView]);
 
   const handleOpenSettings = useCallback(() => {
     setIsProfileOpen(false);
@@ -115,6 +127,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <TbLayoutSidebarLeftCollapse size={17} />
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={handleToggleImagesView}
+            className={`mt-2 w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+              activeView === 'images'
+                ? 'bg-primary/10 text-primary'
+                : 'text-primary/80 hover:text-primary hover:bg-primary/10'
+            }`}
+            aria-label="Open images"
+          >
+            <FiImage size={16} />
+            <span>Images</span>
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
