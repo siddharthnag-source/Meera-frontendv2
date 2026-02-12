@@ -53,10 +53,8 @@ type DbMessageRow = {
   system_prompt?: string | null;
 };
 
-type StarredMessageRow = {
-  message_id: string;
-  user_id: string;
-  created_at: string;
+type UserEssenceRow = {
+  user_essence: Record<string, unknown> | null;
 };
 
 type LLMHistoryMessage = {
@@ -126,6 +124,23 @@ function mapDbRowToChatMessage(row: DbMessageRow) {
   };
 }
 
+function normalizeStarredMessageIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  value.forEach((item) => {
+    if (typeof item !== 'string') return;
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    result.push(trimmed);
+  });
+
+  return result;
+}
+
 /* -------------------------------------------------------------------------- */
 /*                             CHAT SERVICE                                   */
 /* -------------------------------------------------------------------------- */
@@ -179,22 +194,25 @@ export const chatService = {
       if (!session?.user) return { message: 'unauthorized', data: [] };
       const userId = session.user.id;
 
-      const { data: starredRows, error: starredError } = await supabase
-        .from('starred_messages')
-        .select('message_id, user_id, created_at')
+      const { data: essenceRow, error: essenceError } = await supabase
+        .from('user_essence')
+        .select('user_essence')
         .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+        .maybeSingle();
 
-      if (starredError) {
-        console.error('getStarredMessages error', starredError);
+      if (essenceError) {
+        console.error('getStarredMessages essence fetch error', essenceError);
         return { message: 'error', data: [] };
       }
 
-      const orderedIds = Array.from(
-        new Set(((starredRows ?? []) as StarredMessageRow[]).map((row) => row.message_id).filter(Boolean)),
+      const essence = ((essenceRow as UserEssenceRow | null)?.user_essence ?? {}) as Record<string, unknown>;
+      const orderedIds = normalizeStarredMessageIds(essence.starred_message_ids);
+
+      const messageIds = Array.from(
+        new Set(orderedIds),
       );
 
-      if (orderedIds.length === 0) return { message: 'ok', data: [] };
+      if (messageIds.length === 0) return { message: 'ok', data: [] };
 
       const { data: messageRows, error: messagesError } = await supabase
         .from('messages')
@@ -202,7 +220,7 @@ export const chatService = {
           'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
         )
         .eq('user_id', userId)
-        .in('message_id', orderedIds);
+        .in('message_id', messageIds);
 
       if (messagesError) {
         console.error('getStarredMessages messages lookup error', messagesError);
@@ -226,30 +244,49 @@ export const chatService = {
 
   async setMessageStar(messageId: string, shouldStar: boolean) {
     try {
+      const normalizedMessageId = messageId.trim();
+      if (!normalizedMessageId) return { message: 'error' };
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
       if (!session?.user) throw new SessionExpiredError('Session expired');
       const userId = session.user.id;
+      const { data: essenceRow, error: essenceError } = await supabase
+        .from('user_essence')
+        .select('user_essence')
+        .eq('user_id', userId)
+        .maybeSingle();
 
-      if (shouldStar) {
-        const { error } = await supabase.from('starred_messages').insert([
+      if (essenceError) throw essenceError;
+
+      const existingEssence = ((essenceRow as UserEssenceRow | null)?.user_essence ?? {}) as Record<string, unknown>;
+      const currentIds = normalizeStarredMessageIds(existingEssence.starred_message_ids);
+
+      const nextIds = shouldStar
+        ? [normalizedMessageId, ...currentIds.filter((id) => id !== normalizedMessageId)]
+        : currentIds.filter((id) => id !== normalizedMessageId);
+
+      const dedupedNextIds = normalizeStarredMessageIds(nextIds);
+
+      const nextEssence: Record<string, unknown> = {
+        ...existingEssence,
+        starred_message_ids: dedupedNextIds,
+      };
+
+      const { error: upsertError } = await supabase.from('user_essence').upsert(
+        [
           {
             user_id: userId,
-            message_id: messageId,
+            user_essence: nextEssence,
+            updated_at: new Date().toISOString(),
           },
-        ]);
+        ],
+        { onConflict: 'user_id' },
+      );
 
-        // Duplicate rows are acceptable for idempotent retries; unique constraint may exist in some environments.
-        if (error && error.code !== '23505') {
-          throw error;
-        }
-      } else {
-        const { error } = await supabase.from('starred_messages').delete().eq('user_id', userId).eq('message_id', messageId);
-
-        if (error) throw error;
-      }
+      if (upsertError) throw upsertError;
 
       return { message: 'ok' };
     } catch (e) {
