@@ -40,7 +40,9 @@ export const useSubscriptionStatus = () => {
     },
     retry: false,
     staleTime: 0,
-    enabled: sessionStatus !== 'loading' && (sessionStatus === 'authenticated' || hasGuestToken),
+    // This app primarily authenticates with Supabase cookies; NextAuth status can be
+    // unauthenticated even for valid sessions. Do not block subscription fetch on that.
+    enabled: sessionStatus !== 'loading',
     refetchOnMount: false,
   });
 };
