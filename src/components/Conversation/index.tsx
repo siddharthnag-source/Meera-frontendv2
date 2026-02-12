@@ -33,8 +33,9 @@ const FETCH_DEBOUNCE_MS = 300;
 const SCROLL_THROTTLE_MS = 16; // 60fps
 const INPUT_DEBOUNCE_MS = 16;
 const RESIZE_DEBOUNCE_MS = 100;
-const JUMP_WAIT_MAX_FRAMES = 36;
-const JUMP_HISTORY_PAGE_LIMIT = 10;
+const JUMP_WAIT_MAX_FRAMES = 300;
+const JUMP_HISTORY_PAGE_LIMIT = 20;
+const JUMP_LOCATE_TIMEOUT_MS = 8000;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
 
 type ChatDisplayItem =
@@ -689,6 +690,7 @@ export const Conversation: React.FC = () => {
         let sourceMessages = chatMessagesRef.current;
         let assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
         let pagesLoaded = 0;
+        const locateDeadline = Date.now() + JUMP_LOCATE_TIMEOUT_MS;
 
         if (assistantIndex < 0) {
           showToast('Locating message in history...', {
@@ -697,11 +699,17 @@ export const Conversation: React.FC = () => {
           });
         }
 
-        while (assistantIndex < 0 && pagesLoaded < JUMP_HISTORY_PAGE_LIMIT) {
+        while (
+          assistantIndex < 0 &&
+          pagesLoaded < JUMP_HISTORY_PAGE_LIMIT &&
+          Date.now() < locateDeadline
+        ) {
           const state = fetchStateRef.current;
 
           if (state.isLoading) {
-            await new Promise((resolve) => setTimeout(resolve, 60));
+            await new Promise((resolve) => setTimeout(resolve, 90));
+            sourceMessages = chatMessagesRef.current;
+            assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
             continue;
           }
 
@@ -717,6 +725,12 @@ export const Conversation: React.FC = () => {
             });
           });
 
+          sourceMessages = chatMessagesRef.current;
+          assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
+        }
+
+        while (assistantIndex < 0 && Date.now() < locateDeadline) {
+          await new Promise((resolve) => setTimeout(resolve, 90));
           sourceMessages = chatMessagesRef.current;
           assistantIndex = sourceMessages.findIndex((msg) => msg.message_id === assistantMessageId);
         }
