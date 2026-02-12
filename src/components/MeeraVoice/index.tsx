@@ -401,7 +401,6 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
         throw new Error('Unable to connect to voice model. Please try again in a moment.');
       }
 
-      client.sendText('');
       start({ audio: { mic: true, system: false }, video: false });
     } catch (err) {
       console.error('Caught error in handleStartCall:', err);
@@ -425,7 +424,6 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
     subscriptionData,
     subscriptionError,
     currentTotalTalkTime,
-    client,
     endCall,
     sessionData,
   ]);
