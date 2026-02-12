@@ -2,7 +2,7 @@
 
 import { chatService } from '@/app/api/services/chat';
 import { MeeraVoice } from '@/components/MeeraVoice';
-import { ProfileMenu } from '@/components/ProfileMenu';
+import { Sidebar } from '@/components/Sidebar';
 import { Toast } from '@/components/ui/Toast';
 import { useToast } from '@/components/ui/ToastProvider';
 import { UserProfile } from '@/components/ui/UserProfile';
@@ -16,7 +16,6 @@ import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
 import { useSession } from 'next-auth/react';
-import Image from 'next/image';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiGlobe, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
@@ -110,7 +109,6 @@ export const Conversation: React.FC = () => {
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
 
   const [showUserProfile, setShowUserProfile] = useState(false);
@@ -216,7 +214,6 @@ export const Conversation: React.FC = () => {
 
   const handleSelectStarredMessage = useCallback(
     (messageId: string) => {
-      setIsProfileOpen(false);
       const target = document.getElementById(`message-${messageId}`);
       if (!target) {
         showToast('Unable to locate this message in the current view.', {
@@ -767,13 +764,11 @@ export const Conversation: React.FC = () => {
   );
 
   const handleOpenSettings = useCallback(() => {
-    setIsProfileOpen(false);
     setShowUserProfile(true);
   }, []);
 
   const handleSignOut = useCallback(async () => {
     try {
-      setIsProfileOpen(false);
       localStorage.clear();
       await supabase.auth.signOut();
       window.location.href = '/sign-in';
@@ -788,19 +783,9 @@ export const Conversation: React.FC = () => {
 
   const profileName = sessionData?.user?.name || sessionData?.user?.email || 'Profile';
   const profileEmail = sessionData?.user?.email || '';
-  const profileInitial = profileName.trim().charAt(0).toUpperCase() || 'P';
   const profileImage = sessionData?.user?.image || null;
 
-  const handleProfileToggle = useCallback(() => {
-    setIsProfileOpen((prev) => !prev);
-  }, []);
-
-  const closeProfileMenu = useCallback(() => {
-    setIsProfileOpen(false);
-  }, []);
-
   const handleOpenVoiceAssistant = useCallback(() => {
-    setIsProfileOpen(false);
     setShowMeeraVoice(true);
   }, []);
 
@@ -810,9 +795,7 @@ export const Conversation: React.FC = () => {
 
   return (
     <div className="relative bg-background">
-      <ProfileMenu
-        isOpen={isProfileOpen}
-        onClose={closeProfileMenu}
+      <Sidebar
         tokensLeft={subscriptionData?.tokens_left ?? null}
         starredMessages={starredMessages}
         onSelectStarredMessage={handleSelectStarredMessage}
@@ -823,7 +806,7 @@ export const Conversation: React.FC = () => {
         onSignOut={handleSignOut}
       />
 
-      <div className="grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative">
+      <div className="grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative md:ml-[260px]">
         {isDraggingOver && (
           <div className="fixed inset-0 bg-primary/10 backdrop-blur-[2px] z-50 flex items-center justify-center">
             <div className="bg-background px-8 py-5 rounded-lg shadow-md border border-primary/20">
@@ -837,23 +820,7 @@ export const Conversation: React.FC = () => {
           className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20"
         >
           <div className="w-full mx-auto flex items-center justify-between">
-            <button
-              onClick={handleProfileToggle}
-              className="flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary bg-background overflow-hidden"
-              aria-label="Open profile menu"
-            >
-              {profileImage ? (
-                <Image
-                  src={profileImage}
-                  alt={profileName}
-                  width={36}
-                  height={36}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="text-xs font-semibold text-primary">{profileInitial}</span>
-              )}
-            </button>
+            <div className="w-9 h-9" />
 
             <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center">
               <h1 className="text-lg text-primary md:text-xl font-sans">{process.env.NEXT_PUBLIC_APP_NAME}</h1>
