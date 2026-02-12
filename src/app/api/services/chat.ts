@@ -225,6 +225,56 @@ export const chatService = {
     }
   },
 
+  async getImageHistory(page: number = 1, pageSize: number = 40) {
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) return { message: 'unauthorized', data: [], hasMore: false };
+      const userId = session.user.id;
+
+      const { data, error } = await supabase
+        .from('messages')
+        .select('message_id, content_type, content, timestamp, session_id, is_call, message_type, attachments')
+        .eq('user_id', userId)
+        .eq('content_type', 'assistant')
+        .eq('message_type', 'image')
+        .order('timestamp', { ascending: false })
+        .range(from, to);
+
+      if (error) {
+        console.error('getImageHistory error', error);
+        return { message: 'error', data: [], hasMore: false };
+      }
+
+      const rows = ((data ?? []) as DbMessageRow[]).slice().reverse();
+      const mapped = rows.map((row) => ({
+        message_id: row.message_id,
+        content_type: 'assistant' as const,
+        content: row.content ?? '',
+        timestamp: row.timestamp,
+        session_id: row.session_id || undefined,
+        is_call: row.is_call ?? false,
+        attachments: (row.attachments as ImageAttachment[] | null) ?? [],
+        failed: false,
+        finish_reason: null,
+      }));
+
+      return {
+        message: 'ok',
+        data: mapped,
+        hasMore: rows.length === pageSize,
+      };
+    } catch (e) {
+      console.error('getImageHistory outer error', e);
+      return { message: 'error', data: [], hasMore: false };
+    }
+  },
+
   /* ---------- Starred Messages ---------- */
   async getStarredMessages() {
     try {

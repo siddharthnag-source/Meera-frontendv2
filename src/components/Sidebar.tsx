@@ -12,6 +12,7 @@ type SidebarView = 'chat' | 'images';
 
 interface SidebarProps {
   isVisible: boolean;
+  isMobileOpen: boolean;
   tokensConsumed?: string | null;
   starredMessages: ChatMessageFromServer[];
   onJumpToMessage: (messageId: string) => void;
@@ -21,6 +22,7 @@ interface SidebarProps {
   userEmail: string;
   userAvatar?: string | null;
   onToggleSidebar: () => void;
+  onCloseMobile: () => void;
   onUpgrade: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
@@ -48,6 +50,7 @@ const getGroupLabel = (timestamp: string, now: Date): string => {
 
 export const Sidebar: React.FC<SidebarProps> = ({
   isVisible,
+  isMobileOpen,
   tokensConsumed,
   starredMessages,
   onJumpToMessage,
@@ -57,6 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userEmail,
   userAvatar,
   onToggleSidebar,
+  onCloseMobile,
   onUpgrade,
   onOpenSettings,
   onSignOut,
@@ -86,35 +90,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
     (messageId: string) => {
       setIsProfileOpen(false);
       onSelectView('chat');
+      if (isMobileOpen) onCloseMobile();
       onJumpToMessage(messageId);
     },
-    [onJumpToMessage, onSelectView],
+    [isMobileOpen, onCloseMobile, onJumpToMessage, onSelectView],
   );
 
   const handleToggleImagesView = useCallback(() => {
     onSelectView(activeView === 'images' ? 'chat' : 'images');
-  }, [activeView, onSelectView]);
+    if (isMobileOpen) onCloseMobile();
+  }, [activeView, isMobileOpen, onCloseMobile, onSelectView]);
 
   const handleOpenSettings = useCallback(() => {
     setIsProfileOpen(false);
+    if (isMobileOpen) onCloseMobile();
     onOpenSettings();
-  }, [onOpenSettings]);
+  }, [isMobileOpen, onCloseMobile, onOpenSettings]);
 
   const handleUpgrade = useCallback(() => {
     setIsProfileOpen(false);
+    if (isMobileOpen) onCloseMobile();
     onUpgrade();
-  }, [onUpgrade]);
+  }, [isMobileOpen, onCloseMobile, onUpgrade]);
 
   const handleSignOut = useCallback(() => {
     setIsProfileOpen(false);
+    if (isMobileOpen) onCloseMobile();
     onSignOut();
-  }, [onSignOut]);
+  }, [isMobileOpen, onCloseMobile, onSignOut]);
 
-  if (!isVisible) return null;
+  if (!isVisible && !isMobileOpen) return null;
 
   return (
     <>
-      <aside className="hidden md:flex fixed left-0 top-0 h-screen z-40 bg-background border-r border-primary/15 flex-col w-[260px]">
+      <aside className={`${isVisible ? 'hidden md:flex' : 'hidden'} fixed left-0 top-0 h-screen z-40 bg-background border-r border-primary/15 flex-col w-[260px]`}>
         <div className="px-4 pt-3 pb-1">
           <div className="flex items-center justify-end">
             <button
@@ -193,6 +202,97 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
       </aside>
+
+      {isMobileOpen ? (
+        <div className="md:hidden fixed inset-0 z-50">
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            className="absolute inset-0 bg-black/25"
+            aria-label="Close sidebar backdrop"
+          />
+
+          <aside className="absolute left-0 top-0 h-screen w-[84vw] max-w-[320px] bg-background border-r border-primary/15 flex flex-col shadow-xl">
+            <div className="px-4 pt-3 pb-1">
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={onCloseMobile}
+                  className="w-7 h-7 rounded-md text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors flex items-center justify-center"
+                  aria-label="Close sidebar"
+                  title="Close sidebar"
+                >
+                  <TbLayoutSidebarLeftCollapse size={17} />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleToggleImagesView}
+                className={`mt-2 w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                  activeView === 'images'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-primary/80 hover:text-primary hover:bg-primary/10'
+                }`}
+                aria-label="Open images"
+              >
+                <FiImage size={16} />
+                <span>Images</span>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4">
+              {starredGroups.length === 0 ? (
+                <p className="text-primary/55 text-sm px-2">No starred messages</p>
+              ) : (
+                <div className="space-y-5">
+                  {starredGroups.map(([label, messages]) => (
+                    <div key={label}>
+                      <p className="text-xs font-medium text-primary/45 mb-2 px-2">{label}</p>
+                      <div className="space-y-1">
+                        {messages.map((message) => (
+                          <SidebarItem
+                            key={message.message_id}
+                            message={message}
+                            onSelect={handleSelectStarredMessage}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-3 py-2 border-t border-primary/15">
+              <button
+                type="button"
+                onClick={() => setIsProfileOpen((prev) => !prev)}
+                className="w-full flex items-center rounded-xl px-2 py-1 hover:bg-primary/10 transition-colors cursor-pointer gap-2"
+                aria-label="Open profile menu"
+              >
+                {userAvatar ? (
+                  <Image
+                    src={userAvatar}
+                    alt={displayName}
+                    width={32}
+                    height={32}
+                    className="w-8 h-8 rounded-full object-cover border border-primary/20"
+                  />
+                ) : (
+                  <span className="w-8 h-8 rounded-full border border-primary/20 bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">
+                    {profileInitial}
+                  </span>
+                )}
+                <div className="min-w-0 text-left leading-tight">
+                  <p className="text-sm text-primary truncate">{displayName}</p>
+                  {displayEmail ? <p className="text-xs text-primary/60 truncate">{displayEmail}</p> : null}
+                </div>
+              </button>
+            </div>
+          </aside>
+        </div>
+      ) : null}
 
       <ProfileMenu
         isOpen={isProfileOpen}

@@ -39,8 +39,7 @@ const RESIZE_DEBOUNCE_MS = 100;
 const JUMP_DOM_POLL_INTERVAL_MS = 250;
 const JUMP_MAX_PAGE_LOADS = 200;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
-const IMAGE_HISTORY_PAGE_SIZE = 20;
-const IMAGE_HISTORY_MAX_PAGES = 200;
+const IMAGE_HISTORY_PAGE_SIZE = 48;
 
 type SidebarView = 'chat' | 'images';
 
@@ -115,12 +114,26 @@ const extractGalleryImagesFromMessages = (messages: ChatMessageFromServer[]): Ga
     const imageAttachments = (message.attachments ?? []).filter(isImageAttachment);
     if (imageAttachments.length === 0) return;
 
-    let prompt = '';
-    for (let pointer = index - 1; pointer >= 0; pointer -= 1) {
-      const candidate = sortedMessages[pointer];
-      if (candidate.content_type === 'user' && candidate.content.trim()) {
-        prompt = normalizeContextText(candidate.content);
-        break;
+    let prompt = normalizeContextText(message.user_context ?? '');
+
+    if (!prompt) {
+      const assistantText = normalizeContextText(message.content ?? '');
+      if (
+        assistantText &&
+        assistantText.toLowerCase() !== 'image generated.' &&
+        assistantText.toLowerCase() !== 'here is your image.'
+      ) {
+        prompt = assistantText;
+      }
+    }
+
+    if (!prompt) {
+      for (let pointer = index - 1; pointer >= 0; pointer -= 1) {
+        const candidate = sortedMessages[pointer];
+        if (candidate.content_type === 'user' && candidate.content.trim()) {
+          prompt = normalizeContextText(candidate.content);
+          break;
+        }
       }
     }
 
@@ -229,9 +242,12 @@ export const Conversation: React.FC = () => {
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
   const [starredMessageSnapshots, setStarredMessageSnapshots] = useState<ChatMessageFromServer[]>([]);
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('chat');
   const [galleryImages, setGalleryImages] = useState<GalleryImageItem[]>([]);
   const [isGalleryLoading, setIsGalleryLoading] = useState(false);
+  const [galleryPage, setGalleryPage] = useState(0);
+  const [galleryHasMore, setGalleryHasMore] = useState(true);
   const [hasLoadedGallery, setHasLoadedGallery] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
@@ -379,40 +395,50 @@ export const Conversation: React.FC = () => {
   const loadGeneratedImages = useCallback(
     async (force = false) => {
       if (isGalleryLoading) return;
-      if (hasLoadedGallery && !force) return;
+      if (!force && !galleryHasMore) return;
+
+      const nextPage = force ? 1 : galleryPage + 1;
 
       setIsGalleryLoading(true);
 
       try {
-        const collectedMessages: ChatMessageFromServer[] = [];
+        const response = await chatService.getImageHistory(nextPage, IMAGE_HISTORY_PAGE_SIZE);
 
-        for (let page = 1; page <= IMAGE_HISTORY_MAX_PAGES; page += 1) {
-          const response = await chatService.getChatHistory(page);
-
-          if (response.message === 'unauthorized') {
-            setGalleryImages([]);
-            setHasLoadedGallery(true);
-            return;
-          }
-
-          if (response.message !== 'ok') {
-            throw new Error('Failed to load image history');
-          }
-
-          const pageMessages = (response.data as ChatMessageFromServer[]) || [];
-          if (pageMessages.length === 0) break;
-
-          collectedMessages.push(...pageMessages);
-          if (pageMessages.length < IMAGE_HISTORY_PAGE_SIZE) break;
+        if (response.message === 'unauthorized') {
+          setGalleryImages([]);
+          setGalleryHasMore(false);
+          setGalleryPage(0);
+          setHasLoadedGallery(true);
+          return;
         }
 
-        const mergedMessagesMap = new Map<string, ChatMessageFromServer>();
-        [...collectedMessages, ...chatMessages].forEach((messageItem) => {
-          mergedMessagesMap.set(messageItem.message_id, messageItem);
+        if (response.message !== 'ok') {
+          throw new Error('Failed to load image history');
+        }
+
+        const pageMessages = (response.data as ChatMessageFromServer[]) || [];
+        const pageImages = extractGalleryImagesFromMessages(pageMessages);
+
+        setGalleryImages((prev) => {
+          const next = force ? [] : [...prev];
+          const seen = new Set(next.map((item) => item.id));
+
+          pageImages.forEach((item) => {
+            if (seen.has(item.id)) return;
+            seen.add(item.id);
+            next.push(item);
+          });
+
+          return next.sort((a, b) => {
+            const aTime = new Date(a.timestamp).getTime();
+            const bTime = new Date(b.timestamp).getTime();
+            return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+          });
         });
 
-        const mergedMessages = Array.from(mergedMessagesMap.values());
-        setGalleryImages(extractGalleryImagesFromMessages(mergedMessages));
+        const responseWithMeta = response as { hasMore?: boolean };
+        setGalleryHasMore(Boolean(responseWithMeta.hasMore));
+        setGalleryPage(nextPage);
         setHasLoadedGallery(true);
       } catch (error) {
         console.error('Unable to load generated images', error);
@@ -424,18 +450,45 @@ export const Conversation: React.FC = () => {
         setIsGalleryLoading(false);
       }
     },
-    [chatMessages, hasLoadedGallery, isGalleryLoading, showToast],
+    [galleryHasMore, galleryPage, isGalleryLoading, showToast],
   );
+
+  const handleLoadMoreImages = useCallback(() => {
+    if (isGalleryLoading || !galleryHasMore) return;
+    void loadGeneratedImages(false);
+  }, [galleryHasMore, isGalleryLoading, loadGeneratedImages]);
 
   const handleSelectSidebarView = useCallback(
     (view: SidebarView) => {
       setActiveSidebarView(view);
 
       if (view === 'images') {
+        const inMemoryImages = extractGalleryImagesFromMessages(chatMessages);
+        if (inMemoryImages.length > 0) {
+          setGalleryImages((prev) => {
+            const merged = [...prev];
+            const seen = new Set(merged.map((item) => item.id));
+
+            inMemoryImages.forEach((item) => {
+              if (seen.has(item.id)) return;
+              seen.add(item.id);
+              merged.push(item);
+            });
+
+            return merged.sort((a, b) => {
+              const aTime = new Date(a.timestamp).getTime();
+              const bTime = new Date(b.timestamp).getTime();
+              return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+            });
+          });
+        }
+      }
+
+      if (view === 'images' && !hasLoadedGallery) {
         void loadGeneratedImages(true);
       }
     },
-    [loadGeneratedImages],
+    [chatMessages, hasLoadedGallery, loadGeneratedImages],
   );
 
   const toggleStarForMessage = useCallback(
@@ -1200,8 +1253,12 @@ export const Conversation: React.FC = () => {
     setShowSupportPanel(false);
   }, []);
 
-  const handleToggleSidebar = useCallback(() => {
+  const handleToggleDesktopSidebar = useCallback(() => {
     setIsSidebarVisible((prev) => !prev);
+  }, []);
+
+  const handleOpenMobileSidebar = useCallback(() => {
+    setIsMobileSidebarOpen(true);
   }, []);
 
   const desktopSidebarMarginClass = useMemo(() => {
@@ -1214,6 +1271,7 @@ export const Conversation: React.FC = () => {
     <div className="relative bg-background">
       <Sidebar
         isVisible={isSidebarVisible}
+        isMobileOpen={isMobileSidebarOpen}
         tokensConsumed={formattedTotalCostTokens}
         starredMessages={starredMessages}
         onJumpToMessage={handleJumpToMessage}
@@ -1222,7 +1280,8 @@ export const Conversation: React.FC = () => {
         userName={profileName}
         userEmail={profileEmail}
         userAvatar={profileImage}
-        onToggleSidebar={handleToggleSidebar}
+        onToggleSidebar={handleToggleDesktopSidebar}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
         onUpgrade={handleOpenUpgrade}
         onOpenSettings={handleOpenSettings}
         onSignOut={handleSignOut}
@@ -1244,9 +1303,18 @@ export const Conversation: React.FC = () => {
           className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20"
         >
           <div className="w-full mx-auto flex items-center justify-between">
+            <button
+              onClick={handleOpenMobileSidebar}
+              className="md:hidden flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
+              aria-label="Open sidebar"
+              title="Open sidebar"
+            >
+              <TbLayoutSidebarLeftExpand size={18} className="text-primary" />
+            </button>
+
             {!isSidebarVisible ? (
               <button
-                onClick={handleToggleSidebar}
+                onClick={handleToggleDesktopSidebar}
                 className="hidden md:flex items-center justify-center w-9 h-9 rounded-full border-2 border-primary/20 hover:border-primary/50 transition-colors text-primary"
                 aria-label="Open sidebar"
                 title="Open sidebar"
@@ -1291,7 +1359,12 @@ export const Conversation: React.FC = () => {
           >
             {isImagesView ? (
               <div className="w-full max-w-6xl mx-auto">
-                <ImagesView images={galleryImages} isLoading={isGalleryLoading} />
+                <ImagesView
+                  images={galleryImages}
+                  isLoading={isGalleryLoading}
+                  hasMore={galleryHasMore}
+                  onLoadMore={handleLoadMoreImages}
+                />
               </div>
             ) : (
               <>
