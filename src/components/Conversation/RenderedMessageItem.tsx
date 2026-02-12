@@ -299,80 +299,81 @@ export const RenderedMessageItem: React.FC<{
                   message.failed && message.failedMessage ? (
                     <div className="text-red-500 font-medium text-[15px]">{message.failedMessage}</div>
                   ) : (
-                    <ReactMarkdown
-                      className="min-w-0 break-words [overflow-wrap:anywhere]"
-                      remarkPlugins={[remarkGfm]}
-                      rehypePlugins={[rehypeRaw]}
-                      components={{
-                        p: MyCustomParagraph,
-                        h1: MyCustomH1,
-                        h2: MyCustomH2,
-                        h3: MyCustomH3,
-                        h4: MyCustomH4,
-                        h5: MyCustomH5,
-                        h6: MyCustomH6,
-                        blockquote: MyCustomBlockquote,
-                        ul: MyCustomUl,
-                        ol: MyCustomOl,
-                        li: MyCustomLi,
-                        table: MyCustomTable,
-                        thead: MyCustomThead,
-                        tbody: MyCustomTbody,
-                        tr: MyCustomTr,
-                        th: MyCustomTh,
-                        td: MyCustomTd,
-                        hr: MyCustomHr,
-                        a: MyCustomA,
-                        img: MyCustomImg,
-                        del: MyCustomDel,
-                        sub: MyCustomSub,
-                        sup: MyCustomSup,
-                        code(props) {
-                          const {
-                            inline,
-                            className,
-                            children: markdownChildren,
-                            node,
-                            ...restProps
-                          } = props as {
-                            inline?: boolean;
-                            className?: string;
-                            children?: React.ReactNode;
-                            node?: unknown;
-                          };
-
-                          if (inline === true) {
-                            return renderStandardInlineCode({
+                    <div className="min-w-0 break-words [overflow-wrap:anywhere]">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeRaw]}
+                        components={{
+                          p: MyCustomParagraph,
+                          h1: MyCustomH1,
+                          h2: MyCustomH2,
+                          h3: MyCustomH3,
+                          h4: MyCustomH4,
+                          h5: MyCustomH5,
+                          h6: MyCustomH6,
+                          blockquote: MyCustomBlockquote,
+                          ul: MyCustomUl,
+                          ol: MyCustomOl,
+                          li: MyCustomLi,
+                          table: MyCustomTable,
+                          thead: MyCustomThead,
+                          tbody: MyCustomTbody,
+                          tr: MyCustomTr,
+                          th: MyCustomTh,
+                          td: MyCustomTd,
+                          hr: MyCustomHr,
+                          a: MyCustomA,
+                          img: MyCustomImg,
+                          del: MyCustomDel,
+                          sub: MyCustomSub,
+                          sup: MyCustomSup,
+                          code(props) {
+                            const {
+                              inline,
                               className,
                               children: markdownChildren,
                               node,
-                            });
-                          } else {
-                            const match = /language-(\w+)/.exec(className || '');
-                            const lang = match ? match[1] : '';
-                            const isMultiLine = String(markdownChildren || '').includes('\n');
+                              ...restProps
+                            } = props as {
+                              inline?: boolean;
+                              className?: string;
+                              children?: React.ReactNode;
+                              node?: unknown;
+                            };
 
-                            if (lang || isMultiLine) {
-                              return (
-                                <CodeBlock
-                                  language={lang}
-                                  code={String(markdownChildren || '').replace(/\n$/, '')}
-                                  {...restProps}
-                                />
-                              );
-                            } else {
+                            if (inline === true) {
                               return renderStandardInlineCode({
                                 className,
                                 children: markdownChildren,
                                 node,
                               });
+                            } else {
+                              const match = /language-(\w+)/.exec(className || '');
+                              const lang = match ? match[1] : '';
+                              const isMultiLine = String(markdownChildren || '').includes('\n');
+
+                              if (lang || isMultiLine) {
+                                return (
+                                  <CodeBlock
+                                    language={lang}
+                                    code={String(markdownChildren || '').replace(/\n$/, '')}
+                                    {...restProps}
+                                  />
+                                );
+                              } else {
+                                return renderStandardInlineCode({
+                                  className,
+                                  children: markdownChildren,
+                                  node,
+                                });
+                              }
                             }
-                          }
-                        },
-                      }}
-                    >
-                      {message.content}
-                    </ReactMarkdown>
+                          },
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
                   )
                 ) : (
                   <MyCustomParagraph>{message.content}</MyCustomParagraph>
