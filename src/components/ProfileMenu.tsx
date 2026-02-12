@@ -25,10 +25,10 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const tokenText = typeof tokensLeft === 'number' ? tokensLeft.toLocaleString() : '...';
+  const tokenText = typeof tokensLeft === 'number' ? tokensLeft.toLocaleString() : '0';
 
   const menuPositionClass =
-    anchor === 'top-left' ? 'top-16 left-4 w-[min(92vw,340px)]' : 'bottom-24 left-2 w-[244px]';
+    anchor === 'top-left' ? 'top-16 left-4 w-[min(92vw,340px)]' : 'bottom-16 left-2 w-[244px]';
 
   return (
     <div className="fixed inset-0 z-50">
@@ -49,10 +49,9 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
           </button>
         </div>
 
-        <div className="px-3 py-3 border-b border-primary/15">
-          <p className="text-[11px] uppercase tracking-[0.12em] text-primary/60">Consciousness Cost</p>
-          <div className="mt-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
-            <p className="text-xs text-primary/70">Tokens consumed</p>
+        <div className="px-3 pt-2.5 pb-3 border-b border-primary/15">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-primary/60">Tokens consumed</p>
+          <div className="mt-1.5 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
             <p className="text-base font-medium text-primary">{tokenText}</p>
           </div>
         </div>
