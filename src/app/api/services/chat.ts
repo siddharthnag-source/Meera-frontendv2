@@ -346,7 +346,7 @@ export const chatService = {
         };
 
         const anchorSessionId =
-          typeof anchorRow.session_id === 'string' && anchorRow.session_id.trim()
+          typeof anchorRow?.session_id === 'string' && anchorRow.session_id.trim()
             ? anchorRow.session_id
             : undefined;
 
