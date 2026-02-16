@@ -1147,6 +1147,9 @@ export const Conversation: React.FC = () => {
               targetTimestamp || undefined,
             );
             usedContextFetch = true;
+            const responseQuestionId = asTrimmedString(
+              (response as { question_message_id?: unknown }).question_message_id,
+            );
 
             if (response.message === 'ok') {
               const windowMessages = (response.data as ChatMessageFromServer[]) || [];
@@ -1171,6 +1174,8 @@ export const Conversation: React.FC = () => {
 
                 if (resolvedAfterMerge) {
                   activeTargetId = resolvedAfterMerge;
+                } else if (isAssistantStarred && responseQuestionId) {
+                  activeTargetId = responseQuestionId;
                 } else if (!isAssistantStarred && windowMessages.some((message) => message.message_id === exactMessageId)) {
                   activeTargetId = exactMessageId;
                 } else if (!isAssistantStarred && targetTimestamp) {
@@ -1182,6 +1187,12 @@ export const Conversation: React.FC = () => {
                   if (nearestId) activeTargetId = nearestId;
                 }
 
+                await waitForMs(90);
+                continue;
+              }
+
+              if (isAssistantStarred && responseQuestionId) {
+                activeTargetId = responseQuestionId;
                 await waitForMs(90);
                 continue;
               }

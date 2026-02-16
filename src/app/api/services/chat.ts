@@ -282,6 +282,8 @@ export const chatService = {
     aroundTimestamp?: string,
   ) {
     try {
+      const messageColumns =
+        'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments';
       const normalizedId = messageId.trim();
       const normalizedTimestamp = typeof aroundTimestamp === 'string' ? aroundTimestamp.trim() : '';
       if (!normalizedId && !normalizedTimestamp) return { message: 'error', data: [] };
@@ -296,9 +298,7 @@ export const chatService = {
       const { data: anchor, error: anchorError } = normalizedId
         ? await supabase
             .from('messages')
-            .select(
-              'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
-            )
+            .select(messageColumns)
             .eq('user_id', userId)
             .eq('message_id', normalizedId)
             .maybeSingle()
@@ -311,6 +311,8 @@ export const chatService = {
 
       let anchorTimestamp = '';
       let anchorRow: DbMessageRow | null = null;
+      let questionRow: DbMessageRow | null = null;
+      let questionMessageId: string | null = null;
 
       if (anchor) {
         anchorRow = anchor as DbMessageRow;
@@ -325,21 +327,64 @@ export const chatService = {
         return { message: 'not_found', data: [] };
       }
 
+      if (anchorRow?.content_type === 'assistant') {
+        const queryPreviousUser = async (sessionId?: string) => {
+          let query = supabase
+            .from('messages')
+            .select(messageColumns)
+            .eq('user_id', userId)
+            .eq('content_type', 'user')
+            .lt('timestamp', anchorTimestamp)
+            .order('timestamp', { ascending: false })
+            .limit(1);
+
+          if (sessionId) {
+            query = query.eq('session_id', sessionId);
+          }
+
+          return query.maybeSingle();
+        };
+
+        const anchorSessionId =
+          typeof anchorRow.session_id === 'string' && anchorRow.session_id.trim()
+            ? anchorRow.session_id
+            : undefined;
+
+        const inSessionResult = await queryPreviousUser(anchorSessionId);
+        if (inSessionResult.error) {
+          console.error('getMessageContextWindow question lookup (session) error', inSessionResult.error);
+          return { message: 'error', data: [] };
+        }
+
+        if (inSessionResult.data) {
+          questionRow = inSessionResult.data as DbMessageRow;
+        } else {
+          const fallbackResult = await queryPreviousUser();
+          if (fallbackResult.error) {
+            console.error('getMessageContextWindow question lookup (fallback) error', fallbackResult.error);
+            return { message: 'error', data: [] };
+          }
+          if (fallbackResult.data) {
+            questionRow = fallbackResult.data as DbMessageRow;
+          }
+        }
+
+        if (questionRow) {
+          questionMessageId = questionRow.message_id;
+        }
+      }
+
       const [olderResult, newerResult] = await Promise.all([
         supabase
           .from('messages')
-          .select(
-            'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
-          )
+          .select(messageColumns)
           .eq('user_id', userId)
           .lt('timestamp', anchorTimestamp)
           .order('timestamp', { ascending: false })
           .limit(before),
         supabase
           .from('messages')
-          .select(
-            'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
-          )
+          .select(messageColumns)
           .eq('user_id', userId)
           .gte('timestamp', anchorTimestamp)
           .order('timestamp', { ascending: true })
@@ -360,7 +405,12 @@ export const chatService = {
       const newerRows = (newerResult.data ?? []) as DbMessageRow[];
 
       const orderedMap = new Map<string, DbMessageRow>();
-      [...olderRows, ...(anchorRow ? [anchorRow] : []), ...newerRows].forEach((row) => {
+      [
+        ...olderRows,
+        ...(questionRow ? [questionRow] : []),
+        ...(anchorRow ? [anchorRow] : []),
+        ...newerRows,
+      ].forEach((row) => {
         orderedMap.set(row.message_id, row);
       });
 
@@ -369,6 +419,7 @@ export const chatService = {
       return {
         message: mapped.length > 0 ? 'ok' : 'not_found',
         data: mapped,
+        question_message_id: questionMessageId,
       };
     } catch (e) {
       console.error('getMessageContextWindow outer error', e);
