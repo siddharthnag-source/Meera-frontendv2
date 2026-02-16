@@ -194,22 +194,92 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
         return;
       }
 
-      const verifyResponse = await paymentService.verifyPayment({
-        order_id: orderId,
-        plan_type: selectedPlan,
+      let verifyResponse:
+        | {
+            success?: boolean;
+            status?: string;
+            payment_status?: string;
+            subscription?: {
+              status?: string;
+              subscription_end_date?: string | null;
+            };
+            data?: {
+              payment_status?: string;
+              subscription_end_date?: string | null;
+            };
+          }
+        | undefined;
+
+      try {
+        verifyResponse = await paymentService.verifyPayment({
+          order_id: orderId,
+          plan_type: selectedPlan,
+        });
+      } catch (verifyError) {
+        console.error('Payment verification request failed:', verifyError);
+        toast.error('Payment verification failed. Please contact support.');
+        return;
+      }
+
+      const verifyData = verifyResponse || {};
+      console.log('Verify Response:', verifyData);
+
+      const verifyStatus =
+        verifyData.data?.payment_status ||
+        verifyData.payment_status ||
+        verifyData.subscription?.status ||
+        verifyData.status ||
+        '';
+      const normalizedVerifyStatus = String(verifyStatus).toLowerCase();
+      const isPaid =
+        normalizedVerifyStatus === 'paid' ||
+        normalizedVerifyStatus === 'active' ||
+        (verifyData.success === true && normalizedVerifyStatus.length === 0);
+
+      if (!isPaid) {
+        toast.error('Payment verification failed. Please contact support.');
+        return;
+      }
+
+      const resolvedSubscriptionEndDate =
+        verifyData.data?.subscription_end_date ??
+        verifyData.subscription?.subscription_end_date ??
+        null;
+
+      queryClient.setQueryData(SUBSCRIPTION_QUERY_KEY, {
+        plan_type: 'paid',
+        status: 'active',
+        subscription_end_date:
+          typeof resolvedSubscriptionEndDate === 'string' ? resolvedSubscriptionEndDate : null,
+        talktime_left: 0,
+        tokens_left: 100,
+        message: 'PRO activated',
       });
 
-      if (verifyResponse.data.payment_status === 'paid') {
-        toast.success('Payment successful!');
-        queryClient.invalidateQueries({ queryKey: SUBSCRIPTION_QUERY_KEY });
+      queryClient.setQueriesData({ queryKey: SUBSCRIPTION_QUERY_KEY }, (existing) => {
+        const current = (existing as Record<string, unknown> | undefined) ?? {};
+        const currentTalktime = typeof current.talktime_left === 'number' ? current.talktime_left : 0;
+        const currentTokens = typeof current.tokens_left === 'number' ? current.tokens_left : 0;
 
-        if (!session?.user?.email) {
-          router.push('/sign-in?success=true');
-        }
+        return {
+          ...current,
+          plan_type: 'paid',
+          status: 'active',
+          subscription_end_date:
+            typeof resolvedSubscriptionEndDate === 'string' ? resolvedSubscriptionEndDate : null,
+          talktime_left: currentTalktime,
+          tokens_left: currentTokens > 0 ? currentTokens : 100,
+          message: 'PRO activated',
+        };
+      });
 
-        onClose();
-      } else {
-        toast.error('Payment verification failed');
+      queryClient.invalidateQueries({ queryKey: SUBSCRIPTION_QUERY_KEY });
+
+      onClose();
+      toast.success('Your PRO is activated 🚀', { duration: 5000 });
+
+      if (!session?.user?.email) {
+        router.push('/sign-in?success=true');
       }
     } catch (error) {
       console.error('Payment failed:', error);
