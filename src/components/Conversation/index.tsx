@@ -18,11 +18,11 @@ import { getSystemInfo } from '@/lib/deviceInfo';
 import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentFromServer, ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
+import { ChevronDown } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
-import { MdKeyboardArrowDown } from 'react-icons/md';
 import { AttachmentInputArea, AttachmentInputAreaRef } from './AttachmentInputArea';
 import { AttachmentPreview } from './AttachmentPreview';
 import { CallSessionItem } from './CallSessionItem';
@@ -33,6 +33,7 @@ const DYNAMIC_MAX_HEIGHT_RATIO = 3.5;
 const SCROLL_THRESHOLD = 150;
 const FETCH_DEBOUNCE_MS = 300;
 const SCROLL_THROTTLE_MS = 16; // 60fps
+const SCROLL_TO_BOTTOM_THRESHOLD_PX = 400;
 const INPUT_DEBOUNCE_MS = 16;
 const RESIZE_DEBOUNCE_MS = 100;
 const JUMP_DOM_POLL_INTERVAL_MS = 250;
@@ -348,6 +349,7 @@ export const Conversation: React.FC = () => {
   const [galleryHasMore, setGalleryHasMore] = useState(true);
   const [hasLoadedGallery, setHasLoadedGallery] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const isImagesView = activeSidebarView === 'images';
 
   const [showSupportPanel, setShowSupportPanel] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
@@ -397,15 +399,10 @@ export const Conversation: React.FC = () => {
   const starMutationInFlightRef = useRef<Set<string>>(new Set());
 
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastScrollTop = useRef(0);
-  const isScrollingUp = useRef(false);
   const previousScrollHeight = useRef(0);
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isJumpingRef = useRef(false);
   const suppressAutoLoadUntilRef = useRef(0);
-
-  const lastScrollTopRef = useRef(0);
-  const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
 
   const { data: sessionData } = useSession();
   const { user: supabaseUser, userId: supabaseUserId } = useCurrentUser();
@@ -953,6 +950,38 @@ export const Conversation: React.FC = () => {
     });
   }, []);
 
+  const updateScrollToBottomVisibility = useCallback(() => {
+    const container = mainScrollRef.current;
+    if (!container) return;
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShowScrollToBottom(distanceFromBottom > SCROLL_TO_BOTTOM_THRESHOLD_PX);
+  }, []);
+
+  useEffect(() => {
+    const container = mainScrollRef.current;
+    if (!container || isImagesView) {
+      setShowScrollToBottom(false);
+      return;
+    }
+
+    const handleScrollForButton = () => {
+      updateScrollToBottomVisibility();
+    };
+
+    handleScrollForButton();
+    container.addEventListener('scroll', handleScrollForButton, { passive: true });
+
+    return () => {
+      container.removeEventListener('scroll', handleScrollForButton);
+    };
+  }, [isImagesView, updateScrollToBottomVisibility]);
+
+  useEffect(() => {
+    if (isImagesView) return;
+    updateScrollToBottomVisibility();
+  }, [chatMessages.length, isImagesView, updateScrollToBottomVisibility]);
+
   useEffect(() => {
     const email = sessionData?.user?.email;
     if (!email) return;
@@ -1372,7 +1401,7 @@ export const Conversation: React.FC = () => {
 
   const handleScrollInternal = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
-      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+      const { scrollTop } = e.currentTarget;
       const currentFetchState = fetchStateRef.current;
 
       if (!showDateSticky) setShowDateSticky(true);
@@ -1381,24 +1410,6 @@ export const Conversation: React.FC = () => {
       hideDateStickyTimeoutRef.current = setTimeout(() => {
         setShowDateSticky(false);
       }, 900);
-
-      const currentScrollTop = scrollTop;
-      isScrollingUp.current = currentScrollTop < lastScrollTop.current;
-      lastScrollTop.current = currentScrollTop;
-
-      const direction =
-        currentScrollTop > lastScrollTopRef.current
-          ? 'down'
-          : currentScrollTop < lastScrollTopRef.current
-            ? 'up'
-            : 'still';
-      lastScrollTopRef.current = currentScrollTop;
-
-      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
-
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      const isNotAtBottom = distanceFromBottom > 100;
-      setShowScrollToBottom(direction === 'up' && isNotAtBottom);
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       setIsUserNearTop(scrollTop < SCROLL_THRESHOLD);
@@ -1718,7 +1729,6 @@ export const Conversation: React.FC = () => {
       fetchState.abortController?.abort();
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
       if (hideDateStickyTimeoutRef.current) clearTimeout(hideDateStickyTimeoutRef.current);
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
 
@@ -1731,8 +1741,14 @@ export const Conversation: React.FC = () => {
   }, [fetchState.abortController, currentAttachments]);
 
   const handleScrollToBottomClick = useCallback(() => {
-    scrollToBottom(true, true);
-  }, [scrollToBottom]);
+    const container = mainScrollRef.current;
+    if (!container) return;
+
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, []);
 
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -1805,7 +1821,6 @@ export const Conversation: React.FC = () => {
     if (!isSidebarVisible) return 'md:ml-0';
     return 'md:ml-[260px]';
   }, [isSidebarVisible]);
-  const isImagesView = activeSidebarView === 'images';
 
   return (
     <div className="relative bg-background overflow-x-hidden">
@@ -1888,29 +1903,30 @@ export const Conversation: React.FC = () => {
           </div>
         </header>
 
-        <main
-          ref={mainScrollRef}
-          className="min-h-0 overflow-y-auto overflow-x-hidden w-full scroll-pt-2.5"
-          onScroll={isImagesView ? undefined : handleScroll}
-        >
-          <div
-            className={
-              isImagesView
-                ? 'px-2 sm:px-0 py-6 w-full min-w-0 max-w-full sm:max-w-5xl xl:max-w-6xl mx-auto'
-                : 'px-2 sm:px-0 py-6 w-full min-w-0 max-w-full sm:max-w-2xl md:max-w-3xl mx-auto'
-            }
+        <div className="relative min-h-0">
+          <main
+            ref={mainScrollRef}
+            className="h-full min-h-0 overflow-y-auto overflow-x-hidden w-full scroll-pt-2.5"
+            onScroll={isImagesView ? undefined : handleScroll}
           >
-            {isImagesView ? (
-              <div className="w-full max-w-6xl mx-auto">
-                <ImagesView
-                  images={galleryImages}
-                  isLoading={isGalleryLoading}
-                  hasMore={galleryHasMore}
-                  onLoadMore={handleLoadMoreImages}
-                />
-              </div>
-            ) : (
-              <>
+            <div
+              className={
+                isImagesView
+                  ? 'px-2 sm:px-0 py-6 w-full min-w-0 max-w-full sm:max-w-5xl xl:max-w-6xl mx-auto'
+                  : 'px-2 sm:px-0 py-6 w-full min-w-0 max-w-full sm:max-w-2xl md:max-w-3xl mx-auto'
+              }
+            >
+              {isImagesView ? (
+                <div className="w-full max-w-6xl mx-auto">
+                  <ImagesView
+                    images={galleryImages}
+                    isLoading={isGalleryLoading}
+                    hasMore={galleryHasMore}
+                    onLoadMore={handleLoadMoreImages}
+                  />
+                </div>
+              ) : (
+                <>
             {isInitialLoading && (
               <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -2062,10 +2078,25 @@ export const Conversation: React.FC = () => {
                 <div ref={spacerRef} className="h-0" />
               </div>
             )}
-              </>
-            )}
-          </div>
-        </main>
+                </>
+              )}
+            </div>
+          </main>
+
+          {!isImagesView ? (
+            <button
+              type="button"
+              onClick={handleScrollToBottomClick}
+              className={`absolute bottom-4 right-4 md:bottom-6 md:right-6 z-30 flex h-10 w-10 md:h-12 md:w-12 items-center justify-center rounded-full bg-gray-800/70 text-white shadow-lg backdrop-blur-sm transition-opacity duration-300 hover:bg-gray-700/80 active:scale-95 ${
+                showScrollToBottom ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+              }`}
+              aria-label="Scroll to latest message"
+              title="Scroll to bottom"
+            >
+              <ChevronDown className="h-5 w-5" />
+            </button>
+          ) : null}
+        </div>
 
         {isImagesView ? (
           <div className="fixed top-4 left-1/2 -translate-x-1/2 z-40">
@@ -2113,16 +2144,6 @@ export const Conversation: React.FC = () => {
                     </span>
                   </div>
                 )}
-
-              {showScrollToBottom && (
-                <button
-                  onClick={handleScrollToBottomClick}
-                  className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
-                  title="Scroll to bottom"
-                >
-                  <MdKeyboardArrowDown size={20} />
-                </button>
-              )}
 
               <div className="w-full pt-1 flex justify_center">
                 <Toast position="conversation" />
