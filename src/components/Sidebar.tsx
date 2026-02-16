@@ -6,6 +6,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { FiImage } from 'react-icons/fi';
 import { TbLayoutSidebarLeftCollapse } from 'react-icons/tb';
 import { parseTimestamp } from '@/lib/dateUtils';
+import { PWAInstallEntry } from './PWAInstallEntry';
 import { ProfileMenu } from './ProfileMenu';
 import { SidebarItem } from './Sidebar/SidebarItem';
 
@@ -232,6 +233,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <TbLayoutSidebarLeftCollapse size={17} />
                 </button>
               </div>
+
+              <PWAInstallEntry />
 
               <button
                 type="button"
