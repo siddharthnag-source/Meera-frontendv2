@@ -1146,7 +1146,6 @@ export const Conversation: React.FC = () => {
 
       if (
         !isAutoLoadSuppressed &&
-        isScrollingUp.current &&
         scrollTop < SCROLL_THRESHOLD &&
         currentFetchState.hasMore &&
         !currentFetchState.isLoading &&
@@ -1558,7 +1557,7 @@ export const Conversation: React.FC = () => {
       />
 
       <div
-        className={`grid grid-rows-[auto_1fr_auto] h-[100dvh] overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
+        className={`grid grid-rows-[auto_1fr_auto] h-[100dvh] min-h-0 overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
       >
         {isDraggingOver && (
           <div className="fixed inset-0 bg-primary/10 backdrop-blur-[2px] z-50 flex items-center justify-center">
@@ -1618,7 +1617,7 @@ export const Conversation: React.FC = () => {
 
         <main
           ref={mainScrollRef}
-          className="overflow-y-auto overflow-x-hidden w-full scroll-pt-2.5"
+          className="min-h-0 overflow-y-auto overflow-x-hidden w-full scroll-pt-2.5"
           onScroll={isImagesView ? undefined : handleScroll}
         >
           <div
