@@ -265,6 +265,14 @@ export class AudioRecorder extends EventEmitter {
       throw new Error('Could not request user media');
     }
 
+    if (this.recording) {
+      return;
+    }
+
+    if (this.starting) {
+      return this.starting;
+    }
+
     this.starting = new Promise(async (resolve, reject) => {
       try {
         try {
@@ -328,11 +336,20 @@ export class AudioRecorder extends EventEmitter {
         this.recording = true;
         resolve();
       } catch (error) {
+        this.source?.disconnect();
+        this.stream?.getTracks().forEach((track) => track.stop());
+        this.source = undefined;
+        this.stream = undefined;
+        this.recordingWorklet = undefined;
+        this.vuWorklet = undefined;
+        this.recording = false;
         reject(error);
       } finally {
         this.starting = null;
       }
     });
+
+    return this.starting;
   }
 
   stop() {
@@ -341,12 +358,14 @@ export class AudioRecorder extends EventEmitter {
     const handleStop = () => {
       this.source?.disconnect();
       this.stream?.getTracks().forEach((track) => track.stop());
+      this.source = undefined;
       this.stream = undefined;
       this.recordingWorklet = undefined;
       this.vuWorklet = undefined;
+      this.recording = false;
     };
     if (this.starting) {
-      this.starting.then(handleStop);
+      this.starting.finally(handleStop);
       return;
     }
     handleStop();
