@@ -327,14 +327,14 @@ export const chatService = {
         return { message: 'not_found', data: [] };
       }
 
-      if (anchorRow?.content_type === 'assistant') {
+      if (anchorRow?.content_type === 'assistant' || (!anchorRow && normalizedTimestamp)) {
         const queryPreviousUser = async (sessionId?: string) => {
           let query = supabase
             .from('messages')
             .select(messageColumns)
             .eq('user_id', userId)
             .eq('content_type', 'user')
-            .lt('timestamp', anchorTimestamp)
+            .lte('timestamp', anchorTimestamp)
             .order('timestamp', { ascending: false })
             .limit(1);
 

@@ -650,6 +650,58 @@ export const Conversation: React.FC = () => {
     [findNearestMessageIdByTimestamp],
   );
 
+  const findQuestionByUserContext = useCallback(
+    (starredMessage: ChatMessageFromServer, messages: ChatMessageFromServer[]): string | null => {
+      const contextText = normalizeContextText(starredMessage.user_context ?? '');
+      if (!contextText) return null;
+
+      const targetTime = new Date(starredMessage.timestamp).getTime();
+      const hasTargetTime = Number.isFinite(targetTime);
+      const candidates = messages.filter((message) => message.content_type === 'user');
+      if (!candidates.length) return null;
+
+      type ScoredCandidate = {
+        id: string;
+        rank: number;
+        distance: number;
+      };
+
+      const getRank = (candidateText: string): number => {
+        if (!candidateText) return 0;
+        if (candidateText === contextText) return 3;
+        if (candidateText.includes(contextText) || contextText.includes(candidateText)) return 2;
+        return 0;
+      };
+
+      const scored: ScoredCandidate[] = candidates
+        .map((candidate) => {
+          const candidateText = normalizeContextText(candidate.content ?? '');
+          const rank = getRank(candidateText);
+          if (!rank) return null;
+
+          const candidateTime = new Date(candidate.timestamp).getTime();
+          const distance =
+            hasTargetTime && Number.isFinite(candidateTime)
+              ? Math.abs(candidateTime - targetTime)
+              : Number.POSITIVE_INFINITY;
+
+          return {
+            id: candidate.message_id,
+            rank,
+            distance,
+          } as ScoredCandidate;
+        })
+        .filter((item): item is ScoredCandidate => Boolean(item))
+        .sort((a, b) => {
+          if (b.rank !== a.rank) return b.rank - a.rank;
+          return a.distance - b.distance;
+        });
+
+      return scored[0]?.id || null;
+    },
+    [],
+  );
+
   const waitForMessageElement = useCallback(async (messageId: string, timeoutMs = JUMP_RENDER_WAIT_TIMEOUT_MS) => {
     const domId = `message-${messageId}`;
     const started = Date.now();
@@ -1106,7 +1158,7 @@ export const Conversation: React.FC = () => {
         });
 
         const tryJumpToDomTarget = async (targetId: string): Promise<boolean> => {
-          const targetElement = await waitForMessageElement(targetId, 650);
+          const targetElement = await waitForMessageElement(targetId, 1200);
           if (!targetElement) return false;
 
           clearToasts('conversation');
@@ -1123,15 +1175,17 @@ export const Conversation: React.FC = () => {
         let activeTargetId =
           resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current, {
             allowNearestFallback: false,
-          }) || '';
+          }) ||
+          findQuestionByUserContext(starredMessage, chatMessagesRef.current) ||
+          '';
         const startedAt = Date.now();
 
         while (Date.now() - startedAt <= JUMP_MAX_WAIT_MS) {
           const resolvedTargetId = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current, {
             allowNearestFallback: false,
           });
-          if (resolvedTargetId) {
-            activeTargetId = resolvedTargetId;
+          if (resolvedTargetId || isAssistantStarred) {
+            activeTargetId = resolvedTargetId || findQuestionByUserContext(starredMessage, chatMessagesRef.current) || '';
           }
 
           if (activeTargetId) {
@@ -1176,6 +1230,8 @@ export const Conversation: React.FC = () => {
                   activeTargetId = resolvedAfterMerge;
                 } else if (isAssistantStarred && responseQuestionId) {
                   activeTargetId = responseQuestionId;
+                } else if (isAssistantStarred) {
+                  activeTargetId = findQuestionByUserContext(starredMessage, mergedForResolution) || '';
                 } else if (!isAssistantStarred && windowMessages.some((message) => message.message_id === exactMessageId)) {
                   activeTargetId = exactMessageId;
                 } else if (!isAssistantStarred && targetTimestamp) {
@@ -1196,6 +1252,15 @@ export const Conversation: React.FC = () => {
                 await waitForMs(90);
                 continue;
               }
+
+              if (isAssistantStarred) {
+                const contextTarget = findQuestionByUserContext(starredMessage, chatMessagesRef.current);
+                if (contextTarget) {
+                  activeTargetId = contextTarget;
+                  await waitForMs(90);
+                  continue;
+                }
+              }
             }
           }
 
@@ -1213,6 +1278,8 @@ export const Conversation: React.FC = () => {
               });
               if (resolvedAfterPageLoad) {
                 activeTargetId = resolvedAfterPageLoad;
+              } else if (isAssistantStarred) {
+                activeTargetId = findQuestionByUserContext(starredMessage, chatMessagesRef.current) || '';
               } else if (!isAssistantStarred && targetTimestamp) {
                 const nearestId = findNearestMessageIdByTimestamp(
                   targetTimestamp,
@@ -1234,9 +1301,13 @@ export const Conversation: React.FC = () => {
 
           if (!usedTimestampFallback && targetTimestamp) {
             usedTimestampFallback = true;
-            const resolvedFallbackTarget = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current, {
-              allowNearestFallback: true,
-            });
+            const resolvedFallbackTarget = isAssistantStarred
+              ? resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current, {
+                  allowNearestFallback: false,
+                }) || findQuestionByUserContext(starredMessage, chatMessagesRef.current)
+              : resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current, {
+                  allowNearestFallback: true,
+                });
             const nearestId =
               resolvedFallbackTarget ||
               (isAssistantStarred
@@ -1289,6 +1360,7 @@ export const Conversation: React.FC = () => {
     [
       clearToasts,
       findNearestMessageIdByTimestamp,
+      findQuestionByUserContext,
       flashJumpTarget,
       loadChatHistory,
       mergeMessagesIntoState,
