@@ -582,6 +582,72 @@ export const Conversation: React.FC = () => {
     [],
   );
 
+  const resolveQuestionFirstTargetId = useCallback(
+    (
+      starredMessage: ChatMessageFromServer,
+      messages: ChatMessageFromServer[],
+    ): string | null => {
+      if (!messages.length) return null;
+
+      const starredId = asTrimmedString(starredMessage.message_id);
+      const starredTimestamp = asTrimmedString(starredMessage.timestamp);
+      const isAssistantStar = starredMessage.content_type === 'assistant';
+
+      const findPreviousUserId = (anchorIndex: number, anchorSessionId?: string): string | null => {
+        if (anchorIndex <= 0) return null;
+
+        for (let index = anchorIndex - 1; index >= 0; index -= 1) {
+          const candidate = messages[index];
+          if (candidate.content_type !== 'user') continue;
+
+          if (anchorSessionId && candidate.session_id && candidate.session_id !== anchorSessionId) {
+            continue;
+          }
+
+          return candidate.message_id;
+        }
+
+        if (!anchorSessionId) return null;
+
+        for (let index = anchorIndex - 1; index >= 0; index -= 1) {
+          const candidate = messages[index];
+          if (candidate.content_type === 'user') return candidate.message_id;
+        }
+
+        return null;
+      };
+
+      const resolveFromAnchorId = (anchorId: string): string | null => {
+        if (!anchorId) return null;
+        const anchorIndex = messages.findIndex((message) => message.message_id === anchorId);
+        if (anchorIndex === -1) return null;
+
+        const anchorMessage = messages[anchorIndex];
+        if (!isAssistantStar) return anchorMessage.message_id;
+
+        return (
+          findPreviousUserId(anchorIndex, anchorMessage.session_id || undefined) ||
+          anchorMessage.message_id
+        );
+      };
+
+      const exactTarget = resolveFromAnchorId(starredId);
+      if (exactTarget) return exactTarget;
+
+      const preferredAnchorType: ChatMessageFromServer['content_type'] | undefined = isAssistantStar
+        ? 'assistant'
+        : starredMessage.content_type;
+      const nearestAnchorId = starredTimestamp
+        ? findNearestMessageIdByTimestamp(starredTimestamp, messages, preferredAnchorType)
+        : null;
+      const nearestTarget = resolveFromAnchorId(nearestAnchorId || '');
+      if (nearestTarget) return nearestTarget;
+
+      return null;
+    },
+    [findNearestMessageIdByTimestamp],
+  );
+
   const waitForMessageElement = useCallback(async (messageId: string, timeoutMs = JUMP_RENDER_WAIT_TIMEOUT_MS) => {
     const domId = `message-${messageId}`;
     const started = Date.now();
@@ -1051,7 +1117,8 @@ export const Conversation: React.FC = () => {
         let pageLoads = 0;
         let usedContextFetch = false;
         let usedTimestampFallback = false;
-        let activeTargetId = exactMessageId;
+        let activeTargetId =
+          resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current) || exactMessageId;
         const startedAt = Date.now();
 
         if (!activeTargetId && targetTimestamp) {
@@ -1063,6 +1130,11 @@ export const Conversation: React.FC = () => {
         }
 
         while (Date.now() - startedAt <= JUMP_MAX_WAIT_MS) {
+          const resolvedTargetId = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current);
+          if (resolvedTargetId) {
+            activeTargetId = resolvedTargetId;
+          }
+
           if (activeTargetId) {
             didJump = await tryJumpToDomTarget(activeTargetId);
             if (didJump) break;
@@ -1082,7 +1154,24 @@ export const Conversation: React.FC = () => {
               if (windowMessages.length > 0) {
                 mergeMessagesIntoState(windowMessages);
 
-                if (windowMessages.some((message) => message.message_id === exactMessageId)) {
+                const mergedMap = new Map<string, ChatMessageFromServer>(
+                  chatMessagesRef.current.map((message) => [message.message_id, message]),
+                );
+                windowMessages.forEach((message) => {
+                  mergedMap.set(message.message_id, message);
+                });
+                const mergedForResolution = Array.from(mergedMap.values()).sort((a, b) =>
+                  a.timestamp.localeCompare(b.timestamp),
+                );
+
+                const resolvedAfterMerge = resolveQuestionFirstTargetId(
+                  starredMessage,
+                  mergedForResolution,
+                );
+
+                if (resolvedAfterMerge) {
+                  activeTargetId = resolvedAfterMerge;
+                } else if (windowMessages.some((message) => message.message_id === exactMessageId)) {
                   activeTargetId = exactMessageId;
                 } else if (targetTimestamp) {
                   const nearestId = findNearestMessageIdByTimestamp(
@@ -1108,12 +1197,17 @@ export const Conversation: React.FC = () => {
             pageLoads += 1;
 
             if (!activeTargetId && targetTimestamp) {
-              const nearestId = findNearestMessageIdByTimestamp(
-                targetTimestamp,
-                chatMessagesRef.current,
-                starredMessage.content_type,
-              );
-              if (nearestId) activeTargetId = nearestId;
+              const resolvedAfterPageLoad = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current);
+              if (resolvedAfterPageLoad) {
+                activeTargetId = resolvedAfterPageLoad;
+              } else {
+                const nearestId = findNearestMessageIdByTimestamp(
+                  targetTimestamp,
+                  chatMessagesRef.current,
+                  starredMessage.content_type,
+                );
+                if (nearestId) activeTargetId = nearestId;
+              }
             }
 
             await waitForMs(JUMP_DOM_POLL_INTERVAL_MS);
@@ -1127,11 +1221,14 @@ export const Conversation: React.FC = () => {
 
           if (!usedTimestampFallback && targetTimestamp) {
             usedTimestampFallback = true;
-            const nearestId = findNearestMessageIdByTimestamp(
-              targetTimestamp,
-              chatMessagesRef.current,
-              starredMessage.content_type,
-            );
+            const resolvedFallbackTarget = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current);
+            const nearestId =
+              resolvedFallbackTarget ||
+              findNearestMessageIdByTimestamp(
+                targetTimestamp,
+                chatMessagesRef.current,
+                starredMessage.content_type,
+              );
             if (nearestId && nearestId !== activeTargetId) {
               activeTargetId = nearestId;
               continue;
@@ -1167,6 +1264,7 @@ export const Conversation: React.FC = () => {
       flashJumpTarget,
       loadChatHistory,
       mergeMessagesIntoState,
+      resolveQuestionFirstTargetId,
       showToast,
       waitForMessageElement,
     ],
