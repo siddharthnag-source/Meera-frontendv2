@@ -96,7 +96,10 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
     supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: 'https://meera-frontendv2.vercel.app/auth/callback',
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          prompt: 'select_account',
+        },
       },
     });
   };
