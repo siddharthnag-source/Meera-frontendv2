@@ -1,5 +1,8 @@
 export interface CashfreeInstance {
-  checkout: (options: { paymentSessionId: string; redirectTarget: string }) => Promise<void>;
+  checkout: (options: {
+    paymentSessionId: string;
+    redirectTarget: string;
+  }) => Promise<{ paymentDetails?: unknown } | void>;
 }
 
 // Pricing Types

@@ -1,5 +1,8 @@
 declare module '@cashfreepayments/cashfree-js' {
   export function load(options: { mode: 'sandbox' | 'production' }): Promise<{
-    checkout: (options: { paymentSessionId: string; redirectTarget: string }) => Promise<void>;
+    checkout: (options: {
+      paymentSessionId: string;
+      redirectTarget: string;
+    }) => Promise<{ paymentDetails?: unknown } | void>;
   }>;
 }
