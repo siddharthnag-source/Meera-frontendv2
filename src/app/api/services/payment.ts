@@ -113,7 +113,10 @@ export const paymentService = {
 
   async verifyPayment(data: VerifyPaymentRequest): Promise<VerifyPaymentResponse> {
     try {
-      return await api.post<VerifyPaymentResponse>(API_ENDPOINTS.PAYMENT.VERIFY, data);
+      return await api.post<VerifyPaymentResponse>(API_ENDPOINTS.PAYMENT.VERIFY, {
+        ...data,
+        action: 'verify',
+      });
     } catch (error) {
       console.error('Error in verifyPayment:', error);
 

@@ -39,6 +39,7 @@ export interface CreatePaymentRequest {
 
 export interface VerifyPaymentRequest {
   order_id: string;
+  plan_type?: 'monthly' | 'lifetime';
   referral_id?: string;
 }
 

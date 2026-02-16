@@ -196,6 +196,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
 
       const verifyResponse = await paymentService.verifyPayment({
         order_id: orderId,
+        plan_type: selectedPlan,
       });
 
       if (verifyResponse.data.payment_status === 'paid') {
