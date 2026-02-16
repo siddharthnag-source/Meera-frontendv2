@@ -28,7 +28,9 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
   const tokenText = tokensConsumed?.trim() || '0';
 
   const menuPositionClass =
-    anchor === 'top-left' ? 'top-16 left-4 w-[min(92vw,340px)]' : 'bottom-16 left-2 w-[244px]';
+    anchor === 'top-left'
+      ? 'top-16 left-4 w-[min(92vw,340px)]'
+      : 'bottom-16 left-2 w-[calc(84vw-16px)] max-w-[304px] md:w-[244px]';
 
   return (
     <div className="fixed inset-0 z-50">
