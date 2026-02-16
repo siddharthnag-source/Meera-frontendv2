@@ -141,14 +141,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={handleToggleImagesView}
-            className={`mt-2 w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+            className={`mt-2 w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-base font-bold transition-colors ${
               activeView === 'images'
                 ? 'bg-primary/10 text-primary'
                 : 'text-primary/80 hover:text-primary hover:bg-primary/10'
             }`}
             aria-label="Open images"
           >
-            <FiImage size={16} />
+            <FiImage size={18} />
             <span>Images</span>
           </button>
         </div>
@@ -236,14 +236,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={handleToggleImagesView}
-                className={`mt-2 w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                className={`mt-2 w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-base font-bold transition-colors ${
                   activeView === 'images'
                     ? 'bg-primary/10 text-primary'
                     : 'text-primary/80 hover:text-primary hover:bg-primary/10'
                 }`}
                 aria-label="Open images"
               >
-                <FiImage size={16} />
+                <FiImage size={18} />
                 <span>Images</span>
               </button>
             </div>
