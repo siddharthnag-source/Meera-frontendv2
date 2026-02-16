@@ -299,7 +299,7 @@ export class AudioRecorder extends EventEmitter {
         this.source = this.audioContext.createMediaStreamSource(this.stream);
 
         const emitPCMChunk = (pcmBuffer: ArrayBuffer) => {
-          let samples = new Float32Array(pcmBuffer);
+          let samples: Float32Array = new Float32Array(pcmBuffer);
 
           if (streamSampleRate !== this.sampleRate) {
             samples = this.resample(streamSampleRate, this.sampleRate, samples);
