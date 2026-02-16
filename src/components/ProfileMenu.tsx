@@ -1,5 +1,6 @@
 'use client';
 
+import type { SubscriptionData } from '@/types/subscription';
 import React from 'react';
 import { FaCrown } from 'react-icons/fa6';
 import { FiLogOut, FiSettings } from 'react-icons/fi';
@@ -11,6 +12,8 @@ interface ProfileMenuProps {
   onUpgrade: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
+  subscriptionData?: SubscriptionData | null;
+  isSubscriptionLoading?: boolean;
   anchor?: 'top-left' | 'sidebar-bottom';
 }
 
@@ -21,11 +24,23 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
   onUpgrade,
   onOpenSettings,
   onSignOut,
+  subscriptionData,
+  isSubscriptionLoading = false,
   anchor = 'sidebar-bottom',
 }) => {
   if (!isOpen) return null;
 
   const tokenText = tokensConsumed?.trim() || '0';
+  const subscriptionEndTime = subscriptionData?.subscription_end_date
+    ? new Date(subscriptionData.subscription_end_date).getTime()
+    : Number.NaN;
+  const hasActivePro =
+    subscriptionData?.plan_type === 'paid' &&
+    Number.isFinite(subscriptionEndTime) &&
+    subscriptionEndTime >= Date.now();
+  const isPlanPending = isSubscriptionLoading && !subscriptionData;
+  const isUpgradeDisabled = hasActivePro || isPlanPending;
+  const upgradeLabel = isPlanPending ? 'Checking plan...' : hasActivePro ? 'Pro Activated' : 'Upgrade to Pro';
 
   const menuPositionClass =
     anchor === 'top-left'
@@ -43,11 +58,14 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
       <section className={`absolute ${menuPositionClass} rounded-xl border border-primary/20 bg-background shadow-xl`}>
         <div className="p-3 border-b border-primary/15">
           <button
-            onClick={onUpgrade}
-            className="w-full flex items-center justify-center gap-2 rounded-lg border border-primary/20 bg-background px-3 py-2.5 text-sm text-primary hover:bg-primary/10 transition-colors"
+            onClick={isUpgradeDisabled ? undefined : onUpgrade}
+            disabled={isUpgradeDisabled}
+            className={`w-full flex items-center justify-center gap-2 rounded-lg border border-primary/20 bg-background px-3 py-2.5 text-sm transition-colors ${
+              isUpgradeDisabled ? 'cursor-default text-primary/80' : 'text-primary hover:bg-primary/10'
+            }`}
           >
-            <FaCrown size={14} />
-            <span className="font-medium">Upgrade to Pro</span>
+            <FaCrown size={14} className={hasActivePro ? 'text-yellow-500' : undefined} />
+            <span className="font-medium">{upgradeLabel}</span>
           </button>
         </div>
 

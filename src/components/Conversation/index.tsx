@@ -1572,6 +1572,8 @@ export const Conversation: React.FC = () => {
         onUpgrade={handleOpenUpgrade}
         onOpenSettings={handleOpenSettings}
         onSignOut={handleSignOut}
+        subscriptionData={subscriptionData}
+        isSubscriptionLoading={isSubscriptionLoading}
       />
 
       <div

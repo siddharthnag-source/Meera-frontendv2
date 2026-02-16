@@ -1,6 +1,7 @@
 'use client';
 
 import { ChatMessageFromServer } from '@/types/chat';
+import type { SubscriptionData } from '@/types/subscription';
 import Image from 'next/image';
 import React, { useCallback, useMemo, useState } from 'react';
 import { FiImage } from 'react-icons/fi';
@@ -28,6 +29,8 @@ interface SidebarProps {
   onUpgrade: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
+  subscriptionData?: SubscriptionData | null;
+  isSubscriptionLoading?: boolean;
 }
 
 const getTimeValue = (timestamp: string): number => {
@@ -66,6 +69,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onUpgrade,
   onOpenSettings,
   onSignOut,
+  subscriptionData,
+  isSubscriptionLoading = false,
 }) => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
@@ -313,6 +318,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onUpgrade={handleUpgrade}
         onOpenSettings={handleOpenSettings}
         onSignOut={handleSignOut}
+        subscriptionData={subscriptionData}
+        isSubscriptionLoading={isSubscriptionLoading}
         anchor="sidebar-bottom"
       />
     </>
