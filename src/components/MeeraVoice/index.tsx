@@ -419,6 +419,10 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
       !userAgent.includes('Chrome') &&
       !userAgent.includes('CriOS') &&
       !userAgent.includes('EdgiOS');
+    const isStandalonePWA =
+      typeof window !== 'undefined' &&
+      (window.matchMedia('(display-mode: standalone)').matches ||
+        (navigator as Navigator & { standalone?: boolean }).standalone === true);
 
     const shouldAttemptAutoStart =
       isOpen &&
@@ -429,7 +433,8 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
       !isLoadingSubscription &&
       subscriptionData &&
       !connected &&
-      !isSafariBrowser;
+      !isSafariBrowser &&
+      !isStandalonePWA;
 
     if (shouldAttemptAutoStart) {
       const isPaidUser = subscriptionData.plan_type !== 'free_trial';
