@@ -10,7 +10,6 @@ import { useLiveAPIContext } from '@/contexts/LiveAPIContext';
 import { usePricingModal } from '@/contexts/PricingModalContext';
 import { useMediaStreamMux } from '@/hooks/use-media-stream-mux';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
-import { sendErrorToSlack } from '@/lib/slackService';
 import { PricingModalSource } from '@/types/pricing';
 import { LiveConnectConfig, Modality, Tool } from '@google/genai';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -54,7 +53,6 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
   const autoStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const callDurationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const wakeLockActiveRef = useRef(false);
-  const safariBlockedNotifiedRef = useRef(false);
 
   const { showToast } = useToast();
   const { isSupported, request, release } = useWakeLock();
@@ -273,28 +271,6 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
 
   // Enhanced start call function with better error handling
   const handleStartCall = useCallback(async () => {
-    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-    const isSafari = userAgent.includes('Safari') && !userAgent.includes('Chrome') && !userAgent.includes('CriOS');
-
-    if (isSafari) {
-      if (!safariBlockedNotifiedRef.current) {
-        sendErrorToSlack({
-          message: 'Safari user blocked from starting a call.',
-          userEmail: sessionData?.user?.email,
-          endpoint: 'MeeraVoice:handleStartCall',
-          errorResponse: { userAgent: navigator.userAgent },
-          guestToken: localStorage.getItem('guest_token'),
-        });
-        safariBlockedNotifiedRef.current = true;
-      }
-      showToast("We don't support Safari yet, please use Chrome.", {
-        type: 'info',
-        position: 'meera-voice',
-        duration: 5000,
-      });
-      return;
-    }
-
     if (!componentMountedRef.current || isConnectingRef.current) {
       return;
     }
