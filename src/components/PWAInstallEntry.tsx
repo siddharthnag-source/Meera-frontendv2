@@ -2,9 +2,183 @@
 
 import { usePWAInstall } from '@/contexts/PWAInstallContext';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FiDownload, FiPlusSquare, FiShare2 } from 'react-icons/fi';
+import {
+  FiCheckCircle,
+  FiDownload,
+  FiMenu,
+  FiMoreHorizontal,
+  FiMoreVertical,
+  FiPlusSquare,
+  FiShare2,
+} from 'react-icons/fi';
+import type { IconType } from 'react-icons';
 
 const INSTALLER_HIDE_KEY = 'meera_pwa_installed_or_accepted';
+
+type MobileBrowser =
+  | 'ios_safari'
+  | 'ios_chrome'
+  | 'ios_edge'
+  | 'ios_firefox'
+  | 'ios_opera'
+  | 'android_chrome'
+  | 'android_edge'
+  | 'android_firefox'
+  | 'android_opera'
+  | 'android_samsung'
+  | 'unknown';
+
+interface InstallStep {
+  icon: IconType;
+  text: string;
+}
+
+interface InstallGuide {
+  title: string;
+  steps: InstallStep[];
+}
+
+const detectMobileBrowser = (): MobileBrowser => {
+  if (typeof navigator === 'undefined') {
+    return 'unknown';
+  }
+
+  const ua = navigator.userAgent.toLowerCase();
+  const isIOSDevice = /iphone|ipad|ipod/.test(ua);
+  const isAndroidDevice = /android/.test(ua);
+
+  if (isIOSDevice) {
+    if (ua.includes('crios')) return 'ios_chrome';
+    if (ua.includes('edgios')) return 'ios_edge';
+    if (ua.includes('fxios')) return 'ios_firefox';
+    if (ua.includes('opios')) return 'ios_opera';
+    if (ua.includes('safari')) return 'ios_safari';
+  }
+
+  if (isAndroidDevice) {
+    if (ua.includes('samsungbrowser')) return 'android_samsung';
+    if (ua.includes('edga') || ua.includes(' edg/')) return 'android_edge';
+    if (ua.includes('firefox')) return 'android_firefox';
+    if (ua.includes('opr') || ua.includes('opera')) return 'android_opera';
+    if (ua.includes('chrome') || ua.includes('chromium')) return 'android_chrome';
+  }
+
+  return 'unknown';
+};
+
+const getInstallGuide = (browser: MobileBrowser, isIOS: boolean): InstallGuide => {
+  switch (browser) {
+    case 'ios_safari':
+      return {
+        title: 'Install in Safari',
+        steps: [
+          { icon: FiShare2, text: 'Tap the Share icon.' },
+          { icon: FiPlusSquare, text: 'Choose "Add to Home Screen".' },
+          { icon: FiCheckCircle, text: 'Tap "Add".' },
+        ],
+      };
+    case 'ios_chrome':
+      return {
+        title: 'Install in Chrome',
+        steps: [
+          { icon: FiShare2, text: 'Tap the Share icon in Chrome.' },
+          { icon: FiPlusSquare, text: 'Choose "Add to Home Screen".' },
+          { icon: FiCheckCircle, text: 'Tap "Add".' },
+        ],
+      };
+    case 'ios_edge':
+      return {
+        title: 'Install in Edge',
+        steps: [
+          { icon: FiMoreHorizontal, text: 'Tap the menu (•••).' },
+          { icon: FiShare2, text: 'Tap Share, then "Add to Home Screen".' },
+          { icon: FiCheckCircle, text: 'Tap "Add".' },
+        ],
+      };
+    case 'ios_firefox':
+      return {
+        title: 'Install in Firefox',
+        steps: [
+          { icon: FiMoreHorizontal, text: 'Tap the menu (•••).' },
+          { icon: FiShare2, text: 'Tap Share, then "Add to Home Screen".' },
+          { icon: FiCheckCircle, text: 'Tap "Add".' },
+        ],
+      };
+    case 'ios_opera':
+      return {
+        title: 'Install in Opera',
+        steps: [
+          { icon: FiMoreHorizontal, text: 'Tap the browser menu.' },
+          { icon: FiShare2, text: 'Open Share, then tap "Add to Home Screen".' },
+          { icon: FiCheckCircle, text: 'Tap "Add".' },
+        ],
+      };
+    case 'android_chrome':
+      return {
+        title: 'Install in Chrome',
+        steps: [
+          { icon: FiMoreVertical, text: 'Tap the menu (⋮).' },
+          { icon: FiDownload, text: 'Tap "Install app" or "Add to Home screen".' },
+          { icon: FiCheckCircle, text: 'Confirm install.' },
+        ],
+      };
+    case 'android_edge':
+      return {
+        title: 'Install in Edge',
+        steps: [
+          { icon: FiMoreHorizontal, text: 'Tap the menu (•••).' },
+          { icon: FiDownload, text: 'Tap "Install app" or "Add to phone".' },
+          { icon: FiCheckCircle, text: 'Confirm install.' },
+        ],
+      };
+    case 'android_firefox':
+      return {
+        title: 'Install in Firefox',
+        steps: [
+          { icon: FiMoreVertical, text: 'Tap the menu (⋮).' },
+          { icon: FiPlusSquare, text: 'Tap "Install" or "Add to Home screen".' },
+          { icon: FiCheckCircle, text: 'Confirm install.' },
+        ],
+      };
+    case 'android_opera':
+      return {
+        title: 'Install in Opera',
+        steps: [
+          { icon: FiMenu, text: 'Open the Opera menu.' },
+          { icon: FiDownload, text: 'Tap "Install app" or "Add to Home screen".' },
+          { icon: FiCheckCircle, text: 'Confirm install.' },
+        ],
+      };
+    case 'android_samsung':
+      return {
+        title: 'Install in Samsung Internet',
+        steps: [
+          { icon: FiMenu, text: 'Tap the menu (≡).' },
+          { icon: FiPlusSquare, text: 'Tap "Add page to" then "Home screen".' },
+          { icon: FiCheckCircle, text: 'Confirm install.' },
+        ],
+      };
+    default:
+      if (isIOS) {
+        return {
+          title: 'Install on iPhone',
+          steps: [
+            { icon: FiShare2, text: 'Tap Share in your browser.' },
+            { icon: FiPlusSquare, text: 'Choose "Add to Home Screen".' },
+            { icon: FiCheckCircle, text: 'Tap "Add".' },
+          ],
+        };
+      }
+      return {
+        title: 'Install on your phone',
+        steps: [
+          { icon: FiMenu, text: 'Open your browser menu.' },
+          { icon: FiDownload, text: 'Tap "Install app" or "Add to Home screen".' },
+          { icon: FiCheckCircle, text: 'Confirm install.' },
+        ],
+      };
+  }
+};
 
 const isStandaloneMode = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -24,11 +198,13 @@ export const PWAInstallEntry: React.FC = () => {
   const [isHidden, setIsHidden] = useState(true);
   const [isStandalone, setIsStandalone] = useState(false);
   const [showHowTo, setShowHowTo] = useState(false);
+  const [mobileBrowser, setMobileBrowser] = useState<MobileBrowser>('unknown');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     setIsStandalone(isStandaloneMode());
     setIsHidden(localStorage.getItem(INSTALLER_HIDE_KEY) === '1');
+    setMobileBrowser(detectMobileBrowser());
   }, []);
 
   useEffect(() => {
@@ -71,20 +247,7 @@ export const PWAInstallEntry: React.FC = () => {
     };
   }, []);
 
-  const helpText = useMemo(() => {
-    if (isIOS) {
-      return [
-        'Tap the Share icon in Safari.',
-        'Choose "Add to Home Screen".',
-        'Tap "Add" to install.',
-      ];
-    }
-    return [
-      'Open your browser menu.',
-      'Choose "Install app" or "Add to Home Screen".',
-      'Confirm install.',
-    ];
-  }, [isIOS]);
+  const installGuide = useMemo(() => getInstallGuide(mobileBrowser, isIOS), [isIOS, mobileBrowser]);
 
   const handleInstallTap = useCallback(() => {
     if (installPrompt) {
@@ -112,21 +275,17 @@ export const PWAInstallEntry: React.FC = () => {
 
       {showHowTo ? (
         <div className="mt-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-3 text-sm text-primary">
-          <p className="font-medium">Install on your phone</p>
-          <div className="mt-2 space-y-1.5 text-primary/80">
-            <p className="flex items-start gap-2">
-              <FiShare2 size={14} className="mt-0.5 shrink-0 text-primary/70" />
-              <span>{helpText[0]}</span>
-            </p>
-            <p className="flex items-start gap-2">
-              <FiPlusSquare size={14} className="mt-0.5 shrink-0 text-primary/70" />
-              <span>{helpText[1]}</span>
-            </p>
-            <p className="pl-6">{helpText[2]}</p>
+          <p className="text-[15px] font-semibold">{installGuide.title}</p>
+          <div className="mt-2 space-y-1.5 text-primary/85">
+            {installGuide.steps.map(({ icon: StepIcon, text }) => (
+              <p key={text} className="flex items-start gap-2 leading-snug">
+                <StepIcon size={14} className="mt-0.5 shrink-0 text-primary/70" />
+                <span>{text}</span>
+              </p>
+            ))}
           </div>
         </div>
       ) : null}
     </div>
   );
 };
-
