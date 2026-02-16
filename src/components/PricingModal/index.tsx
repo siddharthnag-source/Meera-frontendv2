@@ -174,11 +174,6 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
         return;
       }
 
-      const checkoutOptions = {
-        paymentSessionId: sessionId,
-        redirectTarget: '_modal',
-      };
-
       if (!orderId) {
         const fullResponse = JSON.stringify(data, null, 2);
         alert(`Order ID is missing.\n\nBackend response:\n${fullResponse}`);
@@ -186,114 +181,119 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
         return;
       }
 
-      try {
-        const verificationHandled = await cashfree.checkout(checkoutOptions).then(async (result) => {
-          const checkoutResult = result as { paymentDetails?: unknown } | undefined;
-          console.log('Cashfree Checkout Result:', checkoutResult);
+      let verificationHandled = false;
 
-          if (!checkoutResult?.paymentDetails) {
-            return false;
-          }
+      console.log('[DEBUG] Calling cashfree.checkout...');
 
-          let verifyResponse:
-            | {
-                success?: boolean;
-                status?: string;
-                payment_status?: string;
-                subscription?: {
+      await cashfree
+        .checkout({
+          paymentSessionId: sessionId,
+          redirectTarget: '_modal',
+        })
+        .then(async (result) => {
+          console.log('[DEBUG] Checkout promise RESOLVED:', result);
+          if (result && typeof result === 'object' && 'paymentDetails' in result && result.paymentDetails) {
+            verificationHandled = true;
+
+            let verifyResponse:
+              | {
+                  success?: boolean;
                   status?: string;
-                  subscription_end_date?: string | null;
-                };
-                data?: {
                   payment_status?: string;
-                  subscription_end_date?: string | null;
-                };
-              }
-            | undefined;
+                  subscription?: {
+                    status?: string;
+                    subscription_end_date?: string | null;
+                  };
+                  data?: {
+                    payment_status?: string;
+                    subscription_end_date?: string | null;
+                  };
+                }
+              | undefined;
 
-          try {
-            verifyResponse = await paymentService.verifyPayment({
-              order_id: orderId,
-              plan_type: selectedPlan,
-            });
-          } catch (verifyError) {
-            console.error('Payment verification request failed:', verifyError);
-            toast.error('Payment verification failed. Please contact support.');
-            return true;
-          }
+            try {
+              verifyResponse = await paymentService.verifyPayment({
+                order_id: orderId,
+                plan_type: selectedPlan,
+              });
+            } catch (verifyError) {
+              console.error('Payment verification request failed:', verifyError);
+              toast.error('Payment verification failed. Please contact support.');
+              return;
+            }
 
-          const verifyData = verifyResponse || {};
-          console.log('Verify Response:', verifyData);
+            const verifyData = verifyResponse || {};
+            console.log('Verify Response:', verifyData);
 
-          const verifyStatus =
-            verifyData.data?.payment_status ||
-            verifyData.payment_status ||
-            verifyData.subscription?.status ||
-            verifyData.status ||
-            '';
-          const normalizedVerifyStatus = String(verifyStatus).toLowerCase();
-          const isPaid =
-            normalizedVerifyStatus === 'paid' ||
-            normalizedVerifyStatus === 'active' ||
-            (verifyData.success === true && normalizedVerifyStatus.length === 0);
+            const verifyStatus =
+              verifyData.data?.payment_status ||
+              verifyData.payment_status ||
+              verifyData.subscription?.status ||
+              verifyData.status ||
+              '';
+            const normalizedVerifyStatus = String(verifyStatus).toLowerCase();
+            const isPaid =
+              normalizedVerifyStatus === 'paid' ||
+              normalizedVerifyStatus === 'active' ||
+              (verifyData.success === true && normalizedVerifyStatus.length === 0);
 
-          if (!isPaid) {
-            toast.error('Payment verification failed. Please contact support.');
-            return true;
-          }
+            if (!isPaid) {
+              toast.error('Payment verification failed. Please contact support.');
+              return;
+            }
 
-          const resolvedSubscriptionEndDate =
-            verifyData.data?.subscription_end_date ??
-            verifyData.subscription?.subscription_end_date ??
-            null;
+            const resolvedSubscriptionEndDate =
+              verifyData.data?.subscription_end_date ??
+              verifyData.subscription?.subscription_end_date ??
+              null;
 
-          queryClient.setQueryData(SUBSCRIPTION_QUERY_KEY, {
-            plan_type: 'paid',
-            status: 'active',
-            is_pro: true,
-            subscription_end_date:
-              typeof resolvedSubscriptionEndDate === 'string' ? resolvedSubscriptionEndDate : null,
-            talktime_left: 0,
-            tokens_left: 100,
-            message: 'PRO activated',
-          });
-
-          queryClient.setQueriesData({ queryKey: SUBSCRIPTION_QUERY_KEY }, (existing) => {
-            const current = (existing as Record<string, unknown> | undefined) ?? {};
-            const currentTalktime = typeof current.talktime_left === 'number' ? current.talktime_left : 0;
-            const currentTokens = typeof current.tokens_left === 'number' ? current.tokens_left : 0;
-
-            return {
-              ...current,
+            queryClient.setQueryData(SUBSCRIPTION_QUERY_KEY, {
               plan_type: 'paid',
               status: 'active',
               is_pro: true,
               subscription_end_date:
                 typeof resolvedSubscriptionEndDate === 'string' ? resolvedSubscriptionEndDate : null,
-              talktime_left: currentTalktime,
-              tokens_left: currentTokens > 0 ? currentTokens : 100,
+              talktime_left: 0,
+              tokens_left: 100,
               message: 'PRO activated',
-            };
-          });
+            });
 
-          queryClient.invalidateQueries({ queryKey: SUBSCRIPTION_QUERY_KEY });
+            queryClient.setQueriesData({ queryKey: SUBSCRIPTION_QUERY_KEY }, (existing) => {
+              const current = (existing as Record<string, unknown> | undefined) ?? {};
+              const currentTalktime = typeof current.talktime_left === 'number' ? current.talktime_left : 0;
+              const currentTokens = typeof current.tokens_left === 'number' ? current.tokens_left : 0;
 
-          toast.success('Your PRO is activated 🚀', { duration: 5000 });
-          onClose();
+              return {
+                ...current,
+                plan_type: 'paid',
+                status: 'active',
+                is_pro: true,
+                subscription_end_date:
+                  typeof resolvedSubscriptionEndDate === 'string' ? resolvedSubscriptionEndDate : null,
+                talktime_left: currentTalktime,
+                tokens_left: currentTokens > 0 ? currentTokens : 100,
+                message: 'PRO activated',
+              };
+            });
 
-          if (!session?.user?.email) {
-            router.push('/sign-in?success=true');
+            queryClient.invalidateQueries({ queryKey: SUBSCRIPTION_QUERY_KEY });
+
+            toast.success('Your PRO is activated 🚀', { duration: 5000 });
+            onClose();
+
+            if (!session?.user?.email) {
+              router.push('/sign-in?success=true');
+            }
           }
-
-          return true;
+        })
+        .catch((error) => {
+          console.error('[DEBUG] Checkout promise REJECTED:', error);
+        })
+        .finally(() => {
+          console.log('[DEBUG] Checkout promise SETTLED (finished)');
         });
 
-        if (!verificationHandled) {
-          toast.error('Payment was not completed. Please try again.');
-          return;
-        }
-      } catch (checkoutError) {
-        console.error('Cashfree checkout failed:', checkoutError);
+      if (!verificationHandled) {
         toast.error('Payment was not completed. Please try again.');
         return;
       }
