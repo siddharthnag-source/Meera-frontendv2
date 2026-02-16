@@ -11,7 +11,7 @@
  * specific language governing permissions and limitations under the License.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLiveAPIContext } from '../contexts/LiveAPIContext';
 import { AudioRecorder } from '../lib/voice-engine';
 
@@ -20,6 +20,7 @@ export function useMediaStreamMux() {
   const { client } = useLiveAPIContext();
   const [audioRecorder] = useState(() => new AudioRecorder());
   const [isMuted, setIsMuted] = useState(audioRecorder.isMuted);
+  const onDataHandlerRef = useRef<((base64: string) => void) | null>(null);
 
   useEffect(() => {
     const onMute = (muted: boolean) => {
@@ -42,7 +43,32 @@ export function useMediaStreamMux() {
         ]);
       };
       if (options.audio.mic) {
-        audioRecorder.on('data', onData).start();
+        if (onDataHandlerRef.current) {
+          audioRecorder.off('data', onDataHandlerRef.current);
+        }
+
+        onDataHandlerRef.current = onData;
+        audioRecorder.on('data', onData);
+
+        try {
+          await audioRecorder.start();
+        } catch (error) {
+          audioRecorder.off('data', onData);
+          onDataHandlerRef.current = null;
+          setActive(false);
+
+          const domError = error as DOMException;
+          if (domError?.name === 'NotAllowedError') {
+            throw new Error('Microphone permission denied. Please allow microphone access in Safari Settings and try again.');
+          }
+          if (domError?.name === 'NotFoundError') {
+            throw new Error('No microphone was found on this device.');
+          }
+          if (error instanceof Error) {
+            throw error;
+          }
+          throw new Error('Failed to access microphone.');
+        }
       }
       setActive(true);
     },
@@ -50,6 +76,10 @@ export function useMediaStreamMux() {
   );
 
   const stop = useCallback(() => {
+    if (onDataHandlerRef.current) {
+      audioRecorder.off('data', onDataHandlerRef.current);
+      onDataHandlerRef.current = null;
+    }
     audioRecorder.stop();
     setActive(false);
   }, [audioRecorder]);

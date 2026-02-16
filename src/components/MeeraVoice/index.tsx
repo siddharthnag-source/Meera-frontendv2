@@ -376,7 +376,7 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
         throw new Error('Unable to connect to voice model. Please try again in a moment.');
       }
 
-      start({ audio: { mic: true, system: false }, video: false });
+      await start({ audio: { mic: true, system: false }, video: false });
     } catch (err) {
       console.error('Caught error in handleStartCall:', err);
 
@@ -413,6 +413,13 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
       autoStartTimeoutRef.current = null;
     }
 
+    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+    const isSafariBrowser =
+      userAgent.includes('Safari') &&
+      !userAgent.includes('Chrome') &&
+      !userAgent.includes('CriOS') &&
+      !userAgent.includes('EdgiOS');
+
     const shouldAttemptAutoStart =
       isOpen &&
       !autoCallInitiatedRef.current &&
@@ -421,7 +428,8 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
       !isConnectingRef.current &&
       !isLoadingSubscription &&
       subscriptionData &&
-      !connected;
+      !connected &&
+      !isSafariBrowser;
 
     if (shouldAttemptAutoStart) {
       const isPaidUser = subscriptionData.plan_type !== 'free_trial';
