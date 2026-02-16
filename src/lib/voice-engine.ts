@@ -215,6 +215,8 @@ export class AudioRecorder extends EventEmitter {
   recording: boolean = false;
   recordingWorklet: AudioWorkletNode | undefined;
   vuWorklet: AudioWorkletNode | undefined;
+  scriptProcessor: ScriptProcessorNode | undefined;
+  scriptProcessorSilenceGain: GainNode | undefined;
   isMuted: boolean = false;
 
   private starting: Promise<void> | null = null;
@@ -296,19 +298,8 @@ export class AudioRecorder extends EventEmitter {
 
         this.source = this.audioContext.createMediaStreamSource(this.stream);
 
-        const workletName = 'audio-recorder-worklet';
-        const src = createWorketFromSrc(workletName, AudioRecordingWorklet);
-
-        await this.audioContext.audioWorklet.addModule(src);
-        this.recordingWorklet = new AudioWorkletNode(this.audioContext, workletName);
-
-        this.recordingWorklet.port.onmessage = async (ev: MessageEvent) => {
-          const { float32arrayBuffer } = ev.data.data;
-          if (!float32arrayBuffer) {
-            return;
-          }
-
-          let samples = new Float32Array(float32arrayBuffer);
+        const emitPCMChunk = (pcmBuffer: ArrayBuffer) => {
+          let samples = new Float32Array(pcmBuffer);
 
           if (streamSampleRate !== this.sampleRate) {
             samples = this.resample(streamSampleRate, this.sampleRate, samples);
@@ -322,17 +313,62 @@ export class AudioRecorder extends EventEmitter {
           const arrayBufferString = arrayBufferToBase64(int16Array.buffer);
           this.emit('data', arrayBufferString);
         };
-        this.source.connect(this.recordingWorklet);
 
-        // vu meter worklet
-        const vuWorkletName = 'vu-meter';
-        await this.audioContext.audioWorklet.addModule(createWorketFromSrc(vuWorkletName, VolMeterWorket));
-        this.vuWorklet = new AudioWorkletNode(this.audioContext, vuWorkletName);
-        this.vuWorklet.port.onmessage = (ev: MessageEvent) => {
-          this.emit('volume', ev.data.volume);
-        };
+        try {
+          const workletName = 'audio-recorder-worklet';
+          const src = createWorketFromSrc(workletName, AudioRecordingWorklet);
 
-        this.source.connect(this.vuWorklet);
+          await this.audioContext.audioWorklet.addModule(src);
+          this.recordingWorklet = new AudioWorkletNode(this.audioContext, workletName);
+
+          this.recordingWorklet.port.onmessage = async (ev: MessageEvent) => {
+            const payload = ev.data?.data as { float32arrayBuffer?: ArrayBuffer };
+            if (!payload?.float32arrayBuffer) return;
+            emitPCMChunk(payload.float32arrayBuffer);
+          };
+          this.source.connect(this.recordingWorklet);
+
+          // vu meter worklet
+          const vuWorkletName = 'vu-meter';
+          await this.audioContext.audioWorklet.addModule(createWorketFromSrc(vuWorkletName, VolMeterWorket));
+          this.vuWorklet = new AudioWorkletNode(this.audioContext, vuWorkletName);
+          this.vuWorklet.port.onmessage = (ev: MessageEvent) => {
+            this.emit('volume', ev.data.volume);
+          };
+
+          this.source.connect(this.vuWorklet);
+        } catch (workletError) {
+          // iOS standalone PWAs can fail to initialize AudioWorklet from blob URLs.
+          // Fallback to ScriptProcessor to keep mic streaming functional.
+          console.warn('AudioWorklet unavailable, using ScriptProcessor fallback.', workletError);
+
+          const processor = this.audioContext.createScriptProcessor(2048, 1, 1);
+          processor.onaudioprocess = (event: AudioProcessingEvent) => {
+            const channelData = event.inputBuffer.getChannelData(0);
+            if (!channelData || channelData.length === 0) return;
+
+            const chunkCopy = new Float32Array(channelData);
+            emitPCMChunk(chunkCopy.buffer);
+
+            let sum = 0;
+            for (let i = 0; i < channelData.length; i++) {
+              sum += channelData[i] * channelData[i];
+            }
+            const rms = Math.sqrt(sum / channelData.length);
+            this.emit('volume', rms);
+          };
+
+          const silenceGain = this.audioContext.createGain();
+          silenceGain.gain.value = 0;
+
+          this.source.connect(processor);
+          processor.connect(silenceGain);
+          silenceGain.connect(this.audioContext.destination);
+
+          this.scriptProcessor = processor;
+          this.scriptProcessorSilenceGain = silenceGain;
+        }
+
         this.recording = true;
         resolve();
       } catch (error) {
@@ -342,6 +378,8 @@ export class AudioRecorder extends EventEmitter {
         this.stream = undefined;
         this.recordingWorklet = undefined;
         this.vuWorklet = undefined;
+        this.scriptProcessor = undefined;
+        this.scriptProcessorSilenceGain = undefined;
         this.recording = false;
         reject(error);
       } finally {
@@ -357,11 +395,17 @@ export class AudioRecorder extends EventEmitter {
     // such as if the websocket immediately hangs up
     const handleStop = () => {
       this.source?.disconnect();
+      this.recordingWorklet?.disconnect();
+      this.vuWorklet?.disconnect();
+      this.scriptProcessor?.disconnect();
+      this.scriptProcessorSilenceGain?.disconnect();
       this.stream?.getTracks().forEach((track) => track.stop());
       this.source = undefined;
       this.stream = undefined;
       this.recordingWorklet = undefined;
       this.vuWorklet = undefined;
+      this.scriptProcessor = undefined;
+      this.scriptProcessorSilenceGain = undefined;
       this.recording = false;
     };
     if (this.starting) {
