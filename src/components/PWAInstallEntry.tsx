@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FiDownload } from 'react-icons/fi';
+import { usePWAInstall } from '@/contexts/PWAInstallContext';
 
 const INSTALLER_HIDE_KEY = 'meera_pwa_installed_or_accepted';
 const PWA_INSTALL_SCRIPT_ID = 'pwa-install-script';
@@ -9,6 +10,8 @@ const PWA_INSTALL_SCRIPT_SRC = 'https://unpkg.com/@khmyznikov/pwa-install@0.6.3/
 
 type PWAInstallElement = HTMLElement & {
   showDialog?: () => void;
+  install?: () => void;
+  externalPromptEvent?: Event | null;
 };
 
 const isStandaloneMode = (): boolean => {
@@ -44,6 +47,7 @@ const loadPWAInstallScript = (): Promise<void> => {
 };
 
 export const PWAInstallEntry: React.FC = () => {
+  const { installPrompt, handleInstallClick: fallbackInstallClick } = usePWAInstall();
   const installerRef = useRef<PWAInstallElement | null>(null);
   const [isInstallerReady, setIsInstallerReady] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
@@ -140,15 +144,30 @@ export const PWAInstallEntry: React.FC = () => {
     };
   }, [isInstallerReady]);
 
-  const handleInstallClick = useCallback(() => {
-    installerRef.current?.showDialog?.();
-  }, []);
+  useEffect(() => {
+    const installer = installerRef.current;
+    if (!installer || !installPrompt) return;
+    installer.externalPromptEvent = installPrompt;
+  }, [installPrompt, isInstallerReady]);
+
+  const handleInstallTap = useCallback(() => {
+    const installer = installerRef.current;
+    if (installer?.showDialog) {
+      installer.showDialog();
+      return;
+    }
+    if (installer?.install) {
+      installer.install();
+      return;
+    }
+    fallbackInstallClick();
+  }, [fallbackInstallClick]);
 
   if (!isInstallerReady || isStandalone || isHidden) {
     return (
       <pwa-install
         ref={installerRef}
-        className="hidden"
+        className="absolute w-0 h-0 overflow-hidden pointer-events-none"
         manual-apple
         manual-chrome
         use-local-storage
@@ -161,7 +180,7 @@ export const PWAInstallEntry: React.FC = () => {
     <>
       <button
         type="button"
-        onClick={handleInstallClick}
+        onClick={handleInstallTap}
         className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-[15px] font-semibold text-primary hover:bg-primary/10 transition-colors"
         aria-label="Install app"
       >
@@ -171,7 +190,7 @@ export const PWAInstallEntry: React.FC = () => {
 
       <pwa-install
         ref={installerRef}
-        className="hidden"
+        className="absolute w-0 h-0 overflow-hidden pointer-events-none"
         manual-apple
         manual-chrome
         use-local-storage
@@ -180,4 +199,3 @@ export const PWAInstallEntry: React.FC = () => {
     </>
   );
 };
-
