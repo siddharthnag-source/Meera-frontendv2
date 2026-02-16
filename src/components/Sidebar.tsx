@@ -215,7 +215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
 
           <aside
-            className="absolute left-0 top-0 h-screen w-[84vw] max-w-[320px] bg-background border-r border-primary/15 flex flex-col shadow-xl"
+            className="absolute left-0 top-0 h-[100dvh] max-h-[100dvh] w-[84vw] max-w-[320px] bg-background border-r border-primary/15 flex flex-col shadow-xl"
             style={{
               paddingTop: 'env(safe-area-inset-top)',
               paddingBottom: 'env(safe-area-inset-bottom)',
@@ -251,7 +251,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4">
               {starredGroups.length === 0 ? (
                 <p className="text-primary/55 text-sm px-2">No starred messages</p>
               ) : (
@@ -274,7 +274,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
 
-            <div className="px-3 py-2 border-t border-primary/15">
+            <div className="px-3 py-2 border-t border-primary/15 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsProfileOpen((prev) => !prev)}

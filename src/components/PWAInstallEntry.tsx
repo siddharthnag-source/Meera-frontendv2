@@ -1,18 +1,10 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FiDownload } from 'react-icons/fi';
 import { usePWAInstall } from '@/contexts/PWAInstallContext';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FiDownload, FiPlusSquare, FiShare2 } from 'react-icons/fi';
 
 const INSTALLER_HIDE_KEY = 'meera_pwa_installed_or_accepted';
-const PWA_INSTALL_SCRIPT_ID = 'pwa-install-script';
-const PWA_INSTALL_SCRIPT_SRC = 'https://unpkg.com/@khmyznikov/pwa-install@0.6.3/dist/pwa-install.bundle.js';
-
-type PWAInstallElement = HTMLElement & {
-  showDialog?: () => void;
-  install?: () => void;
-  externalPromptEvent?: Event | null;
-};
 
 const isStandaloneMode = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -20,70 +12,40 @@ const isStandaloneMode = (): boolean => {
   return window.matchMedia('(display-mode: standalone)').matches || nav.standalone === true;
 };
 
-const loadPWAInstallScript = (): Promise<void> => {
-  if (typeof window === 'undefined') return Promise.resolve();
-  if (window.customElements.get('pwa-install')) return Promise.resolve();
-
-  const existingScript = document.getElementById(PWA_INSTALL_SCRIPT_ID) as HTMLScriptElement | null;
-  if (existingScript) {
-    return new Promise((resolve, reject) => {
-      existingScript.addEventListener('load', () => resolve(), { once: true });
-      existingScript.addEventListener('error', () => reject(new Error('Failed to load pwa-install script')), {
-        once: true,
-      });
-    });
+const markInstalled = (setHidden: (value: boolean) => void) => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(INSTALLER_HIDE_KEY, '1');
   }
-
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.id = PWA_INSTALL_SCRIPT_ID;
-    script.src = PWA_INSTALL_SCRIPT_SRC;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load pwa-install script'));
-    document.head.appendChild(script);
-  });
+  setHidden(true);
 };
 
 export const PWAInstallEntry: React.FC = () => {
-  const { installPrompt, handleInstallClick: fallbackInstallClick } = usePWAInstall();
-  const installerRef = useRef<PWAInstallElement | null>(null);
-  const [isInstallerReady, setIsInstallerReady] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(false);
+  const { installPrompt, isIOS, handleInstallClick } = usePWAInstall();
   const [isHidden, setIsHidden] = useState(true);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [showHowTo, setShowHowTo] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-
     setIsStandalone(isStandaloneMode());
     setIsHidden(localStorage.getItem(INSTALLER_HIDE_KEY) === '1');
-
-    let active = true;
-    loadPWAInstallScript()
-      .then(() => {
-        if (active) setIsInstallerReady(true);
-      })
-      .catch((error) => {
-        console.error(error);
-      });
-
-    return () => {
-      active = false;
-    };
   }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const syncStandalone = () => {
-      setIsStandalone(isStandaloneMode());
+      const standalone = isStandaloneMode();
+      setIsStandalone(standalone);
+      if (standalone) {
+        markInstalled(setIsHidden);
+      }
     };
 
     const onInstalled = () => {
-      localStorage.setItem(INSTALLER_HIDE_KEY, '1');
-      setIsHidden(true);
+      markInstalled(setIsHidden);
       setIsStandalone(true);
+      setShowHowTo(false);
     };
 
     const mediaQuery = window.matchMedia('(display-mode: standalone)');
@@ -109,75 +71,35 @@ export const PWAInstallEntry: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const installer = installerRef.current;
-    if (!installer) return;
-
-    const hideOption = () => {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(INSTALLER_HIDE_KEY, '1');
-      }
-      setIsHidden(true);
-    };
-
-    const onInstallSuccess = () => {
-      hideOption();
-    };
-
-    const onChoiceResult = (event: Event) => {
-      const customEvent = event as CustomEvent<{ outcome?: string; userChoiceResult?: string; message?: string }>;
-      const detail = customEvent.detail || {};
-      const outcome = detail.outcome || detail.userChoiceResult || '';
-      const message = (detail.message || '').toLowerCase();
-
-      if (outcome === 'accepted' || message.includes('accepted')) {
-        hideOption();
-      }
-    };
-
-    installer.addEventListener('pwa-install-success-event', onInstallSuccess as EventListener);
-    installer.addEventListener('pwa-user-choice-result-event', onChoiceResult as EventListener);
-
-    return () => {
-      installer.removeEventListener('pwa-install-success-event', onInstallSuccess as EventListener);
-      installer.removeEventListener('pwa-user-choice-result-event', onChoiceResult as EventListener);
-    };
-  }, [isInstallerReady]);
-
-  useEffect(() => {
-    const installer = installerRef.current;
-    if (!installer || !installPrompt) return;
-    installer.externalPromptEvent = installPrompt;
-  }, [installPrompt, isInstallerReady]);
+  const helpText = useMemo(() => {
+    if (isIOS) {
+      return [
+        'Tap the Share icon in Safari.',
+        'Choose "Add to Home Screen".',
+        'Tap "Add" to install.',
+      ];
+    }
+    return [
+      'Open your browser menu.',
+      'Choose "Install app" or "Add to Home Screen".',
+      'Confirm install.',
+    ];
+  }, [isIOS]);
 
   const handleInstallTap = useCallback(() => {
-    const installer = installerRef.current;
-    if (installer?.showDialog) {
-      installer.showDialog();
+    if (installPrompt) {
+      handleInstallClick();
       return;
     }
-    if (installer?.install) {
-      installer.install();
-      return;
-    }
-    fallbackInstallClick();
-  }, [fallbackInstallClick]);
+    setShowHowTo((prev) => !prev);
+  }, [handleInstallClick, installPrompt]);
 
-  if (!isInstallerReady || isStandalone || isHidden) {
-    return (
-      <pwa-install
-        ref={installerRef}
-        className="absolute w-0 h-0 overflow-hidden pointer-events-none"
-        manual-apple
-        manual-chrome
-        use-local-storage
-        manifest-url="/manifest.json"
-      />
-    );
+  if (isHidden || isStandalone) {
+    return null;
   }
 
   return (
-    <>
+    <div className="w-full">
       <button
         type="button"
         onClick={handleInstallTap}
@@ -188,14 +110,23 @@ export const PWAInstallEntry: React.FC = () => {
         <span>Install app</span>
       </button>
 
-      <pwa-install
-        ref={installerRef}
-        className="absolute w-0 h-0 overflow-hidden pointer-events-none"
-        manual-apple
-        manual-chrome
-        use-local-storage
-        manifest-url="/manifest.json"
-      />
-    </>
+      {showHowTo ? (
+        <div className="mt-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-3 text-sm text-primary">
+          <p className="font-medium">Install on your phone</p>
+          <div className="mt-2 space-y-1.5 text-primary/80">
+            <p className="flex items-start gap-2">
+              <FiShare2 size={14} className="mt-0.5 shrink-0 text-primary/70" />
+              <span>{helpText[0]}</span>
+            </p>
+            <p className="flex items-start gap-2">
+              <FiPlusSquare size={14} className="mt-0.5 shrink-0 text-primary/70" />
+              <span>{helpText[1]}</span>
+            </p>
+            <p className="pl-6">{helpText[2]}</p>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 };
+
