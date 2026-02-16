@@ -38,6 +38,7 @@ const RESIZE_DEBOUNCE_MS = 100;
 const JUMP_DOM_POLL_INTERVAL_MS = 250;
 const JUMP_MAX_PAGE_LOADS = 200;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
+const JUMP_STAY_PUT_MS = 9000;
 const JUMP_MAX_WAIT_MS = 18000;
 const JUMP_RENDER_WAIT_TIMEOUT_MS = 1800;
 const IMAGE_HISTORY_PAGE_SIZE = 48;
@@ -586,8 +587,10 @@ export const Conversation: React.FC = () => {
     (
       starredMessage: ChatMessageFromServer,
       messages: ChatMessageFromServer[],
+      options?: { allowNearestFallback?: boolean },
     ): string | null => {
       if (!messages.length) return null;
+      const allowNearestFallback = options?.allowNearestFallback ?? true;
 
       const starredId = asTrimmedString(starredMessage.message_id);
       const starredTimestamp = asTrimmedString(starredMessage.timestamp);
@@ -633,6 +636,8 @@ export const Conversation: React.FC = () => {
 
       const exactTarget = resolveFromAnchorId(starredId);
       if (exactTarget) return exactTarget;
+
+      if (!allowNearestFallback) return null;
 
       const preferredAnchorType: ChatMessageFromServer['content_type'] | undefined = isAssistantStar
         ? 'assistant'
@@ -1109,7 +1114,7 @@ export const Conversation: React.FC = () => {
           clearToasts('conversation');
           targetElement.scrollIntoView({ block: 'start', behavior: 'smooth', inline: 'nearest' });
           flashJumpTarget(targetId);
-          suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
+          suppressAutoLoadUntilRef.current = Date.now() + JUMP_STAY_PUT_MS;
           return true;
         };
 
@@ -1118,19 +1123,15 @@ export const Conversation: React.FC = () => {
         let usedContextFetch = false;
         let usedTimestampFallback = false;
         let activeTargetId =
-          resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current) || exactMessageId;
+          resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current, {
+            allowNearestFallback: false,
+          }) || '';
         const startedAt = Date.now();
 
-        if (!activeTargetId && targetTimestamp) {
-          activeTargetId = findNearestMessageIdByTimestamp(
-            targetTimestamp,
-            chatMessagesRef.current,
-            starredMessage.content_type,
-          ) || '';
-        }
-
         while (Date.now() - startedAt <= JUMP_MAX_WAIT_MS) {
-          const resolvedTargetId = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current);
+          const resolvedTargetId = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current, {
+            allowNearestFallback: false,
+          });
           if (resolvedTargetId) {
             activeTargetId = resolvedTargetId;
           }
@@ -1167,6 +1168,7 @@ export const Conversation: React.FC = () => {
                 const resolvedAfterMerge = resolveQuestionFirstTargetId(
                   starredMessage,
                   mergedForResolution,
+                  { allowNearestFallback: false },
                 );
 
                 if (resolvedAfterMerge) {
@@ -1196,11 +1198,13 @@ export const Conversation: React.FC = () => {
             await loadChatHistory(nextPage, false);
             pageLoads += 1;
 
-            if (!activeTargetId && targetTimestamp) {
-              const resolvedAfterPageLoad = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current);
+            if (!activeTargetId) {
+              const resolvedAfterPageLoad = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current, {
+                allowNearestFallback: false,
+              });
               if (resolvedAfterPageLoad) {
                 activeTargetId = resolvedAfterPageLoad;
-              } else {
+              } else if (targetTimestamp) {
                 const nearestId = findNearestMessageIdByTimestamp(
                   targetTimestamp,
                   chatMessagesRef.current,
@@ -1221,7 +1225,9 @@ export const Conversation: React.FC = () => {
 
           if (!usedTimestampFallback && targetTimestamp) {
             usedTimestampFallback = true;
-            const resolvedFallbackTarget = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current);
+            const resolvedFallbackTarget = resolveQuestionFirstTargetId(starredMessage, chatMessagesRef.current, {
+              allowNearestFallback: true,
+            });
             const nearestId =
               resolvedFallbackTarget ||
               findNearestMessageIdByTimestamp(
