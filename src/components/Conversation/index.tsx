@@ -92,6 +92,14 @@ const removeSnapshot = (messages: ChatMessageFromServer[], targetId: string): Ch
 
 const normalizeContextText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const waitForMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const asTrimmedString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+const firstNonEmpty = (...values: unknown[]): string => {
+  for (const value of values) {
+    const parsed = asTrimmedString(value);
+    if (parsed) return parsed;
+  }
+  return '';
+};
 
 const isImageAttachment = (attachment: { type?: string; url?: string }): boolean => {
   const type = String(attachment.type || '').toLowerCase();
@@ -399,7 +407,7 @@ export const Conversation: React.FC = () => {
   const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
 
   const { data: sessionData } = useSession();
-  const { userId: supabaseUserId } = useCurrentUser();
+  const { user: supabaseUser, userId: supabaseUserId } = useCurrentUser();
   const { formattedTotalCostTokens } = useTotalCostTokens(supabaseUserId);
   const {
     data: subscriptionData,
@@ -1510,9 +1518,19 @@ export const Conversation: React.FC = () => {
     }
   }, [showToast]);
 
-  const profileName = sessionData?.user?.name || sessionData?.user?.email || 'Profile';
-  const profileEmail = sessionData?.user?.email || '';
-  const profileImage = sessionData?.user?.image || null;
+  const supabaseMetadata = (supabaseUser?.user_metadata ?? {}) as Record<string, unknown>;
+  const profileName = firstNonEmpty(
+    supabaseMetadata.full_name,
+    supabaseMetadata.name,
+    sessionData?.user?.name,
+    supabaseUser?.email,
+    sessionData?.user?.email,
+  );
+  const profileEmail = firstNonEmpty(supabaseUser?.email, sessionData?.user?.email);
+  const profileImage = firstNonEmpty(
+    supabaseMetadata.avatar_url,
+    sessionData?.user?.image,
+  ) || null;
 
   const handleOpenVoiceAssistant = useCallback(() => {
     setShowMeeraVoice(true);

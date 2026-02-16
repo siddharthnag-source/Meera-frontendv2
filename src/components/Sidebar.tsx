@@ -69,9 +69,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
-  const displayName = userName.trim() || 'Profile';
-  const displayEmail = userEmail.trim() || '';
-  const profileInitial = displayName.charAt(0).toUpperCase() || 'P';
+  const normalizedName = userName.trim();
+  const normalizedEmail = userEmail.trim();
+  const displayName = normalizedName || normalizedEmail;
+  const displayEmail = normalizedName ? normalizedEmail : '';
+  const profileInitial = displayName.charAt(0).toUpperCase() || 'U';
 
   const starredGroups = useMemo(() => {
     const now = new Date();
