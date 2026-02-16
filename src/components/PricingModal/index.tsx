@@ -68,7 +68,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
   useEffect(() => {
     const initializeCashfree = async () => {
       const cfInstance = await load({
-        mode: process.env.NEXT_PUBLIC_CASHFREE_MODE as 'sandbox' | 'production',
+        mode: 'sandbox',
       });
       setCashfree(cfInstance);
     };
@@ -128,8 +128,24 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
         ...(appliedCoupon && { coupon_code: appliedCoupon }),
       });
 
+      const data = response as {
+        payment_session_id?: string;
+        payment_status?: string;
+        order_id?: string;
+        data?: {
+          payment_session_id?: string;
+          payment_status?: string;
+          order_id?: string;
+        };
+      };
+      console.log('Backend Response:', data);
+
+      const paymentStatus = data.payment_status || data.data?.payment_status;
+      const sessionId = data.payment_session_id || data.data?.payment_session_id;
+      const orderId = data.order_id || data.data?.order_id;
+
       // Handle 100% discount or BYPASS coupon case
-      if (response.data.payment_status === 'paid') {
+      if (paymentStatus === 'paid') {
         toast.success('Subscription activated successfully!');
 
         // Force refresh subscription data
@@ -146,8 +162,11 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
       }
 
       // Regular payment flow
-      if (!response.data.payment_session_id) {
-        throw new Error('No payment session ID received');
+      if (!sessionId) {
+        const fullResponse = JSON.stringify(data, null, 2);
+        alert(`Payment session ID is missing.\n\nBackend response:\n${fullResponse}`);
+        toast.error('Unable to start payment. Please try again.');
+        return;
       }
 
       if (!cashfree || typeof cashfree.checkout !== 'function') {
@@ -156,7 +175,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
       }
 
       const checkoutOptions = {
-        paymentSessionId: response.data.payment_session_id,
+        paymentSessionId: sessionId,
         redirectTarget: '_modal',
       };
 
@@ -168,8 +187,15 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
         return;
       }
 
+      if (!orderId) {
+        const fullResponse = JSON.stringify(data, null, 2);
+        alert(`Order ID is missing.\n\nBackend response:\n${fullResponse}`);
+        toast.error('Payment verification could not start. Please try again.');
+        return;
+      }
+
       const verifyResponse = await paymentService.verifyPayment({
-        order_id: response.data.order_id,
+        order_id: orderId,
       });
 
       if (verifyResponse.data.payment_status === 'paid') {
