@@ -275,10 +275,16 @@ export const chatService = {
     }
   },
 
-  async getMessageContextWindow(messageId: string, before: number = 24, after: number = 24) {
+  async getMessageContextWindow(
+    messageId: string,
+    before: number = 24,
+    after: number = 24,
+    aroundTimestamp?: string,
+  ) {
     try {
       const normalizedId = messageId.trim();
-      if (!normalizedId) return { message: 'error', data: [] };
+      const normalizedTimestamp = typeof aroundTimestamp === 'string' ? aroundTimestamp.trim() : '';
+      if (!normalizedId && !normalizedTimestamp) return { message: 'error', data: [] };
 
       const {
         data: { session },
@@ -287,24 +293,37 @@ export const chatService = {
       if (!session?.user) return { message: 'unauthorized', data: [] };
       const userId = session.user.id;
 
-      const { data: anchor, error: anchorError } = await supabase
-        .from('messages')
-        .select(
-          'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
-        )
-        .eq('user_id', userId)
-        .eq('message_id', normalizedId)
-        .maybeSingle();
+      const { data: anchor, error: anchorError } = normalizedId
+        ? await supabase
+            .from('messages')
+            .select(
+              'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
+            )
+            .eq('user_id', userId)
+            .eq('message_id', normalizedId)
+            .maybeSingle()
+        : { data: null, error: null };
 
       if (anchorError) {
         console.error('getMessageContextWindow anchor error', anchorError);
         return { message: 'error', data: [] };
       }
 
-      if (!anchor) return { message: 'not_found', data: [] };
+      let anchorTimestamp = '';
+      let anchorRow: DbMessageRow | null = null;
 
-      const anchorRow = anchor as DbMessageRow;
-      const anchorTimestamp = anchorRow.timestamp;
+      if (anchor) {
+        anchorRow = anchor as DbMessageRow;
+        anchorTimestamp = anchorRow.timestamp;
+      } else if (normalizedTimestamp) {
+        const parsedTimestamp = new Date(normalizedTimestamp).getTime();
+        if (!Number.isFinite(parsedTimestamp)) {
+          return { message: 'not_found', data: [] };
+        }
+        anchorTimestamp = normalizedTimestamp;
+      } else {
+        return { message: 'not_found', data: [] };
+      }
 
       const [olderResult, newerResult] = await Promise.all([
         supabase
@@ -341,14 +360,14 @@ export const chatService = {
       const newerRows = (newerResult.data ?? []) as DbMessageRow[];
 
       const orderedMap = new Map<string, DbMessageRow>();
-      [...olderRows, anchorRow, ...newerRows].forEach((row) => {
+      [...olderRows, ...(anchorRow ? [anchorRow] : []), ...newerRows].forEach((row) => {
         orderedMap.set(row.message_id, row);
       });
 
       const mapped = Array.from(orderedMap.values()).map(mapDbRowToChatMessage);
 
       return {
-        message: 'ok',
+        message: mapped.length > 0 ? 'ok' : 'not_found',
         data: mapped,
       };
     } catch (e) {

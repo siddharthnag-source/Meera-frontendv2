@@ -18,7 +18,7 @@ interface SidebarProps {
   isMobileOpen: boolean;
   tokensConsumed?: string | null;
   starredMessages: ChatMessageFromServer[];
-  onJumpToMessage: (messageId: string) => void;
+  onJumpToMessage: (message: ChatMessageFromServer) => void;
   activeView: SidebarView;
   onSelectView: (view: SidebarView) => void;
   userName: string;
@@ -96,11 +96,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [starredMessages]);
 
   const handleSelectStarredMessage = useCallback(
-    (messageId: string) => {
+    (message: ChatMessageFromServer) => {
       setIsProfileOpen(false);
       onSelectView('chat');
       if (isMobileOpen) onCloseMobile();
-      onJumpToMessage(messageId);
+      onJumpToMessage(message);
     },
     [isMobileOpen, onCloseMobile, onJumpToMessage, onSelectView],
   );

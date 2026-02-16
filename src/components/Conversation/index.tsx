@@ -38,7 +38,7 @@ const RESIZE_DEBOUNCE_MS = 100;
 const JUMP_DOM_POLL_INTERVAL_MS = 250;
 const JUMP_MAX_PAGE_LOADS = 200;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
-const JUMP_MAX_WAIT_MS = 9000;
+const JUMP_MAX_WAIT_MS = 18000;
 const JUMP_RENDER_WAIT_TIMEOUT_MS = 1800;
 const IMAGE_HISTORY_PAGE_SIZE = 48;
 
@@ -544,33 +544,43 @@ export const Conversation: React.FC = () => {
     });
   }, []);
 
-  const resolveJumpTargetId = useCallback((assistantMessageId: string, messages: ChatMessageFromServer[]) => {
-    const assistantIndex = messages.findIndex((message) => message.message_id === assistantMessageId);
-    if (assistantIndex === -1) {
-      return {
-        found: false as const,
-        targetId: assistantMessageId,
-        requiresOlderContext: false,
+  const findNearestMessageIdByTimestamp = useCallback(
+    (
+      timestamp: string,
+      messages: ChatMessageFromServer[],
+      preferredContentType?: ChatMessageFromServer['content_type'],
+    ): string | null => {
+      const targetTime = new Date(timestamp).getTime();
+      if (!Number.isFinite(targetTime)) return null;
+
+      const findNearestFrom = (source: ChatMessageFromServer[]): string | null => {
+        let nearestMessageId: string | null = null;
+        let nearestDiff = Number.POSITIVE_INFINITY;
+
+        source.forEach((message) => {
+          const messageTime = new Date(message.timestamp).getTime();
+          if (!Number.isFinite(messageTime)) return;
+
+          const diff = Math.abs(messageTime - targetTime);
+          if (diff < nearestDiff) {
+            nearestDiff = diff;
+            nearestMessageId = message.message_id;
+          }
+        });
+
+        return nearestMessageId;
       };
-    }
 
-    if (assistantIndex > 0) {
-      const previousMessage = messages[assistantIndex - 1];
-      if (previousMessage?.content_type === 'user') {
-        return {
-          found: true as const,
-          targetId: previousMessage.message_id,
-          requiresOlderContext: false,
-        };
+      if (preferredContentType) {
+        const preferred = messages.filter((message) => message.content_type === preferredContentType);
+        const preferredNearest = findNearestFrom(preferred);
+        if (preferredNearest) return preferredNearest;
       }
-    }
 
-    return {
-      found: true as const,
-      targetId: assistantMessageId,
-      requiresOlderContext: assistantIndex === 0,
-    };
-  }, []);
+      return findNearestFrom(messages);
+    },
+    [],
+  );
 
   const waitForMessageElement = useCallback(async (messageId: string, timeoutMs = JUMP_RENDER_WAIT_TIMEOUT_MS) => {
     const domId = `message-${messageId}`;
@@ -1008,9 +1018,13 @@ export const Conversation: React.FC = () => {
   );
 
   const handleJumpToMessage = useCallback(
-    (assistantMessageId: string) => {
+    (starredMessage: ChatMessageFromServer) => {
       if (isJumpingRef.current) return;
-      if (!assistantMessageId) return;
+
+      const exactMessageId = asTrimmedString(starredMessage.message_id);
+      const targetTimestamp = asTrimmedString(starredMessage.timestamp);
+
+      if (!exactMessageId && !targetTimestamp) return;
 
       void (async () => {
         isJumpingRef.current = true;
@@ -1022,47 +1036,64 @@ export const Conversation: React.FC = () => {
           persist: true,
         });
 
+        const tryJumpToDomTarget = async (targetId: string): Promise<boolean> => {
+          const targetElement = await waitForMessageElement(targetId, 650);
+          if (!targetElement) return false;
+
+          clearToasts('conversation');
+          targetElement.scrollIntoView({ block: 'start', behavior: 'smooth', inline: 'nearest' });
+          flashJumpTarget(targetId);
+          suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
+          return true;
+        };
+
         let didJump = false;
         let pageLoads = 0;
         let usedContextFetch = false;
+        let usedTimestampFallback = false;
+        let activeTargetId = exactMessageId;
         const startedAt = Date.now();
 
+        if (!activeTargetId && targetTimestamp) {
+          activeTargetId = findNearestMessageIdByTimestamp(
+            targetTimestamp,
+            chatMessagesRef.current,
+            starredMessage.content_type,
+          ) || '';
+        }
+
         while (Date.now() - startedAt <= JUMP_MAX_WAIT_MS) {
-          const resolution = resolveJumpTargetId(assistantMessageId, chatMessagesRef.current);
-
-          if (resolution.found && resolution.requiresOlderContext) {
-            const state = fetchStateRef.current;
-            if (state.hasMore && !state.isLoading) {
-              if (pageLoads >= JUMP_MAX_PAGE_LOADS) break;
-              const nextPage = Math.max(1, state.currentPage + 1);
-              await loadChatHistory(nextPage, false);
-              pageLoads += 1;
-              await waitForMs(50);
-              continue;
-            }
+          if (activeTargetId) {
+            didJump = await tryJumpToDomTarget(activeTargetId);
+            if (didJump) break;
           }
 
-          if (resolution.found) {
-            const targetElement = await waitForMessageElement(resolution.targetId);
-            if (targetElement) {
-              clearToasts('conversation');
-              targetElement.scrollIntoView({ block: 'start', behavior: 'smooth', inline: 'nearest' });
-              flashJumpTarget(resolution.targetId);
-              suppressAutoLoadUntilRef.current = Date.now() + JUMP_SUPPRESS_AUTOLOAD_MS;
-              didJump = true;
-              break;
-            }
-          }
-
-          if (!usedContextFetch) {
-            const response = await chatService.getMessageContextWindow(assistantMessageId, 30, 30);
+          if (!usedContextFetch && exactMessageId) {
+            const response = await chatService.getMessageContextWindow(
+              exactMessageId,
+              36,
+              36,
+              targetTimestamp || undefined,
+            );
             usedContextFetch = true;
 
             if (response.message === 'ok') {
               const windowMessages = (response.data as ChatMessageFromServer[]) || [];
               if (windowMessages.length > 0) {
                 mergeMessagesIntoState(windowMessages);
-                await waitForMs(100);
+
+                if (windowMessages.some((message) => message.message_id === exactMessageId)) {
+                  activeTargetId = exactMessageId;
+                } else if (targetTimestamp) {
+                  const nearestId = findNearestMessageIdByTimestamp(
+                    targetTimestamp,
+                    windowMessages,
+                    starredMessage.content_type,
+                  );
+                  if (nearestId) activeTargetId = nearestId;
+                }
+
+                await waitForMs(90);
                 continue;
               }
             }
@@ -1071,9 +1102,20 @@ export const Conversation: React.FC = () => {
           const state = fetchStateRef.current;
           if (state.hasMore && !state.isLoading) {
             if (pageLoads >= JUMP_MAX_PAGE_LOADS) break;
+
             const nextPage = Math.max(1, state.currentPage + 1);
             await loadChatHistory(nextPage, false);
             pageLoads += 1;
+
+            if (!activeTargetId && targetTimestamp) {
+              const nearestId = findNearestMessageIdByTimestamp(
+                targetTimestamp,
+                chatMessagesRef.current,
+                starredMessage.content_type,
+              );
+              if (nearestId) activeTargetId = nearestId;
+            }
+
             await waitForMs(JUMP_DOM_POLL_INTERVAL_MS);
             continue;
           }
@@ -1081,6 +1123,19 @@ export const Conversation: React.FC = () => {
           if (state.isLoading) {
             await waitForMs(120);
             continue;
+          }
+
+          if (!usedTimestampFallback && targetTimestamp) {
+            usedTimestampFallback = true;
+            const nearestId = findNearestMessageIdByTimestamp(
+              targetTimestamp,
+              chatMessagesRef.current,
+              starredMessage.content_type,
+            );
+            if (nearestId && nearestId !== activeTargetId) {
+              activeTargetId = nearestId;
+              continue;
+            }
           }
 
           break;
@@ -1108,10 +1163,10 @@ export const Conversation: React.FC = () => {
     },
     [
       clearToasts,
+      findNearestMessageIdByTimestamp,
       flashJumpTarget,
       loadChatHistory,
       mergeMessagesIntoState,
-      resolveJumpTargetId,
       showToast,
       waitForMessageElement,
     ],
@@ -1706,7 +1761,36 @@ export const Conversation: React.FC = () => {
                       <div className="messages-container min-w-0">
                         {messages.map((item) => {
                           if (item.type === 'call_session') {
-                            return <MemoizedCallSessionItem key={item.id} messages={item.messages} />;
+                            const isHighlightedCallSession = item.messages.some(
+                              (message) => message.message_id === highlightedMessageId,
+                            );
+
+                            return (
+                              <div
+                                key={item.id}
+                                className="relative"
+                                style={
+                                  isHighlightedCallSession
+                                    ? {
+                                        backgroundColor: 'color-mix(in oklab, var(--primary) 12%, transparent)',
+                                        boxShadow: '0 0 0 1px color-mix(in oklab, var(--primary) 30%, transparent)',
+                                        borderRadius: '12px',
+                                        transition: 'background-color 240ms ease, box-shadow 240ms ease',
+                                      }
+                                    : undefined
+                                }
+                              >
+                                {item.messages.map((message) => (
+                                  <span
+                                    key={message.message_id}
+                                    id={`message-${message.message_id}`}
+                                    className="absolute left-0 top-0 h-px w-px opacity-0 pointer-events-none"
+                                    aria-hidden="true"
+                                  />
+                                ))}
+                                <MemoizedCallSessionItem messages={item.messages} />
+                              </div>
+                            );
                           }
 
                           const msg = item.message;
