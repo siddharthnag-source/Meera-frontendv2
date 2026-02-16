@@ -628,10 +628,7 @@ export const Conversation: React.FC = () => {
         const anchorMessage = messages[anchorIndex];
         if (!isAssistantStar) return anchorMessage.message_id;
 
-        return (
-          findPreviousUserId(anchorIndex, anchorMessage.session_id || undefined) ||
-          anchorMessage.message_id
-        );
+        return findPreviousUserId(anchorIndex, anchorMessage.session_id || undefined);
       };
 
       const exactTarget = resolveFromAnchorId(starredId);
@@ -1091,6 +1088,7 @@ export const Conversation: React.FC = () => {
   const handleJumpToMessage = useCallback(
     (starredMessage: ChatMessageFromServer) => {
       if (isJumpingRef.current) return;
+      const isAssistantStarred = starredMessage.content_type === 'assistant';
 
       const exactMessageId = asTrimmedString(starredMessage.message_id);
       const targetTimestamp = asTrimmedString(starredMessage.timestamp);
@@ -1173,9 +1171,9 @@ export const Conversation: React.FC = () => {
 
                 if (resolvedAfterMerge) {
                   activeTargetId = resolvedAfterMerge;
-                } else if (windowMessages.some((message) => message.message_id === exactMessageId)) {
+                } else if (!isAssistantStarred && windowMessages.some((message) => message.message_id === exactMessageId)) {
                   activeTargetId = exactMessageId;
-                } else if (targetTimestamp) {
+                } else if (!isAssistantStarred && targetTimestamp) {
                   const nearestId = findNearestMessageIdByTimestamp(
                     targetTimestamp,
                     windowMessages,
@@ -1204,7 +1202,7 @@ export const Conversation: React.FC = () => {
               });
               if (resolvedAfterPageLoad) {
                 activeTargetId = resolvedAfterPageLoad;
-              } else if (targetTimestamp) {
+              } else if (!isAssistantStarred && targetTimestamp) {
                 const nearestId = findNearestMessageIdByTimestamp(
                   targetTimestamp,
                   chatMessagesRef.current,
@@ -1230,11 +1228,14 @@ export const Conversation: React.FC = () => {
             });
             const nearestId =
               resolvedFallbackTarget ||
-              findNearestMessageIdByTimestamp(
-                targetTimestamp,
-                chatMessagesRef.current,
-                starredMessage.content_type,
-              );
+              (isAssistantStarred
+                ? null
+                : findNearestMessageIdByTimestamp(
+                    targetTimestamp,
+                    chatMessagesRef.current,
+                    starredMessage.content_type,
+                  )) ||
+              null;
             if (nearestId && nearestId !== activeTargetId) {
               activeTargetId = nearestId;
               continue;
@@ -1246,19 +1247,29 @@ export const Conversation: React.FC = () => {
 
         clearToasts('conversation');
         if (!didJump) {
-          showToast('Unable to locate this message in the current history.', {
-            type: 'error',
-            position: 'conversation',
-          });
+          showToast(
+            isAssistantStarred
+              ? 'Unable to locate the corresponding question in the current history.'
+              : 'Unable to locate this message in the current history.',
+            {
+              type: 'error',
+              position: 'conversation',
+            },
+          );
         }
       })()
         .catch((error) => {
           console.error('Failed to jump to starred message context', error);
           clearToasts('conversation');
-          showToast('Unable to locate this message in the current history.', {
-            type: 'error',
-            position: 'conversation',
-          });
+          showToast(
+            isAssistantStarred
+              ? 'Unable to locate the corresponding question in the current history.'
+              : 'Unable to locate this message in the current history.',
+            {
+              type: 'error',
+              position: 'conversation',
+            },
+          );
         })
         .finally(() => {
           isJumpingRef.current = false;
