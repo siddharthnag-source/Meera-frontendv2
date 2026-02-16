@@ -1,9 +1,8 @@
 import { sendErrorToSlack } from '@/lib/slackService';
+import { supabase } from '@/lib/supabaseClient';
 import type { ApiErrorResponse } from '@/types/api';
-import type { CustomSession } from '@/types/next-auth';
 import axios, { AxiosRequestConfig, AxiosError } from 'axios';
 import axiosRetry from 'axios-retry';
-import { getSession, signOut } from 'next-auth/react';
 import { API_BASE_URL } from './config';
 
 // 1. Enhanced Error Handling Classes
@@ -48,17 +47,14 @@ apiClient.interceptors.request.use(async (config) => {
   }
 
   try {
-    const session = (await getSession()) as CustomSession;
-
-    if (session?.error === 'RefreshAccessTokenError') {
-      localStorage.clear();
-      signOut({ redirect: true, callbackUrl: '/sign-in' });
-      throw new Error('Session expired. Please sign in again.');
+    const { data, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      console.error('Supabase session retrieval error:', sessionError);
     }
 
-    if (session?.access_token) {
+    if (data.session?.access_token) {
       config.headers = config.headers || {};
-      config.headers.Authorization = `Bearer ${session.access_token}`;
+      config.headers.Authorization = `Bearer ${data.session.access_token}`;
       return config;
     }
 
@@ -73,6 +69,16 @@ apiClient.interceptors.request.use(async (config) => {
     return config;
   } catch (error) {
     console.error('Session retrieval error:', error);
+
+    if (typeof window !== 'undefined') {
+      const guestToken = localStorage.getItem('guest_token');
+      if (guestToken) {
+        config.headers = config.headers || {};
+        config.headers.Authorization = `Bearer ${guestToken}`;
+        return config;
+      }
+    }
+
     throw new NetworkError();
   }
 });
@@ -87,7 +93,13 @@ const isFinalRetryAttempt = (error: AxiosError): boolean => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const session = (await getSession()) as CustomSession;
+    let userEmail: string | undefined;
+    try {
+      const { data } = await supabase.auth.getSession();
+      userEmail = data.session?.user?.email || undefined;
+    } catch (sessionError) {
+      console.error('Supabase session lookup failed during API error handling:', sessionError);
+    }
     const guestToken = typeof window !== 'undefined' ? localStorage.getItem('guest_token') : null;
 
     const errorResponse: ApiErrorResponse = {
@@ -121,7 +133,7 @@ apiClient.interceptors.response.use(
           requestPayload: config.data,
           errorResponse: data,
           status,
-          userEmail: session?.user?.email,
+          userEmail,
           guestToken,
         });
       }
@@ -138,7 +150,7 @@ apiClient.interceptors.response.use(
           requestPayload: error.config?.data,
           errorResponse: 'Request failed without a response.',
           status: 0,
-          userEmail: session?.user?.email,
+          userEmail,
           guestToken,
         });
       }
@@ -154,7 +166,7 @@ apiClient.interceptors.response.use(
           requestPayload: error.config?.data,
           errorResponse: error.message,
           status: -1,
-          userEmail: session?.user?.email,
+          userEmail,
           guestToken,
         });
       }
@@ -162,8 +174,15 @@ apiClient.interceptors.response.use(
 
     // Handle 401 errors (sign out user) but don't spam Slack
     if (errorResponse.status === 401) {
-      localStorage.clear();
-      signOut({ redirect: true, callbackUrl: '/sign-in' });
+      if (typeof window !== 'undefined') {
+        localStorage.clear();
+        try {
+          await supabase.auth.signOut();
+        } catch (signOutError) {
+          console.error('Supabase sign-out failed:', signOutError);
+        }
+        window.location.href = '/sign-in';
+      }
     }
 
     return Promise.reject(errorResponse);

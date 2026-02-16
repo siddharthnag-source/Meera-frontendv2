@@ -7,7 +7,7 @@ export const API_ENDPOINTS = {
     REFRESH_TOKEN: '/user/refresh-token',
   },
   PAYMENT: {
-    CREATE: '/payment/create',
+    CREATE: '/payment',
     VERIFY: '/payment/verify',
     SUBSCRIPTION_STATUS: '/user/balance',
     DEDUCT_TALKTIME: '/user/balance',

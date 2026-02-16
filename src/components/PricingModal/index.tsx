@@ -123,6 +123,8 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
 
       const response = await paymentService.createPayment({
         plan_type: selectedPlan,
+        amount: getCurrentPrice(selectedPlan),
+        order_currency: 'INR',
         ...(appliedCoupon && { coupon_code: appliedCoupon }),
       });
 
@@ -148,12 +150,23 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
         throw new Error('No payment session ID received');
       }
 
+      if (!cashfree || typeof cashfree.checkout !== 'function') {
+        toast.error('Payment gateway is not ready. Please try again in a moment.');
+        return;
+      }
+
       const checkoutOptions = {
         paymentSessionId: response.data.payment_session_id,
         redirectTarget: '_modal',
       };
 
-      await cashfree?.checkout(checkoutOptions);
+      try {
+        await cashfree.checkout(checkoutOptions);
+      } catch (checkoutError) {
+        console.error('Cashfree checkout failed:', checkoutError);
+        toast.error('Payment was not completed. Please try again.');
+        return;
+      }
 
       const verifyResponse = await paymentService.verifyPayment({
         order_id: response.data.order_id,

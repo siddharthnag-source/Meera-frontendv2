@@ -22,8 +22,18 @@ export interface ApiErrorResponse {
   data?: unknown;
 }
 
+export interface PaymentCustomerDetails {
+  customer_id: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+}
+
 export interface CreatePaymentRequest {
   plan_type: 'monthly' | 'lifetime';
+  amount?: number;
+  order_currency?: string;
+  customer_details?: Partial<PaymentCustomerDetails>;
   coupon_code?: string;
 }
 
