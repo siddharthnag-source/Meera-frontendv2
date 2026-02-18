@@ -68,7 +68,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
   useEffect(() => {
     const initializeCashfree = async () => {
       const cfInstance = await load({
-        mode: 'sandbox',
+        mode: 'production',
       });
       setCashfree(cfInstance);
     };
