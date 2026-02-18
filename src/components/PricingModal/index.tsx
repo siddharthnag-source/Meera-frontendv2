@@ -129,19 +129,27 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
       });
 
       const data = response as {
-        payment_session_id?: string;
+        payment_session_id?: unknown;
         payment_status?: string;
         order_id?: string;
         data?: {
-          payment_session_id?: string;
+          payment_session_id?: unknown;
           payment_status?: string;
           order_id?: string;
+          data?: {
+            payment_session_id?: unknown;
+          };
         };
       };
       console.log('Backend Response:', data);
 
       const paymentStatus = data.payment_status || data.data?.payment_status;
-      const sessionId = data.payment_session_id || data.data?.payment_session_id;
+      const sessionId =
+        (typeof data.payment_session_id === 'string' && data.payment_session_id.trim()) ||
+        (typeof data.data?.payment_session_id === 'string' && data.data.payment_session_id.trim()) ||
+        (typeof data.data?.data?.payment_session_id === 'string' &&
+          data.data.data.payment_session_id.trim()) ||
+        '';
       const orderId = data.order_id || data.data?.order_id;
 
       // Handle 100% discount or BYPASS coupon case
