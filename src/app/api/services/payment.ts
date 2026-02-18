@@ -88,6 +88,10 @@ export const paymentService = {
       const customerDetails = await buildCustomerDetails(data.customer_details);
       const orderAmount = normalizeAmount(data.amount) ?? PLAN_AMOUNT_MAP[data.plan_type];
       const orderCurrency = (data.order_currency || DEFAULT_ORDER_CURRENCY).toUpperCase();
+      const returnUrl =
+        typeof window !== 'undefined'
+          ? `${window.location.origin}/checkout/result?order_id={order_id}`
+          : undefined;
 
       const payload = {
         order_amount: orderAmount,
@@ -95,6 +99,7 @@ export const paymentService = {
         customer_details: customerDetails,
         plan_type: data.plan_type,
         ...(data.coupon_code ? { coupon_code: data.coupon_code } : {}),
+        ...(returnUrl ? { return_url: returnUrl } : {}),
 
         // Backward compatibility for older payment handlers that still read top-level customer fields.
         customer_id: customerDetails.customer_id,
