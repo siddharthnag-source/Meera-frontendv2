@@ -30,16 +30,22 @@ const getPriceDisplay = (plan: PlanType, basePrice: number, discountedPrice: num
       <div className="flex items-center gap-2">
         <span className="line-through text-white/60">₹{basePrice}</span>
         <span className="text-green-400 font-semibold">₹{discountedPrice}</span>
+        <span className="text-white/70 text-xs sm:text-sm">/ month</span>
         {discountedPrice === 0 && <span className="text-green-400 text-xs font-medium">(Free)</span>}
       </div>
     );
   }
-  return `₹${basePrice}`;
+  return (
+    <div className="flex items-center gap-2">
+      <span>₹{basePrice}</span>
+      <span className="text-white/70 text-xs sm:text-sm">/ month</span>
+    </div>
+  );
 };
 
 export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingModalProps) => {
   const [showEntryCode, setShowEntryCode] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<PlanType>('lifetime');
+  const [selectedPlan, setSelectedPlan] = useState<PlanType>('monthly');
   const [entryCode, setEntryCode] = useState('');
   const [cashfree, setCashfree] = useState<CashfreeInstance | null>(null);
   const [isPaymentLoading, setIsPaymentLoading] = useState(false);
@@ -400,19 +406,19 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                   {/* Pricing Plan */}
                   <div className="mb-4">
                     <button
-                      onClick={() => setSelectedPlan('lifetime')}
+                      onClick={() => setSelectedPlan('monthly')}
                       className="w-full bg-white/10 backdrop-blur-sm border border-white rounded-xl
                                  p-4 flex items-center justify-between
                                  hover:bg-white/15 transition-colors"
                     >
                       <div className="flex flex-col items-start">
-                        <span className="text-white text-lg sm:text-xl font-medium mb-1">Lifetime</span>
+                        <span className="text-white text-lg sm:text-xl font-medium mb-1">Monthly</span>
                         <div className="text-white/80 text-base sm:text-lg">
-                          {getPriceDisplay('lifetime', PLAN_PRICES.lifetime, discountedPrices.lifetime)}
+                          {getPriceDisplay('monthly', PLAN_PRICES.monthly, discountedPrices.monthly)}
                         </div>
                       </div>
 
-                      {selectedPlan === 'lifetime' && (
+                      {selectedPlan === 'monthly' && (
                         <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white flex items-center justify-center flex-shrink-0">
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -476,8 +482,8 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                     {isPaymentLoading
                       ? 'Processing...'
                       : getCurrentPrice(selectedPlan) === 0
-                        ? 'Continue Our Journey'
-                        : 'Continue Our Journey'}
+                        ? 'Activate Free Plan'
+                        : `Pay ₹${getCurrentPrice(selectedPlan)} / month`}
                   </button>
 
                   {/* Footer Links */}

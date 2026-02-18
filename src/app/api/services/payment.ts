@@ -13,8 +13,8 @@ import { api, apiClient } from '../client';
 import { API_ENDPOINTS } from '../config';
 
 const PLAN_AMOUNT_MAP: Record<CreatePaymentRequest['plan_type'], number> = {
-  monthly: 99,
-  lifetime: 499,
+  monthly: 19,
+  lifetime: 19,
 };
 
 const DEFAULT_ORDER_CURRENCY = 'INR';
