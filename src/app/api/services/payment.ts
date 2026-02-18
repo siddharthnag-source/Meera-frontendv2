@@ -9,7 +9,7 @@ import type {
   VerifyPaymentResponse,
 } from '@/types/api';
 import { supabase } from '@/lib/supabaseClient';
-import { api } from '../client';
+import { api, apiClient } from '../client';
 import { API_ENDPOINTS } from '../config';
 
 const PLAN_AMOUNT_MAP: Record<CreatePaymentRequest['plan_type'], number> = {
@@ -43,6 +43,17 @@ const normalizePhone = (value?: string): string => {
 const getMetadataString = (metadata: Record<string, unknown>, key: string): string | undefined => {
   const rawValue = metadata[key];
   return typeof rawValue === 'string' && rawValue.trim() ? rawValue.trim() : undefined;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> => {
+  if (!value || typeof value !== 'object') return {};
+  return value as Record<string, unknown>;
+};
+
+const asTrimmedString = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 };
 
 const buildCustomerDetails = async (
@@ -108,7 +119,32 @@ export const paymentService = {
         customer_phone: customerDetails.customer_phone,
       };
 
-      return await api.post<CreatePaymentResponse>(API_ENDPOINTS.PAYMENT.CREATE, payload);
+      const response = await apiClient.post(API_ENDPOINTS.PAYMENT.CREATE, payload);
+      console.log('Payment API Response:', response);
+
+      const responseData = asRecord(response.data);
+      const nestedData = asRecord(responseData.data);
+
+      // Prefer flat fields first, then fallback to nested legacy shape.
+      const paymentSessionId =
+        asTrimmedString(responseData.payment_session_id) || asTrimmedString(nestedData.payment_session_id);
+      const orderId = asTrimmedString(responseData.order_id) || asTrimmedString(nestedData.order_id);
+      const paymentStatus = asTrimmedString(responseData.payment_status) || asTrimmedString(nestedData.payment_status);
+      const message = asTrimmedString(responseData.message) || 'Order created successfully';
+
+      return {
+        ...responseData,
+        message,
+        payment_session_id: paymentSessionId,
+        order_id: orderId,
+        payment_status: paymentStatus,
+        data: {
+          ...nestedData,
+          order_id: orderId || '',
+          payment_session_id: paymentSessionId || '',
+          ...(paymentStatus ? { payment_status: paymentStatus } : {}),
+        },
+      } as CreatePaymentResponse;
     } catch (error) {
       console.error('Error in createPayment:', error);
 
