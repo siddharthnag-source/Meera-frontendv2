@@ -5,7 +5,7 @@ import { SUBSCRIPTION_QUERY_KEY } from '@/hooks/useSubscriptionStatus';
 import { supabase } from '@/lib/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 
 type VerificationPhase = 'loading' | 'success' | 'failed';
 
@@ -111,7 +111,7 @@ const verifyOrderWithRetry = async (orderId: string): Promise<VerifyOutcome> => 
   };
 };
 
-export default function CheckoutResultPage() {
+function CheckoutResultContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -327,5 +327,29 @@ export default function CheckoutResultPage() {
         }
       `}</style>
     </main>
+  );
+}
+
+function CheckoutResultFallback() {
+  return (
+    <main className="relative min-h-[100dvh] bg-background text-primary flex items-center justify-center px-4 py-8">
+      <section className="w-full max-w-md rounded-2xl border border-primary/20 bg-card p-7 sm:p-8 shadow-lg">
+        <p className="text-[11px] uppercase tracking-[0.22em] text-primary/60">Payment Status</p>
+        <div className="mt-5">
+          <div className="flex items-center gap-3">
+            <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+            <h1 className="text-2xl font-semibold">Loading...</h1>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+export default function CheckoutResultPage() {
+  return (
+    <Suspense fallback={<CheckoutResultFallback />}>
+      <CheckoutResultContent />
+    </Suspense>
   );
 }
