@@ -135,55 +135,6 @@ export const useMessageSubmission = ({
     mostRecentAssistantMessageIdRef.current = null;
   }, []);
 
-  /**
-   * IMPORTANT:
-   * Do not replace the entire chat array after streaming ends.
-   * Only patch the existing assistant placeholder with the latest server attachments.
-   * This prevents scroll jumps.
-   */
-  const refreshLatestMessagesFromServer = useCallback(
-    async (assistantIdToPatch?: string) => {
-      try {
-        if (!assistantIdToPatch) return;
-
-        const res = await chatService.getChatHistory(1);
-        if (!res?.data || res.data.length === 0) return;
-
-        const rawMessages = res.data as ChatMessageFromServer[];
-
-        const serverMessages = rawMessages
-          .map((msg) => ({
-            ...msg,
-            attachments: msg.attachments ?? [],
-          }))
-          .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-
-        const latestServerAssistant = [...serverMessages]
-          .reverse()
-          .find((m) => m.content_type === 'assistant');
-
-        if (!latestServerAssistant) return;
-
-        setChatMessages((prev) =>
-          prev.map((m) =>
-            m.message_id === assistantIdToPatch
-              ? {
-                  ...m,
-                  attachments:
-                    latestServerAssistant.attachments ?? m.attachments ?? [],
-                  finish_reason:
-                    latestServerAssistant.finish_reason ?? m.finish_reason ?? null,
-                }
-              : m,
-          ),
-        );
-      } catch (err) {
-        console.error('Failed to refresh assistant attachments:', err);
-      }
-    },
-    [setChatMessages],
-  );
-
   const executeSubmission = useCallback(
     async (
       messageText: string,
@@ -321,14 +272,19 @@ export const useMessageSubmission = ({
               ),
             );
           },
-          onDone: async () => {
+          onDone: (finalAssistantMessage) => {
             if (assistantId) {
               setChatMessages((prev) =>
                 prev.map((msg) =>
                   msg.message_id === assistantId
                     ? {
                         ...msg,
-                        content: msg.content || fullAssistantText,
+                        content:
+                          finalAssistantMessage?.content || msg.content || fullAssistantText,
+                        timestamp: finalAssistantMessage?.timestamp || msg.timestamp,
+                        attachments: finalAssistantMessage?.attachments ?? msg.attachments ?? [],
+                        finish_reason:
+                          finalAssistantMessage?.finish_reason ?? msg.finish_reason ?? null,
                         failed: false,
                         try_number: tryNumber,
                       }
@@ -336,9 +292,6 @@ export const useMessageSubmission = ({
                 ),
               );
             }
-
-            // Patch only attachments, do not replace entire chat array
-            await refreshLatestMessagesFromServer(assistantId);
           },
           onError: (err) => {
             throw err;
@@ -389,7 +342,6 @@ export const useMessageSubmission = ({
       setIsAssistantTyping,
       showToast,
       onMessageSent,
-      refreshLatestMessagesFromServer,
     ],
   );
 

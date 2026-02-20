@@ -7,6 +7,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { FiImage } from 'react-icons/fi';
 import { TbLayoutSidebarLeftCollapse } from 'react-icons/tb';
 import { parseTimestamp } from '@/lib/dateUtils';
+import { useAppStore } from '@/store/appStore';
 import { PWAInstallEntry } from './PWAInstallEntry';
 import { ProfileMenu } from './ProfileMenu';
 import { SidebarItem } from './Sidebar/SidebarItem';
@@ -17,13 +18,9 @@ interface SidebarProps {
   isVisible: boolean;
   isMobileOpen: boolean;
   tokensConsumed?: string | null;
-  starredMessages: ChatMessageFromServer[];
   onJumpToMessage: (message: ChatMessageFromServer) => void;
   activeView: SidebarView;
   onSelectView: (view: SidebarView) => void;
-  userName: string;
-  userEmail: string;
-  userAvatar?: string | null;
   onToggleSidebar: () => void;
   onCloseMobile: () => void;
   onUpgrade: () => void;
@@ -57,13 +54,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isVisible,
   isMobileOpen,
   tokensConsumed,
-  starredMessages,
   onJumpToMessage,
   activeView,
   onSelectView,
-  userName,
-  userEmail,
-  userAvatar,
   onToggleSidebar,
   onCloseMobile,
   onUpgrade,
@@ -73,10 +66,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isSubscriptionLoading = false,
 }) => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const starredMessages = useAppStore((state) => state.starredMessages);
+  const user = useAppStore((state) => state.user);
+
+  const userMetadata = (user?.user_metadata ?? {}) as Record<string, unknown>;
+  const userName =
+    (typeof userMetadata.full_name === 'string' && userMetadata.full_name.trim()) ||
+    (typeof userMetadata.name === 'string' && userMetadata.name.trim()) ||
+    '';
+  const userEmail = typeof user?.email === 'string' ? user.email : '';
+  const userAvatar = typeof userMetadata.avatar_url === 'string' ? userMetadata.avatar_url : null;
 
   const normalizedName = userName.trim();
   const normalizedEmail = userEmail.trim();
-  const displayName = normalizedName || normalizedEmail;
+  const displayName = normalizedName || normalizedEmail || 'Guest';
   const displayEmail = normalizedName ? normalizedEmail : '';
   const profileInitial = displayName.charAt(0).toUpperCase() || 'U';
 

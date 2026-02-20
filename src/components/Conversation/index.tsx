@@ -8,21 +8,20 @@ import { SupportPanel } from '@/components/ui/SupportPanel';
 import { Toast } from '@/components/ui/Toast';
 import { useToast } from '@/components/ui/ToastProvider';
 import { usePricingModal } from '@/contexts/PricingModalContext';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useDragAndDrop } from '@/hooks/useDragAndDrop';
 import { useMessageSubmission } from '@/hooks/useMessageSubmission';
+import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
 import { formatWhatsAppStyle, getLocalDateKeyFromTimestamp } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
 import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
+import { useAppStore } from '@/store/appStore';
 import { ChatAttachmentFromServer, ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
-import { useSession } from 'next-auth/react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
-import { MdKeyboardArrowDown } from 'react-icons/md';
 import { AttachmentInputArea, AttachmentInputAreaRef } from './AttachmentInputArea';
 import { AttachmentPreview } from './AttachmentPreview';
 import { CallSessionItem } from './CallSessionItem';
@@ -73,34 +72,9 @@ type LegacyMessageRow = {
   is_call: boolean | null;
 };
 
-const prependUniqueId = (ids: string[], targetId: string): string[] => {
-  if (ids.includes(targetId)) return ids;
-  return [targetId, ...ids];
-};
-
-const removeId = (ids: string[], targetId: string): string[] => {
-  return ids.filter((id) => id !== targetId);
-};
-
-const upsertSnapshot = (messages: ChatMessageFromServer[], target: ChatMessageFromServer): ChatMessageFromServer[] => {
-  const withoutTarget = messages.filter((message) => message.message_id !== target.message_id);
-  return [target, ...withoutTarget];
-};
-
-const removeSnapshot = (messages: ChatMessageFromServer[], targetId: string): ChatMessageFromServer[] => {
-  return messages.filter((message) => message.message_id !== targetId);
-};
-
 const normalizeContextText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const waitForMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const asTrimmedString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-const firstNonEmpty = (...values: unknown[]): string => {
-  for (const value of values) {
-    const parsed = asTrimmedString(value);
-    if (parsed) return parsed;
-  }
-  return '';
-};
 
 const isImageAttachment = (attachment: { type?: string; url?: string }): boolean => {
   const type = String(attachment.type || '').toLowerCase();
@@ -336,9 +310,6 @@ export const Conversation: React.FC = () => {
   const [isSearchActive, setIsSearchActive] = useState(true);
   const [currentThoughtText, setCurrentThoughtText] = useState('');
   const [dynamicMinHeight, setDynamicMinHeight] = useState<number>(500);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
-  const [starredMessageSnapshots, setStarredMessageSnapshots] = useState<ChatMessageFromServer[]>([]);
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [activeSidebarView, setActiveSidebarView] = useState<SidebarView>('chat');
@@ -404,11 +375,11 @@ export const Conversation: React.FC = () => {
   const isJumpingRef = useRef(false);
   const suppressAutoLoadUntilRef = useRef(0);
 
-  const lastScrollTopRef = useRef(0);
-  const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
-
-  const { data: sessionData } = useSession();
-  const { user: supabaseUser, userId: supabaseUserId } = useCurrentUser();
+  const supabaseUser = useAppStore((state) => state.user);
+  const persistedStarredMessages = useAppStore((state) => state.starredMessages);
+  const upsertStarredMessage = useAppStore((state) => state.upsertStarredMessage);
+  const removeStarredMessage = useAppStore((state) => state.removeStarredMessage);
+  const supabaseUserId = supabaseUser?.id ?? null;
   const { formattedTotalCostTokens } = useTotalCostTokens(supabaseUserId);
   const {
     data: subscriptionData,
@@ -440,60 +411,10 @@ export const Conversation: React.FC = () => {
     return null;
   }, [chatMessages]);
 
-  const starredMessageIdSet = useMemo(() => new Set(starredMessageIds), [starredMessageIds]);
-
-  const loadPersistedStarredMessages = useCallback(
-    async (showErrorToast: boolean): Promise<'ok' | 'unauthorized' | 'error'> => {
-      const response = await chatService.getStarredMessages();
-
-      if (response.message === 'unauthorized') {
-        return 'unauthorized';
-      }
-
-      if (response.message !== 'ok') {
-        if (showErrorToast) {
-          showToast('Unable to sync starred messages right now.', {
-            type: 'error',
-            position: 'conversation',
-          });
-        }
-        return 'error';
-      }
-
-      const persistedMessages = response.data as ChatMessageFromServer[];
-      const responseWithIds = response as { ids?: string[] };
-      const persistedIds = Array.isArray(responseWithIds.ids)
-        ? responseWithIds.ids
-        : persistedMessages.map((messageItem) => messageItem.message_id);
-
-      setStarredMessageIds(persistedIds);
-      setStarredMessageSnapshots(persistedMessages);
-
-      return 'ok';
-    },
-    [showToast],
+  const starredMessageIdSet = useMemo(
+    () => new Set(persistedStarredMessages.map((messageItem) => messageItem.message_id)),
+    [persistedStarredMessages],
   );
-
-  const starredMessages = useMemo(() => {
-    const loadedMessageMap = new Map(chatMessages.map((msg) => [msg.message_id, msg]));
-    const snapshotMap = new Map(starredMessageSnapshots.map((msg) => [msg.message_id, msg]));
-
-    return [...starredMessageIds]
-      .map((messageId) => {
-        const loaded = loadedMessageMap.get(messageId);
-        const snapshot = snapshotMap.get(messageId);
-
-        if (!loaded) return snapshot;
-        if (!snapshot) return loaded;
-
-        return {
-          ...loaded,
-          user_context: (snapshot.user_context ?? '').trim() || loaded.user_context,
-          summary: (snapshot.summary ?? '').trim() || loaded.summary,
-        };
-      })
-      .filter((msg): msg is ChatMessageFromServer => Boolean(msg));
-  }, [chatMessages, starredMessageIds, starredMessageSnapshots]);
 
   const mergeMessagesIntoState = useCallback((incoming: ChatMessageFromServer[]) => {
     if (!incoming.length) return;
@@ -800,12 +721,11 @@ export const Conversation: React.FC = () => {
 
       starMutationInFlightRef.current.add(target.message_id);
 
-      setStarredMessageIds((prev) =>
-        isCurrentlyStarred ? removeId(prev, target.message_id) : prependUniqueId(prev, target.message_id),
-      );
-      setStarredMessageSnapshots((prev) =>
-        isCurrentlyStarred ? removeSnapshot(prev, target.message_id) : upsertSnapshot(prev, optimisticSnapshot),
-      );
+      if (isCurrentlyStarred) {
+        removeStarredMessage(target.message_id);
+      } else {
+        upsertStarredMessage(optimisticSnapshot);
+      }
 
       void chatService
         .setMessageStar(target.message_id, !isCurrentlyStarred, {
@@ -823,12 +743,11 @@ export const Conversation: React.FC = () => {
         .catch((error) => {
           console.error('Failed to update starred message', error);
 
-          setStarredMessageIds((prev) =>
-            isCurrentlyStarred ? prependUniqueId(prev, target.message_id) : removeId(prev, target.message_id),
-          );
-          setStarredMessageSnapshots((prev) =>
-            isCurrentlyStarred ? upsertSnapshot(prev, optimisticSnapshot) : removeSnapshot(prev, target.message_id),
-          );
+          if (isCurrentlyStarred) {
+            upsertStarredMessage(optimisticSnapshot);
+          } else {
+            removeStarredMessage(target.message_id);
+          }
 
           showToast('Failed to update starred message. Please try again.', {
             type: 'error',
@@ -839,7 +758,7 @@ export const Conversation: React.FC = () => {
           starMutationInFlightRef.current.delete(target.message_id);
         });
     },
-    [chatMessages, showToast, starredMessageIdSet],
+    [chatMessages, removeStarredMessage, showToast, starredMessageIdSet, upsertStarredMessage],
   );
 
   const flashJumpTarget = useCallback((messageId: string) => {
@@ -921,6 +840,15 @@ export const Conversation: React.FC = () => {
 
   const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
 
+  const isLatestAssistantPending = Boolean(
+    isSending && lastMessage?.content_type === 'assistant' && lastMessage?.finish_reason == null,
+  );
+  const hasAssistantContent = Boolean(lastMessage?.content?.trim().length);
+  const isThinking = isLatestAssistantPending && isAssistantTyping && !hasAssistantContent;
+  const isStreaming = isLatestAssistantPending && hasAssistantContent;
+
+  useScreenWakeLock(isThinking || isStreaming);
+
   const hasPendingUploads = useMemo(() => {
     if (isUploadingAttachments) return true;
     return currentAttachments.some((att) => {
@@ -954,7 +882,7 @@ export const Conversation: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const email = sessionData?.user?.email;
+    const email = supabaseUser?.email;
     if (!email) return;
 
     const findLegacyUser = async () => {
@@ -968,7 +896,7 @@ export const Conversation: React.FC = () => {
     };
 
     findLegacyUser();
-  }, [sessionData?.user?.email]);
+  }, [supabaseUser?.email]);
 
   useEffect(() => {
     if (!legacyUserId || hasLoadedLegacyHistory) return;
@@ -1386,20 +1314,6 @@ export const Conversation: React.FC = () => {
       isScrollingUp.current = currentScrollTop < lastScrollTop.current;
       lastScrollTop.current = currentScrollTop;
 
-      const direction =
-        currentScrollTop > lastScrollTopRef.current
-          ? 'down'
-          : currentScrollTop < lastScrollTopRef.current
-            ? 'up'
-            : 'still';
-      lastScrollTopRef.current = currentScrollTop;
-
-      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
-
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      const isNotAtBottom = distanceFromBottom > 100;
-      setShowScrollToBottom(direction === 'up' && isNotAtBottom);
-
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       setIsUserNearTop(scrollTop < SCROLL_THRESHOLD);
       const isAutoLoadSuppressed =
@@ -1560,41 +1474,6 @@ export const Conversation: React.FC = () => {
   }, [loadChatHistory]);
 
   useEffect(() => {
-    let isMounted = true;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const hydrateStarred = async (attempt: number = 0) => {
-      const result = await loadPersistedStarredMessages(false);
-      if (!isMounted) return;
-
-      if (result === 'unauthorized' && attempt < 6) {
-        retryTimer = setTimeout(() => {
-          void hydrateStarred(attempt + 1);
-        }, 250 * (attempt + 1));
-      }
-    };
-
-    void hydrateStarred();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        void hydrateStarred();
-      } else if (event === 'SIGNED_OUT') {
-        setStarredMessageIds([]);
-        setStarredMessageSnapshots([]);
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      if (retryTimer) clearTimeout(retryTimer);
-      subscription.unsubscribe();
-    };
-  }, [loadPersistedStarredMessages]);
-
-  useEffect(() => {
     if (!supabaseUserId) return;
 
     const messagesChannel = supabase
@@ -1644,10 +1523,7 @@ export const Conversation: React.FC = () => {
         (payload) => {
           const mapped = mapRealtimeStarredRow(payload.new);
           if (!mapped) return;
-          setStarredMessageIds((prev) =>
-            prependUniqueId(removeId(prev, mapped.message_id), mapped.message_id),
-          );
-          setStarredMessageSnapshots((prev) => upsertSnapshot(prev, mapped));
+          upsertStarredMessage(mapped);
         },
       )
       .on(
@@ -1661,10 +1537,7 @@ export const Conversation: React.FC = () => {
         (payload) => {
           const mapped = mapRealtimeStarredRow(payload.new);
           if (!mapped) return;
-          setStarredMessageIds((prev) =>
-            prependUniqueId(removeId(prev, mapped.message_id), mapped.message_id),
-          );
-          setStarredMessageSnapshots((prev) => upsertSnapshot(prev, mapped));
+          upsertStarredMessage(mapped);
         },
       )
       .on(
@@ -1679,9 +1552,7 @@ export const Conversation: React.FC = () => {
           const oldRow = payload.old as { message_id?: unknown } | null;
           const messageId = typeof oldRow?.message_id === 'string' ? oldRow.message_id : '';
           if (!messageId) return;
-
-          setStarredMessageIds((prev) => removeId(prev, messageId));
-          setStarredMessageSnapshots((prev) => removeSnapshot(prev, messageId));
+          removeStarredMessage(messageId);
         },
       )
       .subscribe();
@@ -1690,7 +1561,7 @@ export const Conversation: React.FC = () => {
       supabase.removeChannel(messagesChannel);
       supabase.removeChannel(starredChannel);
     };
-  }, [mergeGalleryItems, mergeMessagesIntoState, supabaseUserId]);
+  }, [mergeGalleryItems, mergeMessagesIntoState, removeStarredMessage, supabaseUserId, upsertStarredMessage]);
 
   useEffect(() => {
     if (justSentMessageRef.current) {
@@ -1718,7 +1589,6 @@ export const Conversation: React.FC = () => {
       fetchState.abortController?.abort();
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
       if (hideDateStickyTimeoutRef.current) clearTimeout(hideDateStickyTimeoutRef.current);
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
 
@@ -1729,10 +1599,6 @@ export const Conversation: React.FC = () => {
       currentAttachments.forEach((att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl));
     };
   }, [fetchState.abortController, currentAttachments]);
-
-  const handleScrollToBottomClick = useCallback(() => {
-    scrollToBottom(true, true);
-  }, [scrollToBottom]);
 
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -1771,20 +1637,6 @@ export const Conversation: React.FC = () => {
     }
   }, [showToast]);
 
-  const supabaseMetadata = (supabaseUser?.user_metadata ?? {}) as Record<string, unknown>;
-  const profileName = firstNonEmpty(
-    supabaseMetadata.full_name,
-    supabaseMetadata.name,
-    sessionData?.user?.name,
-    supabaseUser?.email,
-    sessionData?.user?.email,
-  );
-  const profileEmail = firstNonEmpty(supabaseUser?.email, sessionData?.user?.email);
-  const profileImage = firstNonEmpty(
-    supabaseMetadata.avatar_url,
-    sessionData?.user?.image,
-  ) || null;
-
   const handleOpenVoiceAssistant = useCallback(() => {
     setShowMeeraVoice(true);
   }, []);
@@ -1813,13 +1665,9 @@ export const Conversation: React.FC = () => {
         isVisible={isSidebarVisible}
         isMobileOpen={isMobileSidebarOpen}
         tokensConsumed={formattedTotalCostTokens}
-        starredMessages={starredMessages}
         onJumpToMessage={handleJumpToMessage}
         activeView={activeSidebarView}
         onSelectView={handleSelectSidebarView}
-        userName={profileName}
-        userEmail={profileEmail}
-        userAvatar={profileImage}
         onToggleSidebar={handleToggleDesktopSidebar}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
         onUpgrade={handleOpenUpgrade}
@@ -2113,16 +1961,6 @@ export const Conversation: React.FC = () => {
                     </span>
                   </div>
                 )}
-
-              {showScrollToBottom && (
-                <button
-                  onClick={handleScrollToBottomClick}
-                  className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all duration-200 hover:scale-105 shadow-md backdrop-blur-sm hidden"
-                  title="Scroll to bottom"
-                >
-                  <MdKeyboardArrowDown size={20} />
-                </button>
-              )}
 
               <div className="w-full pt-1 flex justify_center">
                 <Toast position="conversation" />

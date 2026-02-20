@@ -8,12 +8,12 @@ import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
 import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { FaCrown } from 'react-icons/fa';
 import { MdKeyboardArrowRight } from 'react-icons/md';
 
 import { supabase } from '@/lib/supabaseClient';
-import type { User } from '@supabase/supabase-js';
+import { useAppStore } from '@/store/appStore';
 
 interface UserProfileProps {
   isOpen: boolean;
@@ -39,30 +39,10 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
   const referralId = searchParams.get('referral_id');
   const { data: subscription } = useSubscriptionStatus();
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
+  const user = useAppStore((state) => state.user);
   // const { installPrompt, isStandalone, isIOS, handleInstallClick } = usePWAInstall();
   const { openModal } = usePricingModal();
   const { formattedTotalCostTokens, isLoadingTotalCostTokens } = useTotalCostTokens(user?.id ?? null);
-
-  // Load Supabase user and listen for auth state changes
-  useEffect(() => {
-    const loadUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      setUser(data.user ?? null);
-    };
-
-    loadUser();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
 
   // Check if user is guest (has guest token but no Supabase user)
   const isGuest =

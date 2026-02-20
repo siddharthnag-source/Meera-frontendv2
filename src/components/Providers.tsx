@@ -1,5 +1,6 @@
 "use client";
 
+import { AppStateInitializer } from "@/components/AppStateInitializer";
 import { usePathname } from "next/navigation";
 
 import { QueryClientProvider } from "@/components/providers/QueryProvider";
@@ -33,7 +34,10 @@ export default function Providers({ children }: ProvidersProps) {
       <PWAInstallProvider>
         <ToastProvider>
           <QueryClientProvider>
-            <SessionProvider>{content}</SessionProvider>
+            <SessionProvider>
+              {!isSupabaseSmoke ? <AppStateInitializer /> : null}
+              {content}
+            </SessionProvider>
           </QueryClientProvider>
         </ToastProvider>
       </PWAInstallProvider>
