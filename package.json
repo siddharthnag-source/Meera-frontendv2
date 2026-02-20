@@ -10,6 +10,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@cashfreepayments/cashfree-js": "^1.0.5",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
@@ -18,7 +19,6 @@
     "@livekit/components-react": "^2.9.2",
     "@livekit/krisp-noise-filter": "^0.2.16",
     "@mui/material": "^7.0.1",
-    "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/supabase-js": "^2.48.0",
     "@tanstack/react-query": "^5.70.0",
     "@testing-library/jest-dom": "^6.6.3",
@@ -36,7 +36,6 @@
     "highlight.js": "^11.11.1",
     "jwt-decode": "^4.0.0",
     "livekit-client": "^2.11.2",
-    "lucide-react": "^0.564.0",
     "next": "15.2.6",
     "next-auth": "^4.24.11",
     "react": "^18.3.1",
