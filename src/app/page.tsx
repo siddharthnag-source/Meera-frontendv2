@@ -58,7 +58,7 @@ export default function Home() {
 
     // Keep the app shell pinned to the real visible viewport in mobile/PWA + keyboard transitions.
     const updateAppViewportHeight = () => {
-      const nextHeight = viewport ? viewport.height + viewport.offsetTop : window.innerHeight;
+      const nextHeight = viewport ? viewport.height : window.innerHeight;
       root.style.setProperty('--app-vh', `${Math.round(nextHeight)}px`);
     };
 

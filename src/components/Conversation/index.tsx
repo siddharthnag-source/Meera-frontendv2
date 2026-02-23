@@ -1982,7 +1982,7 @@ export const Conversation: React.FC = () => {
         ) : null}
 
         {!isImagesView ? (
-        <footer ref={footerRef} className="w-full z-40 shrink-0 px-2 pt-0 pb-0 md:pr-[13px] bg-background">
+        <footer ref={footerRef} className="w-full z-40 shrink-0 px-2 pt-0 pb-0 md:pr-[13px] bg-transparent">
           <div className="relative">
             <div className="absolute bottom-full left-0 right-0 flex flex-col items-center mb-2">
               {!isSubscriptionLoading &&
