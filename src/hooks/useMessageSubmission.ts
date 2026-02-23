@@ -2,7 +2,7 @@
 
 import { chatService } from '@/app/api/services/chat';
 import { useToast } from '@/components/ui/ToastProvider';
-import { createLocalTimestamp } from '@/lib/dateUtils';
+import { createLocalTimestamp, parseTimestamp } from '@/lib/dateUtils';
 import { supabase } from '@/lib/supabaseClient';
 import {
   ChatAttachmentInputState,
@@ -193,11 +193,13 @@ export const useMessageSubmission = ({
         );
 
         const assistantMessageId = `assistant-${Date.now()}`;
+        const userTimestampMs = parseTimestamp(userMessage.timestamp)?.getTime() ?? Date.now();
         const emptyAssistantMessage: ChatMessageFromServer = {
           message_id: assistantMessageId,
           content: '',
           content_type: 'assistant',
-          timestamp: createLocalTimestamp(),
+          // Keep optimistic assistant immediately after the user message.
+          timestamp: createLocalTimestamp(new Date(userTimestampMs + 6)),
           attachments: [],
           try_number: tryNumber,
           failed: false,

@@ -13,7 +13,7 @@ import { useMessageSubmission } from '@/hooks/useMessageSubmission';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
-import { formatWhatsAppStyle, getLocalDateKeyFromTimestamp } from '@/lib/dateUtils';
+import { formatWhatsAppStyle, getLocalDateKeyFromTimestamp, parseTimestamp } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
 import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
@@ -75,6 +75,14 @@ type LegacyMessageRow = {
 const normalizeContextText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const waitForMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const asTrimmedString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+const getTimestampMs = (timestamp: string | Date | null | undefined): number => {
+  const parsed = parseTimestamp(timestamp);
+  return parsed ? parsed.getTime() : Number.NEGATIVE_INFINITY;
+};
+const compareTimestampAsc = (a: string, b: string): number => {
+  const diff = getTimestampMs(a) - getTimestampMs(b);
+  return Number.isFinite(diff) ? diff : 0;
+};
 
 const isImageAttachment = (attachment: { type?: string; url?: string }): boolean => {
   const type = String(attachment.type || '').toLowerCase();
@@ -441,7 +449,7 @@ export const Conversation: React.FC = () => {
         });
       });
 
-      return Array.from(map.values()).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      return Array.from(map.values()).sort((a, b) => compareTimestampAsc(a.timestamp, b.timestamp));
     });
   }, []);
 
@@ -797,7 +805,9 @@ export const Conversation: React.FC = () => {
       });
 
       for (const sessionId in callSessions) {
-        const sessionMessages = callSessions[sessionId].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        const sessionMessages = callSessions[sessionId].sort((a, b) =>
+          compareTimestampAsc(a.timestamp, b.timestamp),
+        );
         if (sessionMessages.length > 0) {
           displayItems.push({
             type: 'call_session',
@@ -812,7 +822,7 @@ export const Conversation: React.FC = () => {
       return displayItems.sort((a, b) => {
         const timestampA = a.type === 'message' ? a.message.timestamp : a.timestamp;
         const timestampB = b.type === 'message' ? b.message.timestamp : b.timestamp;
-        return timestampA.localeCompare(timestampB);
+        return compareTimestampAsc(timestampA, timestampB);
       });
     };
 
@@ -983,7 +993,7 @@ export const Conversation: React.FC = () => {
                 ...msg,
                 attachments: msg.attachments ?? [],
               }))
-              .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+              .sort((a, b) => compareTimestampAsc(a.timestamp, b.timestamp));
 
             if (isInitial && !hasLoadedLegacyHistory) {
               setChatMessages(messages);
@@ -1145,7 +1155,7 @@ export const Conversation: React.FC = () => {
                   mergedMap.set(message.message_id, message);
                 });
                 const mergedForResolution = Array.from(mergedMap.values()).sort((a, b) =>
-                  a.timestamp.localeCompare(b.timestamp),
+                  compareTimestampAsc(a.timestamp, b.timestamp),
                 );
 
                 const resolvedAfterMerge = resolveQuestionFirstTargetId(
