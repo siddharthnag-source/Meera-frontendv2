@@ -1719,7 +1719,7 @@ export const Conversation: React.FC = () => {
   const isImagesView = activeSidebarView === 'images';
 
   return (
-    <div className="relative h-[100dvh] max-h-[100dvh] bg-background overflow-hidden">
+    <div className="relative h-full max-h-full bg-background overflow-hidden">
       <Sidebar
         isVisible={isSidebarVisible}
         isMobileOpen={isMobileSidebarOpen}
@@ -1737,7 +1737,7 @@ export const Conversation: React.FC = () => {
       />
 
       <div
-        className={`grid grid-rows-[auto_1fr_auto] h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
+        className={`grid grid-rows-[auto_1fr_auto] h-full max-h-full min-h-0 overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
       >
         {isDraggingOver && (
           <div className="fixed inset-0 bg-primary/10 backdrop-blur-[2px] z-50 flex items-center justify-center">
@@ -1750,7 +1750,6 @@ export const Conversation: React.FC = () => {
         <header
           ref={headerRef}
           className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20"
-          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}
         >
           <div className="w-full mx-auto flex items-center justify-between">
             <button
@@ -1820,13 +1819,13 @@ export const Conversation: React.FC = () => {
             ) : (
               <>
             {isInitialLoading && (
-              <div className="flex justify-center items-center h-[calc(100dvh-15rem)]">
+              <div className="flex justify-center items-center h-[calc(100%-15rem)]">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
               </div>
             )}
 
             {fetchState.error && !isInitialLoading && chatMessages.length === 0 && (
-              <div className="flex flex-col justify-center items-center h-[calc(100dvh-10rem)] text-center">
+              <div className="flex flex-col justify-center items-center h-[calc(100%-10rem)] text-center">
                 <p className="text-red-500 mb-2">{fetchState.error}</p>
                 <button
                   onClick={stableCallbacks.handleRetryLoadHistory}
@@ -1838,7 +1837,7 @@ export const Conversation: React.FC = () => {
             )}
 
             {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
-              <div className="h-[calc(100dvh-10rem)]" />
+              <div className="h-[calc(100%-10rem)]" />
             )}
 
             {!isInitialLoading && chatMessages.length > 0 && (
