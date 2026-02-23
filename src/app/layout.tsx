@@ -45,8 +45,8 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     appleWebApp: {
       capable: true,
-      statusBarStyle: 'default',
-      title: `${appName}`,
+      statusBarStyle: 'black-translucent',
+      title: 'Meera',
     },
     formatDetection: {
       telephone: false,
