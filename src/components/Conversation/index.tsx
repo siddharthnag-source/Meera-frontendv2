@@ -34,6 +34,7 @@ const FETCH_DEBOUNCE_MS = 300;
 const SCROLL_THROTTLE_MS = 16; // 60fps
 const INPUT_DEBOUNCE_MS = 16;
 const RESIZE_DEBOUNCE_MS = 100;
+const KEYBOARD_OPEN_DELTA_PX = 120;
 const JUMP_DOM_POLL_INTERVAL_MS = 250;
 const JUMP_MAX_PAGE_LOADS = 200;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
@@ -330,6 +331,7 @@ export const Conversation: React.FC = () => {
 
   const [showSupportPanel, setShowSupportPanel] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   const [legacyUserId, setLegacyUserId] = useState<string | null>(null);
   const [hasLoadedLegacyHistory, setHasLoadedLegacyHistory] = useState(false);
@@ -1623,6 +1625,37 @@ export const Conversation: React.FC = () => {
   }, [mergeGalleryItems, mergeMessagesIntoState, removeStarredMessage, supabaseUserId, upsertStarredMessage]);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    const visualViewport = window.visualViewport;
+
+    // iOS PWA keyboard doesn't update safe-area insets; detect keyboard explicitly.
+    const updateKeyboardState = () => {
+      const keyboardDelta = window.innerHeight - visualViewport.height;
+      const activeElement = document.activeElement as HTMLElement | null;
+      const hasTextInputFocus =
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        Boolean(activeElement?.isContentEditable);
+
+      setIsKeyboardOpen(hasTextInputFocus && keyboardDelta > KEYBOARD_OPEN_DELTA_PX);
+    };
+
+    updateKeyboardState();
+
+    visualViewport.addEventListener('resize', updateKeyboardState);
+    visualViewport.addEventListener('scroll', updateKeyboardState);
+    window.addEventListener('focusin', updateKeyboardState);
+    window.addEventListener('focusout', updateKeyboardState);
+
+    return () => {
+      visualViewport.removeEventListener('resize', updateKeyboardState);
+      visualViewport.removeEventListener('scroll', updateKeyboardState);
+      window.removeEventListener('focusin', updateKeyboardState);
+      window.removeEventListener('focusout', updateKeyboardState);
+    };
+  }, []);
+
+  useEffect(() => {
     if (justSentMessageRef.current) {
       scrollToBottom(true, true);
       justSentMessageRef.current = false;
@@ -1983,8 +2016,9 @@ export const Conversation: React.FC = () => {
         {!isImagesView ? (
         <footer
           ref={footerRef}
-          className="w-full z-40 p-2 md:pr-[13px] bg-transparent"
-          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
+          className={`w-full z-40 p-2 md:pr-[13px] bg-transparent ${
+            isKeyboardOpen ? 'pb-2' : 'pb-[calc(env(safe-area-inset-bottom)+0.5rem)]'
+          }`}
         >
           <div className="relative">
             <div className="absolute bottom-full left-0 right-0 flex flex-col items-center mb-2">
