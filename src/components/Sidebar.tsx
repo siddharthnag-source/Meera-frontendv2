@@ -256,8 +256,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="md:hidden fixed left-0 top-0 z-[51] h-[100dvh] max-h-[100dvh] w-[84vw] max-w-[320px] bg-background border-r border-primary/15 flex flex-col shadow-xl"
             style={{
               paddingTop: 'env(safe-area-inset-top)',
-              // Keep a small touch-safe inset without reserving the full iOS safe-area gap.
-              paddingBottom: '0.5rem',
+              paddingBottom: 0,
             }}
           >
             <div className="px-4 pt-3 pb-1">

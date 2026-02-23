@@ -388,6 +388,7 @@ export const Conversation: React.FC = () => {
   const shouldInitialBottomSnapRef = useRef(false);
   const hasInitialBottomSnapRef = useRef(false);
   const initialBottomLockUntilRef = useRef(0);
+  const keyboardViewportBaseHeightRef = useRef<number | null>(null);
 
   const supabaseUser = useAppStore((state) => state.user);
   const persistedStarredMessages = useAppStore((state) => state.starredMessages);
@@ -1630,18 +1631,29 @@ export const Conversation: React.FC = () => {
 
     // iOS PWA keyboard doesn't update safe-area insets; detect keyboard explicitly.
     const updateKeyboardState = () => {
-      const keyboardDelta = window.innerHeight - visualViewport.height;
-      setIsKeyboardOpen(keyboardDelta > KEYBOARD_OPEN_DELTA_PX);
+      const currentHeight = visualViewport.height;
+      const baseHeight = keyboardViewportBaseHeightRef.current ?? currentHeight;
+      const keyboardDelta = baseHeight - currentHeight;
+      const keyboardOpen = keyboardDelta > KEYBOARD_OPEN_DELTA_PX;
+
+      setIsKeyboardOpen(keyboardOpen);
+
+      if (!keyboardOpen && currentHeight >= baseHeight - 1) {
+        keyboardViewportBaseHeightRef.current = currentHeight;
+      }
     };
 
+    keyboardViewportBaseHeightRef.current = visualViewport.height;
     updateKeyboardState();
 
     visualViewport.addEventListener('resize', updateKeyboardState);
     visualViewport.addEventListener('scroll', updateKeyboardState);
+    window.addEventListener('orientationchange', updateKeyboardState);
 
     return () => {
       visualViewport.removeEventListener('resize', updateKeyboardState);
       visualViewport.removeEventListener('scroll', updateKeyboardState);
+      window.removeEventListener('orientationchange', updateKeyboardState);
     };
   }, []);
 

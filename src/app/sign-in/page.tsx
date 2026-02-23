@@ -71,7 +71,7 @@ function SignInClient() {
   };
 
   return (
-    <main className="h-[100dvh] flex flex-col px-2 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 md:px-4 md:pt-4 md:pb-4 lg:px-0 max-w-[450px] mx-auto w-full overflow-hidden">
+    <main className="h-[100dvh] box-border flex flex-col px-2 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 md:px-4 md:pt-4 md:pb-4 lg:px-0 max-w-[450px] mx-auto w-full overflow-hidden">
       <div className="flex flex-col h-full">
         <div className="flex items-center md:justify-center gap-2">
           <Link href="/" className="inline-flex items-center gap-2">

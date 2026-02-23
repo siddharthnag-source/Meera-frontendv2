@@ -62,7 +62,7 @@ export default function Home() {
   // While checking session, show loader
   if (sessionStatus !== 'authenticated') {
     return (
-      <div className="h-[100dvh] bg-background" style={safeAreaTopStyle}>
+      <div className="h-[100dvh] box-border bg-background overflow-hidden" style={safeAreaTopStyle}>
         <div className="h-full flex items-center justify-center">
           <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
         </div>
@@ -72,7 +72,7 @@ export default function Home() {
 
   return (
     <PricingModalProvider>
-      <div className="h-[100dvh] bg-background" style={safeAreaTopStyle}>
+      <div className="h-[100dvh] box-border bg-background overflow-hidden" style={safeAreaTopStyle}>
         <Suspense
           fallback={
             <div className="h-full flex items-center justify-center">
