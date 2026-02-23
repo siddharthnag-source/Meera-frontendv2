@@ -15,10 +15,12 @@ import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
 import { formatWhatsAppStyle, getLocalDateKeyFromTimestamp, parseTimestamp } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
+import { premiumSprings } from '@/lib/motion';
 import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
 import { useAppStore } from '@/store/appStore';
 import { ChatAttachmentFromServer, ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
+import { AnimatePresence, motion } from 'framer-motion';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiGlobe, FiMenu, FiPaperclip } from 'react-icons/fi';
 import { IoCallSharp } from 'react-icons/io5';
@@ -41,6 +43,10 @@ const JUMP_STAY_PUT_MS = 9000;
 const JUMP_MAX_WAIT_MS = 18000;
 const JUMP_RENDER_WAIT_TIMEOUT_MS = 1800;
 const IMAGE_HISTORY_PAGE_SIZE = 48;
+const STICK_TO_BOTTOM_THRESHOLD_PX = 100;
+const SCROLL_SPRING_DONE_DISTANCE_PX = 0.75;
+const SCROLL_SPRING_DONE_VELOCITY = 12;
+const SCROLL_SPRING_MAX_VELOCITY = 4200;
 
 type SidebarView = 'chat' | 'images';
 
@@ -382,6 +388,12 @@ export const Conversation: React.FC = () => {
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isJumpingRef = useRef(false);
   const suppressAutoLoadUntilRef = useRef(0);
+  const stickToBottomRef = useRef(true);
+  const isSpringScrollingRef = useRef(false);
+  const scrollSpringFrameRef = useRef<number | null>(null);
+  const scrollSpringVelocityRef = useRef(0);
+  const scrollSpringTargetRef = useRef(0);
+  const scrollSpringLastTimestampRef = useRef<number | null>(null);
 
   const supabaseUser = useAppStore((state) => state.user);
   const persistedStarredMessages = useAppStore((state) => state.starredMessages);
@@ -849,6 +861,7 @@ export const Conversation: React.FC = () => {
   );
 
   const lastMessage = chatMessages.length > 0 ? chatMessages[chatMessages.length - 1] : null;
+  const lastMessageAttachmentCount = lastMessage?.attachments?.length ?? 0;
 
   const isLatestAssistantPending = Boolean(
     isSending && lastMessage?.content_type === 'assistant' && lastMessage?.finish_reason == null,
@@ -878,18 +891,105 @@ export const Conversation: React.FC = () => {
     ],
   );
 
-  const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
-    const el = mainScrollRef.current;
-    if (!el) return;
-    if (!force) return;
-
-    requestAnimationFrame(() => {
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: smooth ? 'smooth' : 'auto',
-      });
-    });
+  const getDistanceToBottom = useCallback((el: HTMLElement): number => {
+    return Math.max(0, el.scrollHeight - el.clientHeight - el.scrollTop);
   }, []);
+
+  const cancelScrollSpring = useCallback(() => {
+    if (scrollSpringFrameRef.current !== null) {
+      cancelAnimationFrame(scrollSpringFrameRef.current);
+      scrollSpringFrameRef.current = null;
+    }
+    isSpringScrollingRef.current = false;
+    scrollSpringVelocityRef.current = 0;
+    scrollSpringLastTimestampRef.current = null;
+  }, []);
+
+  const startSpringScrollToBottom = useCallback(
+    (force: boolean = false) => {
+      const el = mainScrollRef.current;
+      if (!el) return;
+
+      const distanceToBottom = getDistanceToBottom(el);
+      const shouldAutoFollow =
+        force || stickToBottomRef.current || distanceToBottom < STICK_TO_BOTTOM_THRESHOLD_PX;
+      if (!shouldAutoFollow) return;
+
+      stickToBottomRef.current = true;
+      scrollSpringTargetRef.current = Math.max(0, el.scrollHeight - el.clientHeight);
+
+      if (scrollSpringFrameRef.current !== null) return;
+
+      isSpringScrollingRef.current = true;
+      scrollSpringLastTimestampRef.current = null;
+
+      const tick = (timestamp: number) => {
+        const container = mainScrollRef.current;
+        if (!container) {
+          cancelScrollSpring();
+          return;
+        }
+
+        const dt =
+          scrollSpringLastTimestampRef.current == null
+            ? 1 / 60
+            : Math.min((timestamp - scrollSpringLastTimestampRef.current) / 1000, 0.064);
+        scrollSpringLastTimestampRef.current = timestamp;
+
+        // Keep chasing the live bottom while streaming deltas arrive.
+        const liveBottom = Math.max(0, container.scrollHeight - container.clientHeight);
+        scrollSpringTargetRef.current = Math.max(scrollSpringTargetRef.current, liveBottom);
+
+        const displacement = scrollSpringTargetRef.current - container.scrollTop;
+        const stiffness = premiumSprings.snappy.stiffness ?? 480;
+        const damping = premiumSprings.snappy.damping ?? 36;
+        const mass = premiumSprings.snappy.mass ?? 1;
+
+        const acceleration = (stiffness * displacement - damping * scrollSpringVelocityRef.current) / mass;
+        scrollSpringVelocityRef.current += acceleration * dt;
+        scrollSpringVelocityRef.current = Math.max(
+          -SCROLL_SPRING_MAX_VELOCITY,
+          Math.min(SCROLL_SPRING_MAX_VELOCITY, scrollSpringVelocityRef.current),
+        );
+
+        const nextPosition = container.scrollTop + scrollSpringVelocityRef.current * dt;
+        container.scrollTop = Math.max(0, Math.min(scrollSpringTargetRef.current, nextPosition));
+
+        const remainingDistance = Math.abs(scrollSpringTargetRef.current - container.scrollTop);
+        const isSettled =
+          remainingDistance < SCROLL_SPRING_DONE_DISTANCE_PX &&
+          Math.abs(scrollSpringVelocityRef.current) < SCROLL_SPRING_DONE_VELOCITY;
+
+        if (isSettled) {
+          container.scrollTop = scrollSpringTargetRef.current;
+          cancelScrollSpring();
+          return;
+        }
+
+        scrollSpringFrameRef.current = requestAnimationFrame(tick);
+      };
+
+      scrollSpringFrameRef.current = requestAnimationFrame(tick);
+    },
+    [cancelScrollSpring, getDistanceToBottom],
+  );
+
+  const scrollToBottom = useCallback(
+    (smooth: boolean = true, force: boolean = false) => {
+      const el = mainScrollRef.current;
+      if (!el) return;
+
+      if (!smooth) {
+        cancelScrollSpring();
+        el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        stickToBottomRef.current = true;
+        return;
+      }
+
+      startSpringScrollToBottom(force);
+    },
+    [cancelScrollSpring, startSpringScrollToBottom],
+  );
 
   useEffect(() => {
     const email = supabaseUser?.email;
@@ -1326,6 +1426,10 @@ export const Conversation: React.FC = () => {
 
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       setIsUserNearTop(scrollTop < SCROLL_THRESHOLD);
+      const distanceToBottom = Math.max(0, scrollHeight - clientHeight - scrollTop);
+      if (!isSpringScrollingRef.current) {
+        stickToBottomRef.current = distanceToBottom < STICK_TO_BOTTOM_THRESHOLD_PX;
+      }
       const isAutoLoadSuppressed =
         isJumpingRef.current || Date.now() < suppressAutoLoadUntilRef.current;
 
@@ -1581,6 +1685,82 @@ export const Conversation: React.FC = () => {
   }, [chatMessages, scrollToBottom]);
 
   useEffect(() => {
+    if (activeSidebarView === 'images') {
+      cancelScrollSpring();
+      return;
+    }
+
+    const el = mainScrollRef.current;
+    if (!el || chatMessages.length === 0) return;
+
+    const distanceToBottom = getDistanceToBottom(el);
+    const shouldFollow = stickToBottomRef.current || distanceToBottom < STICK_TO_BOTTOM_THRESHOLD_PX;
+    if (!shouldFollow) return;
+
+    stickToBottomRef.current = true;
+    startSpringScrollToBottom();
+  }, [
+    activeSidebarView,
+    cancelScrollSpring,
+    chatMessages.length,
+    getDistanceToBottom,
+    lastMessage?.content,
+    lastMessage?.finish_reason,
+    lastMessage?.message_id,
+    lastMessageAttachmentCount,
+    startSpringScrollToBottom,
+  ]);
+
+  useEffect(() => {
+    if (activeSidebarView === 'images') return;
+
+    const container = mainScrollRef.current;
+    if (!container) return;
+
+    const releaseAutoFollow = () => {
+      const el = mainScrollRef.current;
+      if (!el) return;
+
+      if (getDistanceToBottom(el) >= STICK_TO_BOTTOM_THRESHOLD_PX) {
+        stickToBottomRef.current = false;
+      }
+      cancelScrollSpring();
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) {
+        releaseAutoFollow();
+      }
+    };
+
+    const handleTouchMove = () => {
+      releaseAutoFollow();
+    };
+
+    const handlePointerDown = () => {
+      cancelScrollSpring();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home') {
+        releaseAutoFollow();
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: true });
+    container.addEventListener('pointerdown', handlePointerDown, { passive: true });
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [activeSidebarView, cancelScrollSpring, getDistanceToBottom]);
+
+  useEffect(() => {
     handleResize();
     window.addEventListener('resize', debouncedHandleResize);
     const cleanup = () => window.removeEventListener('resize', debouncedHandleResize);
@@ -1605,10 +1785,11 @@ export const Conversation: React.FC = () => {
       cleanupFunctions.current.forEach((cleanup) => cleanup());
       cleanupFunctions.current = [];
       requestCache.current.clear();
+      cancelScrollSpring();
 
       currentAttachments.forEach((att) => att.previewUrl && URL.revokeObjectURL(att.previewUrl));
     };
-  }, [fetchState.abortController, currentAttachments]);
+  }, [cancelScrollSpring, fetchState.abortController, currentAttachments]);
 
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -1815,18 +1996,90 @@ export const Conversation: React.FC = () => {
                       )}
 
                       <div className="messages-container min-w-0">
-                        {messages.map((item) => {
-                          if (item.type === 'call_session') {
-                            const isHighlightedCallSession = item.messages.some(
-                              (message) => message.message_id === highlightedMessageId,
-                            );
+                        <AnimatePresence initial={false} mode="popLayout">
+                          {messages.map((item) => {
+                            if (item.type === 'call_session') {
+                              const isHighlightedCallSession = item.messages.some(
+                                (message) => message.message_id === highlightedMessageId,
+                              );
+
+                              return (
+                                <motion.div
+                                  key={item.id}
+                                  layout="position"
+                                  initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                                  exit={{ opacity: 0, y: -10, scale: 0.98 }}
+                                  transition={premiumSprings.snappy}
+                                  className="relative"
+                                  style={
+                                    isHighlightedCallSession
+                                      ? {
+                                          backgroundColor: 'color-mix(in oklab, var(--primary) 12%, transparent)',
+                                          boxShadow: '0 0 0 1px color-mix(in oklab, var(--primary) 30%, transparent)',
+                                          borderRadius: '12px',
+                                          transition: 'background-color 240ms ease, box-shadow 240ms ease',
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  {item.messages.map((message) => (
+                                    <span
+                                      key={message.message_id}
+                                      id={`message-${message.message_id}`}
+                                      className="absolute left-0 top-0 h-px w-px opacity-0 pointer-events-none"
+                                      aria-hidden="true"
+                                    />
+                                  ))}
+                                  <MemoizedCallSessionItem messages={item.messages} />
+                                </motion.div>
+                              );
+                            }
+
+                            const msg = item.message;
+                            const isStreamingMessage =
+                              isSending &&
+                              msg.content_type === 'assistant' &&
+                              msg.message_id === lastMessage?.message_id &&
+                              msg.finish_reason == null;
+
+                            const isLastFailedMessage = msg.message_id === lastFailedMessageId;
+
+                            const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
+                            const effectiveThoughtText = currentThoughtText || storedThoughts || undefined;
+
+                            const shouldShowTypingIndicator =
+                              msg.content_type === 'assistant' &&
+                              msg.message_id === lastMessage?.message_id &&
+                              isAssistantTyping &&
+                              (msg.content ?? '').length === 0;
+
+                            const isLatestUserMessage =
+                              msg.content_type === 'user' && msg.message_id === lastOptimisticMessageIdRef.current;
+
+                            const isLatestAssistantMessage =
+                              msg.content_type === 'assistant' && msg.message_id === getMostRecentAssistantMessageId();
 
                             return (
-                              <div
-                                key={item.id}
-                                className="relative"
+                              <motion.div
+                                id={`message-${msg.message_id}`}
+                                data-content-type={msg.content_type}
+                                key={msg.message_id}
+                                layout="position"
+                                initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: -10, scale: 0.98 }}
+                                transition={premiumSprings.snappy}
+                                ref={
+                                  isLatestUserMessage
+                                    ? latestUserMessageRef
+                                    : isLatestAssistantMessage
+                                      ? latestAssistantMessageRef
+                                      : null
+                                }
+                                className="message-item-wrapper w-full min-w-0 transform-gpu will-change-transform"
                                 style={
-                                  isHighlightedCallSession
+                                  highlightedMessageId === msg.message_id
                                     ? {
                                         backgroundColor: 'color-mix(in oklab, var(--primary) 12%, transparent)',
                                         boxShadow: '0 0 0 1px color-mix(in oklab, var(--primary) 30%, transparent)',
@@ -1836,82 +2089,22 @@ export const Conversation: React.FC = () => {
                                     : undefined
                                 }
                               >
-                                {item.messages.map((message) => (
-                                  <span
-                                    key={message.message_id}
-                                    id={`message-${message.message_id}`}
-                                    className="absolute left-0 top-0 h-px w-px opacity-0 pointer-events-none"
-                                    aria-hidden="true"
-                                  />
-                                ))}
-                                <MemoizedCallSessionItem messages={item.messages} />
-                              </div>
+                                <MemoizedRenderedMessageItem
+                                  message={msg}
+                                  isStreaming={isStreamingMessage}
+                                  onRetry={handleRetryMessage}
+                                  onToggleStar={toggleStarForMessage}
+                                  isStarred={starredMessageIdSet.has(msg.message_id)}
+                                  isLastFailedMessage={isLastFailedMessage}
+                                  showTypingIndicator={shouldShowTypingIndicator}
+                                  thoughtText={effectiveThoughtText}
+                                  hasMinHeight={isLatestAssistantMessage}
+                                  dynamicMinHeight={dynamicMinHeight}
+                                />
+                              </motion.div>
                             );
-                          }
-
-                          const msg = item.message;
-                          const isStreamingMessage =
-                            isSending &&
-                            msg.content_type === 'assistant' &&
-                            msg.message_id === lastMessage?.message_id &&
-                            msg.finish_reason == null;
-
-                          const isLastFailedMessage = msg.message_id === lastFailedMessageId;
-
-                          const storedThoughts = (msg as unknown as { thoughts?: string }).thoughts;
-                          const effectiveThoughtText = currentThoughtText || storedThoughts || undefined;
-
-                          const shouldShowTypingIndicator =
-                            msg.content_type === 'assistant' &&
-                            msg.message_id === lastMessage?.message_id &&
-                            isAssistantTyping &&
-                            (msg.content ?? '').length === 0;
-
-                          const isLatestUserMessage =
-                            msg.content_type === 'user' && msg.message_id === lastOptimisticMessageIdRef.current;
-
-                          const isLatestAssistantMessage =
-                            msg.content_type === 'assistant' && msg.message_id === getMostRecentAssistantMessageId();
-
-                          return (
-                            <div
-                              id={`message-${msg.message_id}`}
-                              data-content-type={msg.content_type}
-                              key={msg.message_id}
-                              ref={
-                                isLatestUserMessage
-                                  ? latestUserMessageRef
-                                  : isLatestAssistantMessage
-                                    ? latestAssistantMessageRef
-                                    : null
-                              }
-                              className="message-item-wrapper w-full min-w-0 transform-gpu will-change-transform"
-                              style={
-                                highlightedMessageId === msg.message_id
-                                  ? {
-                                      backgroundColor: 'color-mix(in oklab, var(--primary) 12%, transparent)',
-                                      boxShadow: '0 0 0 1px color-mix(in oklab, var(--primary) 30%, transparent)',
-                                      borderRadius: '12px',
-                                      transition: 'background-color 240ms ease, box-shadow 240ms ease',
-                                    }
-                                  : undefined
-                              }
-                            >
-                              <MemoizedRenderedMessageItem
-                                message={msg}
-                                isStreaming={isStreamingMessage}
-                                onRetry={handleRetryMessage}
-                                onToggleStar={toggleStarForMessage}
-                                isStarred={starredMessageIdSet.has(msg.message_id)}
-                                isLastFailedMessage={isLastFailedMessage}
-                                showTypingIndicator={shouldShowTypingIndicator}
-                                thoughtText={effectiveThoughtText}
-                                hasMinHeight={isLatestAssistantMessage}
-                                dynamicMinHeight={dynamicMinHeight}
-                              />
-                            </div>
-                          );
-                        })}
+                          })}
+                        </AnimatePresence>
                       </div>
                     </div>
                   );
