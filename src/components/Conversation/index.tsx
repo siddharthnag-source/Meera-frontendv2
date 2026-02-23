@@ -34,7 +34,6 @@ const FETCH_DEBOUNCE_MS = 300;
 const SCROLL_THROTTLE_MS = 16; // 60fps
 const INPUT_DEBOUNCE_MS = 16;
 const RESIZE_DEBOUNCE_MS = 100;
-const KEYBOARD_OPEN_DELTA_PX = 150;
 const JUMP_DOM_POLL_INTERVAL_MS = 250;
 const JUMP_MAX_PAGE_LOADS = 200;
 const JUMP_SUPPRESS_AUTOLOAD_MS = 1400;
@@ -331,7 +330,6 @@ export const Conversation: React.FC = () => {
 
   const [showSupportPanel, setShowSupportPanel] = useState(false);
   const [showMeeraVoice, setShowMeeraVoice] = useState(false);
-  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   const [legacyUserId, setLegacyUserId] = useState<string | null>(null);
   const [hasLoadedLegacyHistory, setHasLoadedLegacyHistory] = useState(false);
@@ -388,7 +386,6 @@ export const Conversation: React.FC = () => {
   const shouldInitialBottomSnapRef = useRef(false);
   const hasInitialBottomSnapRef = useRef(false);
   const initialBottomLockUntilRef = useRef(0);
-  const keyboardViewportBaseHeightRef = useRef<number | null>(null);
 
   const supabaseUser = useAppStore((state) => state.user);
   const persistedStarredMessages = useAppStore((state) => state.starredMessages);
@@ -1626,38 +1623,6 @@ export const Conversation: React.FC = () => {
   }, [mergeGalleryItems, mergeMessagesIntoState, removeStarredMessage, supabaseUserId, upsertStarredMessage]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.visualViewport) return;
-    const visualViewport = window.visualViewport;
-
-    // iOS PWA keyboard doesn't update safe-area insets; detect keyboard explicitly.
-    const updateKeyboardState = () => {
-      const currentHeight = visualViewport.height;
-      const baseHeight = keyboardViewportBaseHeightRef.current ?? currentHeight;
-      const keyboardDelta = baseHeight - currentHeight;
-      const keyboardOpen = keyboardDelta > KEYBOARD_OPEN_DELTA_PX;
-
-      setIsKeyboardOpen(keyboardOpen);
-
-      if (!keyboardOpen && currentHeight >= baseHeight - 1) {
-        keyboardViewportBaseHeightRef.current = currentHeight;
-      }
-    };
-
-    keyboardViewportBaseHeightRef.current = visualViewport.height;
-    updateKeyboardState();
-
-    visualViewport.addEventListener('resize', updateKeyboardState);
-    visualViewport.addEventListener('scroll', updateKeyboardState);
-    window.addEventListener('orientationchange', updateKeyboardState);
-
-    return () => {
-      visualViewport.removeEventListener('resize', updateKeyboardState);
-      visualViewport.removeEventListener('scroll', updateKeyboardState);
-      window.removeEventListener('orientationchange', updateKeyboardState);
-    };
-  }, []);
-
-  useEffect(() => {
     if (justSentMessageRef.current) {
       scrollToBottom(true, true);
       justSentMessageRef.current = false;
@@ -2017,12 +1982,7 @@ export const Conversation: React.FC = () => {
         ) : null}
 
         {!isImagesView ? (
-        <footer
-          ref={footerRef}
-          className={`w-full z-40 p-2 md:pr-[13px] bg-background ${
-            isKeyboardOpen ? 'pb-0' : 'pb-[calc(env(safe-area-inset-bottom)+0.5rem)]'
-          }`}
-        >
+        <footer ref={footerRef} className="w-full z-40 px-2 pt-2 pb-0 md:pr-[13px] bg-background">
           <div className="relative">
             <div className="absolute bottom-full left-0 right-0 flex flex-col items-center mb-2">
               {!isSubscriptionLoading &&

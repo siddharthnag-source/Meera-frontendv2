@@ -201,7 +201,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
 
-            <div className="px-3 py-2 border-t border-primary/15">
+            <div className="px-3 pt-2 pb-0 md:py-2 border-t border-primary/15">
               <button
                 type="button"
                 onClick={() => setIsProfileOpen((prev) => !prev)}
@@ -312,7 +312,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
 
-            <div className="px-3 py-2 border-t border-primary/15 shrink-0">
+            <div className="px-3 pt-2 pb-0 md:py-2 border-t border-primary/15 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsProfileOpen((prev) => !prev)}
