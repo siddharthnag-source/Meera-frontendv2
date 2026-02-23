@@ -2,6 +2,7 @@
 
 import { paymentService } from '@/app/api/services/payment';
 import { trackingService } from '@/app/api/services/tracking';
+import { premiumTransitions } from '@/lib/motion';
 import { SUBSCRIPTION_QUERY_KEY } from '@/hooks/useSubscriptionStatus';
 import type { CashfreeInstance, PlanType, PricingModalProps, PricingModalSource } from '@/types/pricing';
 import { load } from '@cashfreepayments/cashfree-js';
@@ -320,11 +321,15 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
   };
 
   return (
-    <AnimatePresence>
+    <AnimatePresence initial={false}>
       {isOpen && (
         <>
           {/* Backdrop */}
-          <div
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={premiumTransitions.backdrop}
             className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[9998]"
             onClick={isClosable ? onClose : undefined}
           />
@@ -334,6 +339,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
             initial={{ opacity: 0, y: '100%' }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: '100%' }}
+            transition={premiumTransitions.sheet}
             className="fixed z-[9999] bottom-0 left-0 right-0 h-[91%] rounded-t-3xl
                        sm:fixed sm:inset-0 sm:m-auto sm:w-[580px] sm:h-[700px] sm:rounded-3xl
                        px-8 py-8 md:px-20 md:py-12"

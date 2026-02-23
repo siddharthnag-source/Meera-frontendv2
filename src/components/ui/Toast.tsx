@@ -1,4 +1,6 @@
+import { premiumTransitions } from '@/lib/motion';
 import type { ToastTypeStyles } from '@/types/components';
+import { AnimatePresence, motion } from 'framer-motion';
 import React from 'react';
 import { useToast } from './ToastProvider';
 
@@ -30,16 +32,23 @@ export const Toast = ({ position, className }: ToastProps) => {
 
   return (
     <div className={containerClassName}>
-      {toastsForPosition.map((toastData) => (
-        <div
-          key={toastData.id}
-          className={`px-4 py-2 rounded-md border bg-[#E7E5DA] backdrop-blur-sm shadow-md text-dark break-words ${
-            typeStyles[toastData.type || 'info']
-          }`}
-        >
-          <span className="text-sm">{toastData.message}</span>
-        </div>
-      ))}
+      <AnimatePresence initial={false}>
+        {toastsForPosition.map((toastData) => (
+          <motion.div
+            key={toastData.id}
+            layout
+            initial={{ opacity: 0, y: -10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={premiumTransitions.pop}
+            className={`px-4 py-2 rounded-md border bg-[#E7E5DA] backdrop-blur-sm shadow-md text-primary break-words ${
+              typeStyles[toastData.type || 'info']
+            }`}
+          >
+            <span className="text-sm">{toastData.message}</span>
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 };

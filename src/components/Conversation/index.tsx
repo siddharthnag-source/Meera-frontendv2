@@ -1928,12 +1928,12 @@ export const Conversation: React.FC = () => {
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >
           <div className="relative">
-            <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
+            <div className="absolute bottom-full left-0 right-0 flex flex-col items-center mb-2">
               {!isSubscriptionLoading &&
                 !isSubscriptionError &&
                 subscriptionData?.plan_type === 'paid' &&
                 !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
-                  <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
+                  <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-primary break-words border-red-500">
                     <span className="text-sm">
                       Your subscription has expired.{' '}
                       <span
@@ -1951,7 +1951,7 @@ export const Conversation: React.FC = () => {
                 subscriptionData?.plan_type !== 'paid' &&
                 subscriptionData?.tokens_left != null &&
                 subscriptionData.tokens_left <= 5000 && (
-                  <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-primary">
+                  <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-primary break-words border-primary">
                     <span className="text-sm">You have {subscriptionData?.tokens_left} tokens left. </span>
                     <span
                       className="text-primary font-medium cursor-pointer underline"
@@ -1962,7 +1962,7 @@ export const Conversation: React.FC = () => {
                   </div>
                 )}
 
-              <div className="w-full pt-1 flex justify_center">
+              <div className="w-full pt-1 flex justify-center">
                 <Toast position="conversation" />
               </div>
             </div>

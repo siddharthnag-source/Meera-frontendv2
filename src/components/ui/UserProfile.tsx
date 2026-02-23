@@ -5,6 +5,7 @@ import { usePricingModal } from '@/contexts/PricingModalContext';
 // import { usePWAInstall } from '@/contexts/PWAInstallContext';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
+import { premiumTransitions } from '@/lib/motion';
 import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
@@ -19,20 +20,6 @@ interface UserProfileProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-// Faster transitions for improved UX
-const TRANSITIONS = {
-  backdrop: { duration: 0.2 },
-  slide: {
-    type: 'tween' as const,
-    duration: 0.2,
-    ease: 'easeInOut',
-  },
-  panel: {
-    type: 'tween' as const,
-    duration: 0.3,
-  },
-};
 
 export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
   const searchParams = useSearchParams();
@@ -97,7 +84,7 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
 
   return (
     <>
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {isOpen && (
           <>
             {/* Backdrop */}
@@ -105,7 +92,7 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={TRANSITIONS.backdrop}
+              transition={premiumTransitions.backdrop}
               onClick={onClose}
               className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[50]"
             />
@@ -115,7 +102,7 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
-              transition={TRANSITIONS.panel}
+              transition={premiumTransitions.panel}
               className="fixed z-[50] bg-background flex flex-col
                 inset-0 
                 md:inset-auto md:top-0 md:left-0 md:bottom-0 

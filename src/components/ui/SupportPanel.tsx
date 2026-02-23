@@ -1,5 +1,6 @@
 'use client';
 
+import { premiumTransitions } from '@/lib/motion';
 import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
 import { MdKeyboardArrowRight } from 'react-icons/md';
@@ -8,14 +9,6 @@ interface SupportPanelProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-const TRANSITIONS = {
-  backdrop: { duration: 0.2 },
-  panel: {
-    type: 'tween' as const,
-    duration: 0.3,
-  },
-};
 
 export const SupportPanel = ({ isOpen, onClose }: SupportPanelProps) => {
   const supportItems: Array<{ label: string; onClick: () => void }> = [
@@ -40,14 +33,14 @@ export const SupportPanel = ({ isOpen, onClose }: SupportPanelProps) => {
   ];
 
   return (
-    <AnimatePresence>
+    <AnimatePresence initial={false}>
       {isOpen && (
         <>
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={TRANSITIONS.backdrop}
+            transition={premiumTransitions.backdrop}
             onClick={onClose}
             className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[50]"
           />
@@ -56,7 +49,7 @@ export const SupportPanel = ({ isOpen, onClose }: SupportPanelProps) => {
             initial={{ x: '-100%' }}
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
-            transition={TRANSITIONS.panel}
+            transition={premiumTransitions.panel}
             className="fixed z-[50] bg-background flex flex-col inset-0 md:inset-auto md:top-0 md:left-0 md:bottom-0 w-full xl:w-[30%] md:border-r md:border-primary/20"
           >
             <div className="flex flex-col h-full overflow-hidden">

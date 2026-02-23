@@ -2,6 +2,8 @@
 
 import { ChatMessageFromServer } from '@/types/chat';
 import type { SubscriptionData } from '@/types/subscription';
+import { premiumTransitions } from '@/lib/motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
 import React, { useCallback, useMemo, useState } from 'react';
 import { FiImage } from 'react-icons/fi';
@@ -131,101 +133,121 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onSignOut();
   }, [isMobileOpen, onCloseMobile, onSignOut]);
 
-  if (!isVisible && !isMobileOpen) return null;
-
   return (
     <>
-      <aside className={`${isVisible ? 'hidden md:flex' : 'hidden'} fixed left-0 top-0 h-screen z-40 bg-background border-r border-primary/15 flex-col w-[260px]`}>
-        <div className="px-4 pt-3 pb-1">
-          <div className="flex items-center justify-end">
-            <button
-              type="button"
-              onClick={onToggleSidebar}
-              className="w-7 h-7 rounded-md text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors flex items-center justify-center"
-              aria-label="Collapse sidebar"
-              title="Collapse sidebar"
-            >
-              <TbLayoutSidebarLeftCollapse size={17} />
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleToggleImagesView}
-            className={`mt-2 w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-[15px] font-semibold transition-colors ${
-              activeView === 'images'
-                ? 'bg-primary/10 text-primary'
-                : 'text-primary hover:bg-primary/10'
-            }`}
-            aria-label="Open images"
+      <AnimatePresence initial={false}>
+        {isVisible ? (
+          <motion.aside
+            initial={{ x: -24, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -24, opacity: 0 }}
+            transition={premiumTransitions.panel}
+            className="hidden md:flex fixed left-0 top-0 h-screen z-40 bg-background border-r border-primary/15 flex-col w-[260px]"
           >
-            <FiImage size={17} />
-            <span>Images</span>
-          </button>
-        </div>
+            <div className="px-4 pt-3 pb-1">
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={onToggleSidebar}
+                  className="w-7 h-7 rounded-md text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors flex items-center justify-center"
+                  aria-label="Collapse sidebar"
+                  title="Collapse sidebar"
+                >
+                  <TbLayoutSidebarLeftCollapse size={17} />
+                </button>
+              </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          {starredGroups.length === 0 ? (
-            <p className="text-primary/55 text-sm px-2">No starred messages</p>
-          ) : (
-            <div className="space-y-5">
-              {starredGroups.map(([label, messages]) => (
-                <div key={label}>
-                  <p className="text-xs font-medium text-primary/45 mb-2 px-2">{label}</p>
-                  <div className="space-y-1">
-                    {messages.map((message) => (
-                      <SidebarItem
-                        key={message.message_id}
-                        message={message}
-                        onSelect={handleSelectStarredMessage}
-                      />
-                    ))}
-                  </div>
+              <button
+                type="button"
+                onClick={handleToggleImagesView}
+                className={`mt-2 w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-[15px] font-semibold transition-colors ${
+                  activeView === 'images'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-primary hover:bg-primary/10'
+                }`}
+                aria-label="Open images"
+              >
+                <FiImage size={17} />
+                <span>Images</span>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4">
+              {starredGroups.length === 0 ? (
+                <p className="text-primary/55 text-sm px-2">No starred messages</p>
+              ) : (
+                <div className="space-y-5">
+                  {starredGroups.map(([label, messages]) => (
+                    <div key={label}>
+                      <p className="text-xs font-medium text-primary/45 mb-2 px-2">{label}</p>
+                      <div className="space-y-1">
+                        {messages.map((message) => (
+                          <SidebarItem
+                            key={message.message_id}
+                            message={message}
+                            onSelect={handleSelectStarredMessage}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          )}
-        </div>
 
-        <div className="px-3 py-2 border-t border-primary/15">
-          <button
-            type="button"
-            onClick={() => setIsProfileOpen((prev) => !prev)}
-            className="w-full flex items-center rounded-xl px-2 py-1 hover:bg-primary/10 transition-colors cursor-pointer gap-2"
-            aria-label="Open profile menu"
-          >
-            {userAvatar ? (
-              <Image
-                src={userAvatar}
-                alt={displayName}
-                width={32}
-                height={32}
-                className="w-8 h-8 rounded-full object-cover border border-primary/20"
-              />
-            ) : (
-              <span className="w-8 h-8 rounded-full border border-primary/20 bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">
-                {profileInitial}
-              </span>
-            )}
-            <div className="min-w-0 text-left leading-tight">
-              <p className="text-sm text-primary truncate">{displayName}</p>
-              {displayEmail ? <p className="text-xs text-primary/60 truncate">{displayEmail}</p> : null}
+            <div className="px-3 py-2 border-t border-primary/15">
+              <button
+                type="button"
+                onClick={() => setIsProfileOpen((prev) => !prev)}
+                className="w-full flex items-center rounded-xl px-2 py-1 hover:bg-primary/10 transition-colors cursor-pointer gap-2"
+                aria-label="Open profile menu"
+              >
+                {userAvatar ? (
+                  <Image
+                    src={userAvatar}
+                    alt={displayName}
+                    width={32}
+                    height={32}
+                    className="w-8 h-8 rounded-full object-cover border border-primary/20"
+                  />
+                ) : (
+                  <span className="w-8 h-8 rounded-full border border-primary/20 bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">
+                    {profileInitial}
+                  </span>
+                )}
+                <div className="min-w-0 text-left leading-tight">
+                  <p className="text-sm text-primary truncate">{displayName}</p>
+                  {displayEmail ? <p className="text-xs text-primary/60 truncate">{displayEmail}</p> : null}
+                </div>
+              </button>
             </div>
-          </button>
-        </div>
-      </aside>
+          </motion.aside>
+        ) : null}
+      </AnimatePresence>
 
-      {isMobileOpen ? (
-        <div className="md:hidden fixed inset-0 z-50">
-          <button
+      <AnimatePresence initial={false}>
+        {isMobileOpen ? (
+          <motion.button
             type="button"
             onClick={onCloseMobile}
-            className="absolute inset-0 bg-black/25"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={premiumTransitions.backdrop}
+            className="md:hidden fixed inset-0 z-50 bg-black/25"
             aria-label="Close sidebar backdrop"
           />
+        ) : null}
+      </AnimatePresence>
 
-          <aside
-            className="absolute left-0 top-0 h-[100dvh] max-h-[100dvh] w-[84vw] max-w-[320px] bg-background border-r border-primary/15 flex flex-col shadow-xl"
+      <AnimatePresence initial={false}>
+        {isMobileOpen ? (
+          <motion.aside
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '-100%' }}
+            transition={premiumTransitions.drawer}
+            className="md:hidden fixed left-0 top-0 z-[51] h-[100dvh] max-h-[100dvh] w-[84vw] max-w-[320px] bg-background border-r border-primary/15 flex flex-col shadow-xl"
             style={{
               paddingTop: 'env(safe-area-inset-top)',
               paddingBottom: 'env(safe-area-inset-bottom)',
@@ -310,9 +332,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </button>
             </div>
-          </aside>
-        </div>
-      ) : null}
+          </motion.aside>
+        ) : null}
+      </AnimatePresence>
 
       <ProfileMenu
         isOpen={isProfileOpen}

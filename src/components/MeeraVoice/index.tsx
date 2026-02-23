@@ -8,6 +8,7 @@ import { UserProfile } from '@/components/ui/UserProfile';
 import { VoiceIndicator } from '@/components/VoiceIndicator';
 import { useLiveAPIContext } from '@/contexts/LiveAPIContext';
 import { usePricingModal } from '@/contexts/PricingModalContext';
+import { premiumTransitions } from '@/lib/motion';
 import { useMediaStreamMux } from '@/hooks/use-media-stream-mux';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { PricingModalSource } from '@/types/pricing';
@@ -568,11 +569,7 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{
-            type: 'tween',
-            duration: 0.3,
-            ease: 'easeInOut',
-          }}
+          transition={premiumTransitions.fade}
           className="fixed inset-0 z-50 bg-background"
         >
           <main className={`h-[100dvh] bg-background flex flex-col relative ${className}`}>
