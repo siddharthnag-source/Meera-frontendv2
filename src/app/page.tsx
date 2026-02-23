@@ -51,6 +51,32 @@ export default function Home() {
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const root = document.documentElement;
+    const viewport = window.visualViewport;
+
+    // Keep the app shell pinned to the real visible viewport in mobile/PWA + keyboard transitions.
+    const updateAppViewportHeight = () => {
+      const nextHeight = viewport ? viewport.height + viewport.offsetTop : window.innerHeight;
+      root.style.setProperty('--app-vh', `${Math.round(nextHeight)}px`);
+    };
+
+    updateAppViewportHeight();
+
+    window.addEventListener('resize', updateAppViewportHeight);
+    window.addEventListener('orientationchange', updateAppViewportHeight);
+    viewport?.addEventListener('resize', updateAppViewportHeight);
+    viewport?.addEventListener('scroll', updateAppViewportHeight);
+
+    return () => {
+      window.removeEventListener('resize', updateAppViewportHeight);
+      window.removeEventListener('orientationchange', updateAppViewportHeight);
+      viewport?.removeEventListener('resize', updateAppViewportHeight);
+      viewport?.removeEventListener('scroll', updateAppViewportHeight);
+    };
+  }, []);
+
   // Main rule: if not logged in, go to sign-in
   useEffect(() => {
     if (sessionStatus === 'unauthenticated') {
@@ -61,7 +87,7 @@ export default function Home() {
   // While checking session, show loader
   if (sessionStatus !== 'authenticated') {
     return (
-      <div className="h-[100dvh] box-border bg-background overflow-hidden">
+      <div className="box-border bg-background overflow-hidden" style={{ height: 'var(--app-vh, 100vh)' }}>
         <div className="h-full flex items-center justify-center">
           <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
         </div>
@@ -71,7 +97,7 @@ export default function Home() {
 
   return (
     <PricingModalProvider>
-      <div className="h-[100dvh] box-border bg-background overflow-hidden">
+      <div className="box-border bg-background overflow-hidden" style={{ height: 'var(--app-vh, 100vh)' }}>
         <Suspense
           fallback={
             <div className="h-full flex items-center justify-center">

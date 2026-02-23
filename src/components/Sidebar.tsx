@@ -253,10 +253,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
             transition={premiumTransitions.drawer}
-            className="md:hidden fixed left-0 top-0 z-[51] h-[100dvh] max-h-[100dvh] w-[84vw] max-w-[320px] bg-background border-r border-primary/15 flex flex-col shadow-xl"
+            className="md:hidden fixed left-0 top-0 z-[51] w-[84vw] max-w-[320px] bg-background border-r border-primary/15 flex flex-col shadow-xl"
             style={{
               paddingTop: 'env(safe-area-inset-top)',
               paddingBottom: 0,
+              height: 'var(--app-vh, 100vh)',
+              maxHeight: 'var(--app-vh, 100vh)',
             }}
           >
             <div className="px-4 pt-1 pb-1">

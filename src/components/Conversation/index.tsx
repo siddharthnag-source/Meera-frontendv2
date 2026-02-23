@@ -1805,7 +1805,7 @@ export const Conversation: React.FC = () => {
             className={
               isImagesView
                 ? 'px-2 sm:px-0 py-6 w-full min-w-0 max-w-full sm:max-w-5xl xl:max-w-6xl mx-auto'
-                : 'px-2 sm:px-0 py-6 w-full min-w-0 max-w-full sm:max-w-2xl md:max-w-3xl mx-auto'
+                : 'px-2 sm:px-0 pt-6 pb-0 w-full min-w-0 max-w-full sm:max-w-2xl md:max-w-3xl mx-auto'
             }
           >
             {isImagesView ? (
@@ -1982,7 +1982,7 @@ export const Conversation: React.FC = () => {
         ) : null}
 
         {!isImagesView ? (
-        <footer ref={footerRef} className="w-full z-40 px-2 pt-2 pb-0 md:pr-[13px] bg-background">
+        <footer ref={footerRef} className="w-full z-40 shrink-0 px-2 pt-0 pb-0 md:pr-[13px] bg-background">
           <div className="relative">
             <div className="absolute bottom-full left-0 right-0 flex flex-col items-center mb-2">
               {!isSubscriptionLoading &&

@@ -6,6 +6,7 @@
   --primary-light: #acb7a9;
   --secondary: #6b7280;
   --card: #ffffff;
+  --app-vh: 100vh;
 }
 
 [data-theme='dark'] {
