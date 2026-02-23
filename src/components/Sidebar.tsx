@@ -259,7 +259,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               paddingBottom: 0,
             }}
           >
-            <div className="px-4 pt-3 pb-1">
+            <div className="px-4 pt-1 pb-1">
               <div className="flex items-center justify-end">
                 <button
                   type="button"

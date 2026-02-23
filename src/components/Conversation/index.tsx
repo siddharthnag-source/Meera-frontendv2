@@ -1785,6 +1785,7 @@ export const Conversation: React.FC = () => {
         <header
           ref={headerRef}
           className="pt-4 pb-2 px-4 md:px-12 w-full z-30 bg-background backdrop-blur-md border-b border-primary/20"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}
         >
           <div className="w-full mx-auto flex items-center justify-between">
             <button
@@ -2046,7 +2047,7 @@ export const Conversation: React.FC = () => {
               </div>
             </div>
 
-            <form onSubmit={handleFormSubmit} className="w-full max-w-3xl mx-auto bg-transparent mt-[-25px]">
+            <form onSubmit={handleFormSubmit} className="w-full max-w-3xl mx-auto bg-transparent mt-0 md:mt-[-25px]">
               <div className="flex flex-col rounded-3xl bg-card backdrop-blur-md border border-primary/20 shadow-lg transition-all duration-200 transform-gpu will-change-transform">
                 {currentAttachments.length > 0 && (
                   <div className="flex flex-wrap gap-2 px-4 pt-2.5 pb-1">

@@ -13,7 +13,6 @@ export default function Home() {
   const { data: subscriptionData, isLoading: isLoadingSubscription } = useSubscriptionStatus();
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>('loading');
   const router = useRouter();
-  const safeAreaTopStyle: React.CSSProperties = { paddingTop: 'env(safe-area-inset-top)' };
 
   // Track Supabase session
   useEffect(() => {
@@ -62,7 +61,7 @@ export default function Home() {
   // While checking session, show loader
   if (sessionStatus !== 'authenticated') {
     return (
-      <div className="h-[100dvh] box-border bg-background overflow-hidden" style={safeAreaTopStyle}>
+      <div className="h-[100dvh] box-border bg-background overflow-hidden">
         <div className="h-full flex items-center justify-center">
           <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
         </div>
@@ -72,7 +71,7 @@ export default function Home() {
 
   return (
     <PricingModalProvider>
-      <div className="h-[100dvh] box-border bg-background overflow-hidden" style={safeAreaTopStyle}>
+      <div className="h-[100dvh] box-border bg-background overflow-hidden">
         <Suspense
           fallback={
             <div className="h-full flex items-center justify-center">
