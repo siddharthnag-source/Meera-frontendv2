@@ -55,10 +55,13 @@ export default function Home() {
     if (typeof window === 'undefined') return;
     const root = document.documentElement;
     const viewport = window.visualViewport;
+    const KEYBOARD_OPEN_DELTA_PX = 150;
 
     // Keep the app shell pinned to the real visible viewport in mobile/PWA + keyboard transitions.
     const updateAppViewportHeight = () => {
-      const nextHeight = viewport ? viewport.height : window.innerHeight;
+      const viewportHeight = viewport ? viewport.height : window.innerHeight;
+      const keyboardOpen = Boolean(viewport && window.innerHeight - viewportHeight > KEYBOARD_OPEN_DELTA_PX);
+      const nextHeight = keyboardOpen ? viewportHeight : window.innerHeight;
       root.style.setProperty('--app-vh', `${Math.round(nextHeight)}px`);
     };
 
