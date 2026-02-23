@@ -24,16 +24,25 @@
   --color-card: var(--card);
 }
 
+html,
+body {
+  height: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   background: var(--background);
   color: var(--primary);
-  max-width: 100%;
-  overflow-x: hidden;
 }
 
-html {
-  max-width: 100%;
-  overflow-x: hidden;
+/* Fixes iOS rubber-banding and keeps native momentum for inner fixed panes. */
+.native-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 /* Improved scrollbar styling that matches our theme */

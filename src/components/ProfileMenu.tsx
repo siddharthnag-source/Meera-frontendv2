@@ -50,7 +50,10 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
   return (
     <AnimatePresence initial={false}>
       {isOpen ? (
-        <div className="fixed inset-0 z-50">
+        <div
+          // Keep profile actions above mobile sidebar (z-[51]) to avoid missed taps.
+          className="fixed inset-0 z-[60] pointer-events-auto"
+        >
           <motion.button
             onClick={onClose}
             initial={{ opacity: 0 }}
@@ -67,7 +70,7 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
             exit={{ opacity: 0, y: 6, scale: 0.98 }}
             transition={premiumTransitions.pop}
             style={{ transformOrigin: anchor === 'top-left' ? 'top left' : 'bottom left' }}
-            className={`absolute ${menuPositionClass} rounded-xl border border-primary/20 bg-background shadow-xl`}
+            className={`absolute pointer-events-auto ${menuPositionClass} rounded-xl border border-primary/20 bg-background shadow-xl`}
           >
             <div className="p-3 border-b border-primary/15">
               <button

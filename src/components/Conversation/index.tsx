@@ -360,6 +360,7 @@ export const Conversation: React.FC = () => {
   const attachmentInputAreaRef = useRef<AttachmentInputAreaRef>(null);
   const lastOptimisticMessageIdRef = useRef<string | null>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
+  const scrollContentRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
   const justSentMessageRef = useRef(false);
   const spacerRef = useRef<HTMLDivElement>(null);
@@ -382,6 +383,9 @@ export const Conversation: React.FC = () => {
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isJumpingRef = useRef(false);
   const suppressAutoLoadUntilRef = useRef(0);
+  const shouldInitialBottomSnapRef = useRef(false);
+  const hasInitialBottomSnapRef = useRef(false);
+  const initialBottomLockUntilRef = useRef(0);
 
   const supabaseUser = useAppStore((state) => state.user);
   const persistedStarredMessages = useAppStore((state) => state.starredMessages);
@@ -878,18 +882,31 @@ export const Conversation: React.FC = () => {
     ],
   );
 
-  const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
+  const snapToBottomNow = useCallback(() => {
     const el = mainScrollRef.current;
     if (!el) return;
-    if (!force) return;
-
-    requestAnimationFrame(() => {
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: smooth ? 'smooth' : 'auto',
-      });
-    });
+    el.scrollTop = el.scrollHeight;
   }, []);
+
+  const scrollToBottom = useCallback(
+    (smooth: boolean = true, force: boolean = false) => {
+      const el = mainScrollRef.current;
+      if (!el || !force) return;
+
+      if (!smooth) {
+        snapToBottomNow();
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        el.scrollTo({
+          top: el.scrollHeight,
+          behavior: 'smooth',
+        });
+      });
+    },
+    [snapToBottomNow],
+  );
 
   useEffect(() => {
     const email = supabaseUser?.email;
@@ -941,10 +958,8 @@ export const Conversation: React.FC = () => {
 
         setChatMessages(mapped);
         setHasLoadedLegacyHistory(true);
-
-        requestAnimationFrame(() => {
-          setTimeout(() => scrollToBottom(false, true), 50);
-        });
+        shouldInitialBottomSnapRef.current = true;
+        hasInitialBottomSnapRef.current = false;
       } catch (err) {
         console.error('Error loading legacy messages', err);
       } finally {
@@ -956,7 +971,6 @@ export const Conversation: React.FC = () => {
   }, [
     legacyUserId,
     hasLoadedLegacyHistory,
-    scrollToBottom,
   ]);
 
   const loadChatHistory = useCallback(
@@ -997,9 +1011,8 @@ export const Conversation: React.FC = () => {
 
             if (isInitial && !hasLoadedLegacyHistory) {
               setChatMessages(messages);
-              requestAnimationFrame(() => {
-                setTimeout(() => scrollToBottom(false, true), 50);
-              });
+              shouldInitialBottomSnapRef.current = true;
+              hasInitialBottomSnapRef.current = false;
             } else if (!isInitial) {
               const scrollContainer = mainScrollRef.current;
               if (scrollContainer) previousScrollHeight.current = scrollContainer.scrollHeight;
@@ -1023,7 +1036,11 @@ export const Conversation: React.FC = () => {
               abortController: null,
             }));
 
-            if (isInitial && !hasLoadedLegacyHistory) setChatMessages([]);
+            if (isInitial && !hasLoadedLegacyHistory) {
+              setChatMessages([]);
+              shouldInitialBottomSnapRef.current = false;
+              hasInitialBottomSnapRef.current = true;
+            }
           }
         } catch (error: unknown) {
           if (error instanceof Error && error.name === 'AbortError') return;
@@ -1052,6 +1069,8 @@ export const Conversation: React.FC = () => {
 
           if (isInitial && !hasLoadedLegacyHistory) {
             setChatMessages([]);
+            shouldInitialBottomSnapRef.current = false;
+            hasInitialBottomSnapRef.current = true;
           } else if (!isInitial) {
             showToast('Failed to load older messages. Please try again.', {
               type: 'error',
@@ -1069,7 +1088,6 @@ export const Conversation: React.FC = () => {
     },
     [
       showToast,
-      scrollToBottom,
       mergeMessagesIntoState,
       hasLoadedLegacyHistory,
     ],
@@ -1330,6 +1348,7 @@ export const Conversation: React.FC = () => {
         isJumpingRef.current || Date.now() < suppressAutoLoadUntilRef.current;
 
       if (
+        hasInitialBottomSnapRef.current &&
         !isAutoLoadSuppressed &&
         scrollTop < SCROLL_THRESHOLD &&
         currentFetchState.hasMore &&
@@ -1473,6 +1492,36 @@ export const Conversation: React.FC = () => {
       }
     }
   }, [fetchState.isLoading, chatMessages.length]);
+
+  useLayoutEffect(() => {
+    if (activeSidebarView === 'images') return;
+    if (isInitialLoading) return;
+    if (!shouldInitialBottomSnapRef.current) return;
+    if (chatMessages.length === 0) return;
+
+    // Snap before paint so chat always opens at latest message (WhatsApp behavior).
+    snapToBottomNow();
+    shouldInitialBottomSnapRef.current = false;
+    hasInitialBottomSnapRef.current = true;
+
+    // Keep bottom pinned briefly while late image dimensions settle.
+    initialBottomLockUntilRef.current = Date.now() + 1500;
+  }, [activeSidebarView, chatMessages.length, isInitialLoading, snapToBottomNow]);
+
+  useEffect(() => {
+    const scrollContainer = mainScrollRef.current;
+    const content = scrollContentRef.current;
+    if (!scrollContainer || !content || typeof ResizeObserver === 'undefined') return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (Date.now() <= initialBottomLockUntilRef.current) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      }
+    });
+
+    resizeObserver.observe(content);
+    return () => resizeObserver.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!initialLoadDone.current) {
@@ -1670,7 +1719,7 @@ export const Conversation: React.FC = () => {
   const isImagesView = activeSidebarView === 'images';
 
   return (
-    <div className="relative bg-background overflow-x-hidden">
+    <div className="relative h-[100dvh] max-h-[100dvh] bg-background overflow-hidden">
       <Sidebar
         isVisible={isSidebarVisible}
         isMobileOpen={isMobileSidebarOpen}
@@ -1688,7 +1737,7 @@ export const Conversation: React.FC = () => {
       />
 
       <div
-        className={`grid grid-rows-[auto_1fr_auto] h-[100dvh] min-h-0 overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
+        className={`grid grid-rows-[auto_1fr_auto] h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-background relative transition-[margin] duration-200 ${desktopSidebarMarginClass}`}
       >
         {isDraggingOver && (
           <div className="fixed inset-0 bg-primary/10 backdrop-blur-[2px] z-50 flex items-center justify-center">
@@ -1748,10 +1797,11 @@ export const Conversation: React.FC = () => {
 
         <main
           ref={mainScrollRef}
-          className="min-h-0 overflow-y-auto overflow-x-hidden w-full scroll-pt-2.5"
+          className="native-scroll min-h-0 overflow-x-hidden w-full scroll-pt-2.5"
           onScroll={isImagesView ? undefined : handleScroll}
         >
           <div
+            ref={scrollContentRef}
             className={
               isImagesView
                 ? 'px-2 sm:px-0 py-6 w-full min-w-0 max-w-full sm:max-w-5xl xl:max-w-6xl mx-auto'
@@ -1770,13 +1820,13 @@ export const Conversation: React.FC = () => {
             ) : (
               <>
             {isInitialLoading && (
-              <div className="flex justify-center items-center h-[calc(100vh-15rem)]">
+              <div className="flex justify-center items-center h-[calc(100dvh-15rem)]">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
               </div>
             )}
 
             {fetchState.error && !isInitialLoading && chatMessages.length === 0 && (
-              <div className="flex flex-col justify-center items-center h-[calc(100vh-10rem)] text-center">
+              <div className="flex flex-col justify-center items-center h-[calc(100dvh-10rem)] text-center">
                 <p className="text-red-500 mb-2">{fetchState.error}</p>
                 <button
                   onClick={stableCallbacks.handleRetryLoadHistory}
@@ -1788,7 +1838,7 @@ export const Conversation: React.FC = () => {
             )}
 
             {!isInitialLoading && !fetchState.error && chatMessages.length === 0 && (
-              <div className="h-[calc(100vh-10rem)]" />
+              <div className="h-[calc(100dvh-10rem)]" />
             )}
 
             {!isInitialLoading && chatMessages.length > 0 && (

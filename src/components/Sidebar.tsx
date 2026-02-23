@@ -5,7 +5,7 @@ import type { SubscriptionData } from '@/types/subscription';
 import { premiumTransitions } from '@/lib/motion';
 import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FiImage } from 'react-icons/fi';
 import { TbLayoutSidebarLeftCollapse } from 'react-icons/tb';
 import { parseTimestamp } from '@/lib/dateUtils';
@@ -133,6 +133,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onSignOut();
   }, [isMobileOpen, onCloseMobile, onSignOut]);
 
+  useEffect(() => {
+    if (!isMobileOpen && !isVisible) {
+      setIsProfileOpen(false);
+    }
+  }, [isMobileOpen, isVisible]);
+
   return (
     <>
       <AnimatePresence initial={false}>
@@ -172,7 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="native-scroll flex-1 p-4">
               {starredGroups.length === 0 ? (
                 <p className="text-primary/55 text-sm px-2">No starred messages</p>
               ) : (
@@ -199,7 +205,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => setIsProfileOpen((prev) => !prev)}
-                className="w-full flex items-center rounded-xl px-2 py-1 hover:bg-primary/10 transition-colors cursor-pointer gap-2"
+                className="w-full flex items-center rounded-xl px-2 py-1 hover:bg-primary/10 transition-colors cursor-pointer gap-2 touch-manipulation"
                 aria-label="Open profile menu"
               >
                 {userAvatar ? (
@@ -283,7 +289,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto p-4">
+            <div className="native-scroll flex-1 min-h-0 p-4">
               {starredGroups.length === 0 ? (
                 <p className="text-primary/55 text-sm px-2">No starred messages</p>
               ) : (
@@ -310,7 +316,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => setIsProfileOpen((prev) => !prev)}
-                className="w-full flex items-center rounded-xl px-2 py-1 hover:bg-primary/10 transition-colors cursor-pointer gap-2"
+                className="w-full flex items-center rounded-xl px-2 py-1 hover:bg-primary/10 transition-colors cursor-pointer gap-2 touch-manipulation"
                 aria-label="Open profile menu"
               >
                 {userAvatar ? (
