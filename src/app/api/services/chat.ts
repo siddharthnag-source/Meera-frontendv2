@@ -559,6 +559,7 @@ export const chatService = {
 
       if (!session?.user) throw new SessionExpiredError('Session expired');
       const userId = session.user.id;
+      const accessToken = session.access_token;
 
       // Deterministic IDs for this interaction (fixes system_prompt + attachment updates)
       const userMessageId = crypto.randomUUID();
@@ -635,6 +636,7 @@ export const chatService = {
             headers: {
               'Content-Type': 'application/json',
               apikey: SUPABASE_ANON_KEY!,
+              Authorization: `Bearer ${accessToken || SUPABASE_ANON_KEY!}`,
             },
             body: JSON.stringify({
               message,
@@ -719,6 +721,7 @@ export const chatService = {
       await streamMeera({
         supabaseUrl: SUPABASE_URL!,
         supabaseAnonKey: SUPABASE_ANON_KEY!,
+        accessToken,
         messages: historyForModel,
         userId,
         sessionId,

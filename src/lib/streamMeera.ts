@@ -28,6 +28,7 @@ type GeminiSseChunk = {
 export async function streamMeera({
   supabaseUrl,
   supabaseAnonKey,
+  accessToken,
   messages,
   userId,
   sessionId,
@@ -40,6 +41,7 @@ export async function streamMeera({
 }: {
   supabaseUrl: string;
   supabaseAnonKey: string;
+  accessToken?: string | null;
   messages: LLMHistoryMessage[];
   userId: string;
   sessionId?: string;
@@ -59,7 +61,7 @@ export async function streamMeera({
       headers: {
         'Content-Type': 'application/json',
         apikey: supabaseAnonKey,
-        Authorization: `Bearer ${supabaseAnonKey}`,
+        Authorization: `Bearer ${accessToken || supabaseAnonKey}`,
       },
       body: JSON.stringify({
         messages,
