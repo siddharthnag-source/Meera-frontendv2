@@ -19,6 +19,7 @@ interface PWAInstallContextType {
 }
 
 const PWAInstallContext = createContext<PWAInstallContextType | undefined>(undefined);
+const SW_CLEANUP_RELOAD_KEY = 'sw_cleanup_reload_done_v1';
 
 export const usePWAInstall = () => {
   const context = useContext(PWAInstallContext);
@@ -41,20 +42,48 @@ export const PWAInstallProvider = ({ children }: { children: ReactNode }) => {
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then((registrations) => {
-        for (const registration of registrations) {
-          registration.unregister();
+    const cleanupLegacyServiceWorkers = async () => {
+      if (!('serviceWorker' in navigator)) return;
+
+      const hadController = Boolean(navigator.serviceWorker.controller);
+
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      } catch (error) {
+        console.error('Failed to unregister service workers:', error);
+      }
+
+      if ('caches' in window) {
+        try {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
+        } catch (error) {
+          console.error('Failed to clear caches:', error);
         }
-      });
-      caches.keys().then((keys) => {
-        keys.forEach((key) => {
-          if (key.startsWith('meera-os-cache')) {
-            caches.delete(key);
-          }
-        });
-      });
-    }
+      }
+
+      if (!hadController) {
+        try {
+          sessionStorage.removeItem(SW_CLEANUP_RELOAD_KEY);
+        } catch {
+          // ignore storage failures
+        }
+        return;
+      }
+
+      try {
+        const hasReloadedForCleanup = sessionStorage.getItem(SW_CLEANUP_RELOAD_KEY) === '1';
+        if (!hasReloadedForCleanup) {
+          sessionStorage.setItem(SW_CLEANUP_RELOAD_KEY, '1');
+          window.location.reload();
+        }
+      } catch {
+        window.location.reload();
+      }
+    };
+
+    void cleanupLegacyServiceWorkers();
 
     if (typeof window !== 'undefined') {
       setIsStandalone(window.matchMedia('(display-mode: standalone)').matches);

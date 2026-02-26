@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import React, { Suspense, useEffect, useState } from 'react';
 
 type SessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
+const SESSION_INIT_TIMEOUT_MS = 8000;
 
 export default function Home() {
   const { data: subscriptionData, isLoading: isLoadingSubscription } = useSubscriptionStatus();
@@ -18,12 +19,46 @@ export default function Home() {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSessionStatus(data.session ? 'authenticated' : 'unauthenticated');
-    });
+    const getSessionWithTimeout = async () => {
+      let timeoutId: number | undefined;
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = window.setTimeout(() => {
+            reject(new Error(`Supabase getSession timed out after ${SESSION_INIT_TIMEOUT_MS}ms`));
+          }, SESSION_INIT_TIMEOUT_MS);
+        });
+
+        return await Promise.race([supabase.auth.getSession(), timeoutPromise]);
+      } finally {
+        if (timeoutId !== undefined) {
+          window.clearTimeout(timeoutId);
+        }
+      }
+    };
+
+    const resolveInitialSession = async () => {
+      try {
+        const { data, error } = await getSessionWithTimeout();
+        if (!mounted) return;
+
+        if (error) {
+          console.error('Supabase getSession error:', error);
+          setSessionStatus('unauthenticated');
+          return;
+        }
+
+        setSessionStatus(data.session ? 'authenticated' : 'unauthenticated');
+      } catch (error) {
+        if (!mounted) return;
+        console.error('Supabase initial session lookup failed:', error);
+        setSessionStatus('unauthenticated');
+      }
+    };
+
+    void resolveInitialSession();
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
       setSessionStatus(session ? 'authenticated' : 'unauthenticated');
     });
 
