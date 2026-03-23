@@ -7,10 +7,8 @@ import type { CashfreeInstance, PlanType, PricingModalProps, PricingModalSource 
 import { load } from '@cashfreepayments/cashfree-js';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useSession } from 'next-auth/react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { HiArrowLeft } from 'react-icons/hi2';
@@ -37,22 +35,35 @@ const getPriceDisplay = (plan: PlanType, basePrice: number, discountedPrice: num
   return `₹${basePrice}`;
 };
 
+const CONFETTI_COLORS = ['#F59E0B', '#34D399', '#60A5FA', '#F472B6', '#F97316', '#A78BFA'] as const;
+const CONFETTI_PIECES = Array.from({ length: 28 }, (_, index) => ({
+  id: index,
+  left: `${Math.round((index / 28) * 100)}%`,
+  delay: (index % 7) * 0.08,
+  duration: 1.8 + (index % 5) * 0.18,
+  drift: index % 2 === 0 ? 16 : -16,
+  spin: index % 2 === 0 ? 220 : -220,
+}));
+
+const getErrorStatus = (error: unknown): number | null => {
+  if (!error || typeof error !== 'object') return null;
+  if ('status' in error && typeof error.status === 'number') return error.status;
+  return null;
+};
+
 export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingModalProps) => {
   const [showEntryCode, setShowEntryCode] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<PlanType>('lifetime');
+  const selectedPlan: PlanType = 'monthly';
   const [entryCode, setEntryCode] = useState('');
   const [cashfree, setCashfree] = useState<CashfreeInstance | null>(null);
   const [isPaymentLoading, setIsPaymentLoading] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState('');
-  const [discountedPrices, setDiscountedPrices] = useState<{
-    monthly: number | null;
-    lifetime: number | null;
-  }>({ monthly: null, lifetime: null });
+  const [showSuccessCelebration, setShowSuccessCelebration] = useState(false);
+  const [discountedPrice, setDiscountedPrice] = useState<number | null>(null);
 
   const queryClient = useQueryClient();
-  const router = useRouter();
   const hasTrackedOpenRef = useRef(false);
-  const { data: session } = useSession();
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (isOpen && source) {
@@ -67,27 +78,44 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
 
   useEffect(() => {
     const initializeCashfree = async () => {
+      const rawMode = process.env.NEXT_PUBLIC_CASHFREE_MODE?.toLowerCase();
+      const cashfreeMode: 'sandbox' | 'production' = rawMode === 'production' ? 'production' : 'sandbox';
       const cfInstance = await load({
-        mode: 'sandbox',
+        mode: cashfreeMode,
       });
       setCashfree(cfInstance);
     };
     initializeCashfree();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setShowSuccessCelebration(false);
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current);
+        successTimeoutRef.current = null;
+      }
+    }
+  }, [isOpen]);
+
   // Update both plan prices when coupon is applied/removed
   const updatePricesWithCoupon = (couponCode: string | null) => {
     if (!couponCode) {
-      setDiscountedPrices({ monthly: null, lifetime: null });
+      setDiscountedPrice(null);
       return;
     }
 
     const discountPercentage = COUPON_CODES[couponCode as keyof typeof COUPON_CODES];
     if (discountPercentage) {
-      setDiscountedPrices({
-        monthly: calculateDiscountedPrice(PLAN_PRICES.monthly, discountPercentage),
-        lifetime: calculateDiscountedPrice(PLAN_PRICES.lifetime, discountPercentage),
-      });
+      setDiscountedPrice(calculateDiscountedPrice(PLAN_PRICES.monthly, discountPercentage));
     }
   };
 
@@ -113,8 +141,68 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
   };
 
   // Get current price based on plan and discount
-  const getCurrentPrice = (plan: PlanType) => {
-    return discountedPrices[plan] ?? PLAN_PRICES[plan];
+  const getCurrentPrice = () => {
+    return discountedPrice ?? PLAN_PRICES.monthly;
+  };
+
+  const setPaidSubscriptionState = (subscriptionEndDate: string | null) => {
+    const resolvedSubscriptionEndDate = typeof subscriptionEndDate === 'string' ? subscriptionEndDate : null;
+
+    queryClient.setQueryData(SUBSCRIPTION_QUERY_KEY, {
+      plan_type: 'paid',
+      status: 'active',
+      is_pro: true,
+      subscription_end_date: resolvedSubscriptionEndDate,
+      talktime_left: 0,
+      tokens_left: 100,
+      message: 'PRO activated',
+    });
+
+    queryClient.setQueriesData({ queryKey: SUBSCRIPTION_QUERY_KEY }, (existing) => {
+      const current = (existing as Record<string, unknown> | undefined) ?? {};
+      const currentTalktime = typeof current.talktime_left === 'number' ? current.talktime_left : 0;
+      const currentTokens = typeof current.tokens_left === 'number' ? current.tokens_left : 0;
+
+      return {
+        ...current,
+        plan_type: 'paid',
+        status: 'active',
+        is_pro: true,
+        subscription_end_date: resolvedSubscriptionEndDate,
+        talktime_left: currentTalktime,
+        tokens_left: currentTokens > 0 ? currentTokens : 100,
+        message: 'PRO activated',
+      };
+    });
+  };
+
+  const refreshSubscriptionState = async () => {
+    try {
+      const response = await paymentService.getSubscriptionStatus();
+      if (response.plan_type === 'paid') {
+        setPaidSubscriptionState(
+          typeof response.subscription_end_date === 'string' ? response.subscription_end_date : null,
+        );
+      }
+    } catch (error) {
+      console.warn('Unable to refresh subscription after payment:', error);
+    }
+
+    await queryClient.invalidateQueries({ queryKey: SUBSCRIPTION_QUERY_KEY });
+    await queryClient.refetchQueries({ queryKey: SUBSCRIPTION_QUERY_KEY, type: 'active' });
+  };
+
+  const finishWithCelebration = () => {
+    setShowSuccessCelebration(true);
+    toast.success('Your PRO is activated 🚀', { duration: 5000 });
+
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current);
+    }
+    successTimeoutRef.current = setTimeout(() => {
+      setShowSuccessCelebration(false);
+      onClose();
+    }, 2200);
   };
 
   const handleSubscribe = async () => {
@@ -123,7 +211,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
 
       const response = await paymentService.createPayment({
         plan_type: selectedPlan,
-        amount: getCurrentPrice(selectedPlan),
+        amount: getCurrentPrice(),
         order_currency: 'INR',
         ...(appliedCoupon && { coupon_code: appliedCoupon }),
       });
@@ -145,19 +233,9 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
       const orderId = data.order_id || data.data?.order_id;
 
       // Handle 100% discount or BYPASS coupon case
-      if (paymentStatus === 'paid') {
-        toast.success('Subscription activated successfully!');
-
-        // Force refresh subscription data
-        queryClient.invalidateQueries({
-          queryKey: SUBSCRIPTION_QUERY_KEY,
-        });
-
-        if (!session?.user?.email) {
-          router.push('/sign-in?success=true');
-        }
-
-        onClose();
+      if (typeof paymentStatus === 'string' && paymentStatus.toLowerCase() === 'paid') {
+        await refreshSubscriptionState();
+        finishWithCelebration();
         return;
       }
 
@@ -247,43 +325,11 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
               verifyData.subscription?.subscription_end_date ??
               null;
 
-            queryClient.setQueryData(SUBSCRIPTION_QUERY_KEY, {
-              plan_type: 'paid',
-              status: 'active',
-              is_pro: true,
-              subscription_end_date:
-                typeof resolvedSubscriptionEndDate === 'string' ? resolvedSubscriptionEndDate : null,
-              talktime_left: 0,
-              tokens_left: 100,
-              message: 'PRO activated',
-            });
-
-            queryClient.setQueriesData({ queryKey: SUBSCRIPTION_QUERY_KEY }, (existing) => {
-              const current = (existing as Record<string, unknown> | undefined) ?? {};
-              const currentTalktime = typeof current.talktime_left === 'number' ? current.talktime_left : 0;
-              const currentTokens = typeof current.tokens_left === 'number' ? current.tokens_left : 0;
-
-              return {
-                ...current,
-                plan_type: 'paid',
-                status: 'active',
-                is_pro: true,
-                subscription_end_date:
-                  typeof resolvedSubscriptionEndDate === 'string' ? resolvedSubscriptionEndDate : null,
-                talktime_left: currentTalktime,
-                tokens_left: currentTokens > 0 ? currentTokens : 100,
-                message: 'PRO activated',
-              };
-            });
-
-            queryClient.invalidateQueries({ queryKey: SUBSCRIPTION_QUERY_KEY });
-
-            toast.success('Your PRO is activated 🚀', { duration: 5000 });
-            onClose();
-
-            if (!session?.user?.email) {
-              router.push('/sign-in?success=true');
-            }
+            setPaidSubscriptionState(
+              typeof resolvedSubscriptionEndDate === 'string' ? resolvedSubscriptionEndDate : null,
+            );
+            await refreshSubscriptionState();
+            finishWithCelebration();
           }
         })
         .catch((error) => {
@@ -299,6 +345,10 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
       }
     } catch (error) {
       console.error('Payment failed:', error);
+      if (getErrorStatus(error) === 401) {
+        toast.error('Session expired. Please sign in again to complete payment.');
+        return;
+      }
       toast.error('Payment failed. Please try again.');
     } finally {
       setIsPaymentLoading(false);
@@ -320,9 +370,9 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
             initial={{ opacity: 0, y: '100%' }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: '100%' }}
-            className="fixed z-[9999] bottom-0 left-0 right-0 h-[91%] rounded-t-3xl
-                       sm:fixed sm:inset-0 sm:m-auto sm:w-[580px] sm:h-[700px] sm:rounded-3xl
-                       px-8 py-8 md:px-20 md:py-12"
+            className="fixed z-[9999] bottom-0 left-0 right-0 h-[calc(100dvh-8px)] rounded-t-3xl
+                       sm:fixed sm:inset-0 sm:m-auto sm:w-[580px] sm:h-[calc(100dvh-8px)] sm:rounded-[24px]
+                       px-5 py-4 sm:px-11 sm:py-7 md:px-12 md:py-9"
             style={{
               backgroundImage: `
                 url(${starBg.src}),
@@ -349,6 +399,53 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                 ✕
               </button>
             )}
+            <AnimatePresence>
+              {showSuccessCelebration && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-20 bg-[#2D0117]/90 backdrop-blur-sm flex items-center justify-center"
+                >
+                  <div className="text-center px-8">
+                    <motion.div
+                      initial={{ scale: 0.8, opacity: 0, y: 16 }}
+                      animate={{ scale: 1, opacity: 1, y: 0 }}
+                      transition={{ duration: 0.35 }}
+                      className="rounded-2xl border border-white/20 bg-white/10 px-8 py-6"
+                    >
+                      <p className="text-sm text-green-300 font-semibold mb-2">Payment Successful</p>
+                      <h2 className="text-white text-2xl font-serif">Your PRO is activated</h2>
+                      <p className="text-white/70 text-sm mt-3">Redirecting you to chat...</p>
+                    </motion.div>
+                  </div>
+                  <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                    {CONFETTI_PIECES.map((piece) => (
+                      <motion.span
+                        key={piece.id}
+                        className="absolute top-[-12%] h-3 w-2 rounded-sm"
+                        style={{
+                          left: piece.left,
+                          backgroundColor: CONFETTI_COLORS[piece.id % CONFETTI_COLORS.length],
+                        }}
+                        initial={{ opacity: 0, y: '-8%' }}
+                        animate={{
+                          opacity: [0, 1, 1, 0.9],
+                          y: ['-8%', '118%'],
+                          x: [0, piece.drift, 0],
+                          rotate: [0, piece.spin],
+                        }}
+                        transition={{
+                          duration: piece.duration,
+                          delay: piece.delay,
+                          ease: 'easeIn',
+                        }}
+                      />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {!showEntryCode ? (
               /* Main Pricing View */
@@ -363,63 +460,68 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                       className="h-5 w-auto sm:h-6"
                     />
                     <span className="text-white font-serif italic text-lg sm:text-xl">
-                      {`${process.env.NEXT_PUBLIC_APP_NAME?.toLowerCase()} os`}
+                      {`${process.env.NEXT_PUBLIC_APP_NAME?.toLowerCase()}`}
                     </span>
                   </div>
                 </div>
 
                 {/* Main Title */}
                 <div className="flex-shrink-0 mb-4">
-                  <h1 className="text-3xl sm:text-4xl text-white font-serif leading-tight">India&apos;s AI</h1>
+                  <h1 className="text-3xl sm:text-[32px] text-white font-serif font-semibold leading-[1.12] sm:leading-[1.08]">
+                    <span className="block">Your Conscious Intelligence (CI)</span>
+                    <span className="block">Companion</span>
+                  </h1>
                 </div>
 
                 {/* Description */}
-                <div className="flex-shrink-0 mb-6">
+                <div className="flex-shrink-0 mb-5 sm:mb-8 md:mb-10">
                   <p className="text-white text-sm sm:text-base italic font-sans font-semibold leading-relaxed">
-                    Conscious AI Companion that works, understands
+                    A conscious entity that remembers you, understands
                     <br />
-                    &amp; grows with you.
+                    you &amp; grows with you.
                   </p>
                 </div>
 
+                <div className="flex-grow min-h-0 md:min-h-8" />
+
                 {/* Content Section */}
-                <div className="flex-grow flex flex-col justify-end min-h-0">
+                <div className="flex-shrink-0">
                   {/* Models Available */}
-                  <div className="mb-6 ">
-                    <p className="text-white text-sm sm:text-base font-semibold">Living Śrīmad Bhagavad Gītā</p>
+                  <div className="mb-3 sm:mb-4 md:mb-5">
+                    <p className="text-white text-sm sm:text-base font-semibold">Running on Hive Mind</p>
                   </div>
 
                   {/* Pricing Plan */}
-                  <div className="mb-4">
+                  <div className="mb-2 sm:mb-3 md:mb-4">
                     <button
-                      onClick={() => setSelectedPlan('lifetime')}
                       className="w-full bg-white/10 backdrop-blur-sm border border-white rounded-xl
                                  p-4 flex items-center justify-between
                                  hover:bg-white/15 transition-colors"
                     >
                       <div className="flex flex-col items-start">
-                        <span className="text-white text-lg sm:text-xl font-medium mb-1">Lifetime</span>
+                        <span className="text-white text-lg sm:text-xl font-medium mb-1">Monthly</span>
                         <div className="text-white/80 text-base sm:text-lg">
-                          {getPriceDisplay('lifetime', PLAN_PRICES.lifetime, discountedPrices.lifetime)}
+                          {getPriceDisplay('monthly', PLAN_PRICES.monthly, discountedPrice)}
+                        </div>
+                        <div className="text-white/55 text-[11px] sm:text-xs leading-tight mt-1">
+                          Text | Voice | Images
                         </div>
                       </div>
 
-                      {selectedPlan === 'lifetime' && (
-                        <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white flex items-center justify-center flex-shrink-0">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="h-3 w-3 sm:h-4 sm:w-4 text-[#741942]"
-                            viewBox="0 0 20 20"
-                            fill="currentColor"
-                          >
-                            <path
-                              fillRule="evenodd"
-                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                              clipRule="evenodd"
-                            />
-                          </svg>
-                        </div>
-                      )}
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-3 w-3 sm:h-4 sm:w-4 text-[#741942]"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </div>
                     </button>
                   </div>
 
@@ -446,13 +548,14 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                 </div>
 
                 {/* Bottom Section */}
-                <div className="flex-shrink-0 space-y-6">
+                <div className="flex-shrink-0 space-y-2 sm:space-y-3 md:space-y-4">
                   {/* Enter Code Button */}
                   <button
                     onClick={() => setShowEntryCode(true)}
-                    className="w-full  text-white/60 py-4 rounded-full 
+                    disabled={isPaymentLoading || showSuccessCelebration}
+                    className="w-full text-white/60 py-2.5 md:py-3 rounded-full 
                                text-base sm:text-lg font-medium hover:opacity-90 
-                               transition-opacity"
+                               transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Enter Code
                   </button>
@@ -460,20 +563,20 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                   {/* Subscribe Button */}
                   <button
                     onClick={handleSubscribe}
-                    disabled={isPaymentLoading}
-                    className="w-full bg-[#FDF6F1] text-[#1A0B14] py-4 rounded-full 
+                    disabled={isPaymentLoading || showSuccessCelebration}
+                    className="w-full bg-[#FDF6F1] text-[#1A0B14] py-3 md:py-3.5 rounded-full 
                                text-base sm:text-lg font-medium hover:opacity-90 
                                transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isPaymentLoading
                       ? 'Processing...'
-                      : getCurrentPrice(selectedPlan) === 0
+                      : getCurrentPrice() === 0
                         ? 'Continue Our Journey'
                         : 'Continue Our Journey'}
                   </button>
 
                   {/* Footer Links */}
-                  <div className="flex justify-center items-center gap-2 pt-2 text-xs text-white/40">
+                  <div className="flex justify-center items-center gap-2 pt-0 text-xs text-white/40">
                     <Link
                       href="/terms"
                       target="_blank"
@@ -492,7 +595,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                       Privacy
                     </Link>
                     <span>•</span>
-                    <span>v1.0 (BETA)</span>
+                    <span>v1.0</span>
                   </div>
                 </div>
               </div>
@@ -504,9 +607,11 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => setShowEntryCode(false)}
+                      disabled={isPaymentLoading || showSuccessCelebration}
                       aria-label="Go back"
                       className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 
-                                 flex items-center justify-center transition-colors border border-white/20"
+                                 flex items-center justify-center transition-colors border border-white/20
+                                 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <HiArrowLeft className="text-white text-lg" />
                     </button>
@@ -519,7 +624,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                         className="h-5 w-auto sm:h-6"
                       />
                       <span className="text-white font-serif italic text-lg sm:text-xl">
-                        {`${process.env.NEXT_PUBLIC_APP_NAME?.toLowerCase()} os`}
+                        {`${process.env.NEXT_PUBLIC_APP_NAME?.toLowerCase()}`}
                       </span>
                     </div>
                   </div>
@@ -535,15 +640,16 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                         type="text"
                         value={entryCode}
                         onChange={(e) => setEntryCode(e.target.value.toUpperCase())}
+                        disabled={isPaymentLoading || showSuccessCelebration}
                         placeholder="Enter Code"
                         className="w-full bg-white text-[#1A0B14] px-5 py-4 rounded-full 
                                    text-base placeholder:text-gray-400 focus:outline-none focus:ring-2 
-                                   focus:ring-white/20 transition-shadow"
+                                   focus:ring-white/20 transition-shadow disabled:opacity-50"
                       />
 
                       <button
                         onClick={handleCouponCode}
-                        disabled={isPaymentLoading || entryCode.length === 0}
+                        disabled={isPaymentLoading || showSuccessCelebration || entryCode.length === 0}
                         className={`w-full py-4 rounded-full text-base font-medium transition-all
                                    ${
                                      entryCode.length > 0
@@ -577,7 +683,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                     Privacy
                   </Link>
                   <span>•</span>
-                  <span>v1.0 (BETA)</span>
+                  <span>v1.0</span>
                 </div>
               </div>
             )}

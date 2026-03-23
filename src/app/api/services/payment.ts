@@ -12,9 +12,8 @@ import { supabase } from '@/lib/supabaseClient';
 import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
 
-const PLAN_AMOUNT_MAP: Record<CreatePaymentRequest['plan_type'], number> = {
-  monthly: 99,
-  lifetime: 499,
+const PLAN_AMOUNT_MAP: Partial<Record<CreatePaymentRequest['plan_type'], number>> = {
+  monthly: 219,
 };
 
 const DEFAULT_ORDER_CURRENCY = 'INR';

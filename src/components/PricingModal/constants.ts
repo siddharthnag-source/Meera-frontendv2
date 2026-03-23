@@ -1,6 +1,5 @@
 export const PLAN_PRICES = {
-  monthly: 99,
-  lifetime: 499,
+  monthly: 219,
 } as const;
 
 export const COUPON_CODES = {

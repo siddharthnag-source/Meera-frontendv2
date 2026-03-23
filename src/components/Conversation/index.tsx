@@ -15,6 +15,7 @@ import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
 import { formatWhatsAppStyle, getLocalDateKeyFromTimestamp } from '@/lib/dateUtils';
 import { getSystemInfo } from '@/lib/deviceInfo';
+import { isPaidPlanExpired } from '@/lib/subscriptionUtils';
 import { supabase } from '@/lib/supabaseClient';
 import { debounce, throttle } from '@/lib/utils';
 import { ChatAttachmentFromServer, ChatAttachmentInputState, ChatMessageFromServer } from '@/types/chat';
@@ -42,6 +43,8 @@ const JUMP_STAY_PUT_MS = 9000;
 const JUMP_MAX_WAIT_MS = 18000;
 const JUMP_RENDER_WAIT_TIMEOUT_MS = 1800;
 const IMAGE_HISTORY_PAGE_SIZE = 48;
+const FREE_TOKENS_PAYMENT_GATE = '250000';
+const FREE_TOKENS_MODAL_STORAGE_KEY_PREFIX = 'free-tokens-expired-250k';
 
 type SidebarView = 'chat' | 'images';
 
@@ -94,6 +97,21 @@ const removeSnapshot = (messages: ChatMessageFromServer[], targetId: string): Ch
 const normalizeContextText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const waitForMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const asTrimmedString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+const isNonNegativeIntegerString = (value: string): boolean => /^\d+$/.test(value);
+const isTokenThresholdReached = (value: string, threshold: string): boolean => {
+  const normalizedValue = value.trim();
+  const normalizedThreshold = threshold.trim();
+
+  if (!isNonNegativeIntegerString(normalizedValue) || !isNonNegativeIntegerString(normalizedThreshold)) {
+    return false;
+  }
+
+  if (normalizedValue.length !== normalizedThreshold.length) {
+    return normalizedValue.length > normalizedThreshold.length;
+  }
+
+  return normalizedValue >= normalizedThreshold;
+};
 const firstNonEmpty = (...values: unknown[]): string => {
   for (const value of values) {
     const parsed = asTrimmedString(value);
@@ -406,10 +424,11 @@ export const Conversation: React.FC = () => {
 
   const lastScrollTopRef = useRef(0);
   const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
+  const hasShownFreeTokensModalRef = useRef(false);
 
   const { data: sessionData } = useSession();
   const { user: supabaseUser, userId: supabaseUserId } = useCurrentUser();
-  const { formattedTotalCostTokens } = useTotalCostTokens(supabaseUserId);
+  const { totalCostTokens, formattedTotalCostTokens } = useTotalCostTokens(supabaseUserId);
   const {
     data: subscriptionData,
     isLoading: isSubscriptionLoading,
@@ -425,6 +444,35 @@ export const Conversation: React.FC = () => {
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
+
+  useEffect(() => {
+    hasShownFreeTokensModalRef.current = false;
+  }, [supabaseUserId]);
+
+  useEffect(() => {
+    if (!supabaseUserId) return;
+    if (isSubscriptionLoading || isSubscriptionError) return;
+    if (subscriptionData?.plan_type === 'paid') return;
+    if (hasShownFreeTokensModalRef.current) return;
+    if (!isTokenThresholdReached(totalCostTokens, FREE_TOKENS_PAYMENT_GATE)) return;
+
+    const storageKey = `${FREE_TOKENS_MODAL_STORAGE_KEY_PREFIX}:${supabaseUserId}`;
+    if (localStorage.getItem(storageKey) === '1') {
+      hasShownFreeTokensModalRef.current = true;
+      return;
+    }
+
+    hasShownFreeTokensModalRef.current = true;
+    localStorage.setItem(storageKey, '1');
+    openModal('free_tokens_expired', false);
+  }, [
+    isSubscriptionError,
+    isSubscriptionLoading,
+    openModal,
+    subscriptionData?.plan_type,
+    supabaseUserId,
+    totalCostTokens,
+  ]);
 
   const debouncedSetMessage = useMemo(() => debounce((value: string) => setMessage(value), INPUT_DEBOUNCE_MS), []);
 
@@ -2083,8 +2131,7 @@ export const Conversation: React.FC = () => {
             <div className="absolute bottom_full left-0 right-0 flex flex-col items-center mb-2">
               {!isSubscriptionLoading &&
                 !isSubscriptionError &&
-                subscriptionData?.plan_type === 'paid' &&
-                !(new Date(subscriptionData?.subscription_end_date || 0) >= new Date()) && (
+                isPaidPlanExpired(subscriptionData) && (
                   <div className="w-fit mx-auto px-4 py-2 rounded-md border bg-[#E7E5DA]/80 backdrop-blur-sm shadow-md text-dark break-words border-red-500">
                     <span className="text-sm">
                       Your subscription has expired.{' '}
