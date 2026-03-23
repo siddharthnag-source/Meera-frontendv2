@@ -1,6 +1,7 @@
 'use client';
 
 import { chatService } from '@/app/api/services/chat';
+import { paymentService } from '@/app/api/services/payment';
 import { ImagesView, type GalleryImageItem } from '@/components/ImagesView';
 import { MeeraVoice } from '@/components/MeeraVoice';
 import { Sidebar } from '@/components/Sidebar';
@@ -425,6 +426,7 @@ export const Conversation: React.FC = () => {
   const lastScrollTopRef = useRef(0);
   const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
   const hasShownFreeTokensModalRef = useRef(false);
+  const isFreeTokensGateCheckInFlightRef = useRef(false);
 
   const { data: sessionData } = useSession();
   const { user: supabaseUser, userId: supabaseUserId } = useCurrentUser();
@@ -432,6 +434,7 @@ export const Conversation: React.FC = () => {
   const {
     data: subscriptionData,
     isLoading: isSubscriptionLoading,
+    isFetching: isSubscriptionFetching,
     isError: isSubscriptionError,
   } = useSubscriptionStatus();
   const { showToast, clearToasts } = useToast();
@@ -447,13 +450,14 @@ export const Conversation: React.FC = () => {
 
   useEffect(() => {
     hasShownFreeTokensModalRef.current = false;
+    isFreeTokensGateCheckInFlightRef.current = false;
   }, [supabaseUserId]);
 
   useEffect(() => {
     if (!supabaseUserId) return;
-    if (isSubscriptionLoading || isSubscriptionError) return;
-    if (subscriptionData?.plan_type === 'paid') return;
-    if (hasShownFreeTokensModalRef.current) return;
+    if (isSubscriptionLoading || isSubscriptionFetching || isSubscriptionError) return;
+    if (subscriptionData?.plan_type !== 'free_trial') return;
+    if (hasShownFreeTokensModalRef.current || isFreeTokensGateCheckInFlightRef.current) return;
     if (!isTokenThresholdReached(totalCostTokens, FREE_TOKENS_PAYMENT_GATE)) return;
 
     const storageKey = `${FREE_TOKENS_MODAL_STORAGE_KEY_PREFIX}:${supabaseUserId}`;
@@ -462,10 +466,28 @@ export const Conversation: React.FC = () => {
       return;
     }
 
-    hasShownFreeTokensModalRef.current = true;
-    localStorage.setItem(storageKey, '1');
-    openModal('free_tokens_expired', false);
+    isFreeTokensGateCheckInFlightRef.current = true;
+    void paymentService
+      .getSubscriptionStatus()
+      .then((latestSubscription) => {
+        // Backend confirmation prevents paid users from seeing free-trial paywall due to stale client cache.
+        if (latestSubscription.plan_type !== 'free_trial') {
+          hasShownFreeTokensModalRef.current = true;
+          return;
+        }
+
+        hasShownFreeTokensModalRef.current = true;
+        localStorage.setItem(storageKey, '1');
+        openModal('free_tokens_expired', false);
+      })
+      .catch((error) => {
+        console.warn('Unable to confirm free-trial status before token gate modal:', error);
+      })
+      .finally(() => {
+        isFreeTokensGateCheckInFlightRef.current = false;
+      });
   }, [
+    isSubscriptionFetching,
     isSubscriptionError,
     isSubscriptionLoading,
     openModal,
