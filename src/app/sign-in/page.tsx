@@ -2,6 +2,20 @@
 
 import { SuccessDialog } from '@/components/SuccessDialog';
 import { H1, Italic } from '@/components/ui/Typography';
+import {
+  breakAuthRedirectLoop,
+  clearAuthRedirectTrace,
+  clearGuestTokenState,
+  getGuestToken,
+  hasConsumedSuccessFlag,
+  hasSuccessQueryParam,
+  logAuthRedirectEvent,
+  markSuccessFlagConsumed,
+  registerAuthRedirectVisit,
+  resolveSignInRouteDecision,
+  stripQueryParamsFromCurrentUrl,
+  type SessionStatus,
+} from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -10,14 +24,25 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { FcGoogle } from 'react-icons/fc';
 
-function SearchParamsHandler() {
+function SearchParamsHandler({ enabled }: { enabled: boolean }) {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
 
   useEffect(() => {
-    const fullPath = window.location.pathname + window.location.search;
-    const hasSuccess = fullPath.includes('success=true');
-    if (hasSuccess) setShowSuccessDialog(true);
-  }, []);
+    if (!enabled) return;
+
+    const hasSuccess = hasSuccessQueryParam(window.location.search);
+    if (!hasSuccess) return;
+
+    if (!hasConsumedSuccessFlag()) {
+      setShowSuccessDialog(true);
+      markSuccessFlagConsumed();
+      logAuthRedirectEvent('success_flag_consumed', {
+        pathname: window.location.pathname,
+      });
+    }
+
+    stripQueryParamsFromCurrentUrl(['success']);
+  }, [enabled]);
 
   return (
     <>
@@ -38,12 +63,62 @@ function SignInClient() {
   const searchParams = useSearchParams();
   const referralId = searchParams.get('referral_id');
   const router = useRouter();
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus>('loading');
 
   useEffect(() => {
+    let mounted = true;
+
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace('/');
+      if (!mounted) return;
+      setSessionStatus(data.session ? 'authenticated' : 'unauthenticated');
     });
-  }, [router]);
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSessionStatus(session ? 'authenticated' : 'unauthenticated');
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const pathname = window.location.pathname;
+    const currentRoute = `${window.location.pathname}${window.location.search}`;
+    const guestToken = getGuestToken();
+
+    if (sessionStatus === 'authenticated' && guestToken) {
+      clearGuestTokenState('authenticated_sign_in');
+    }
+
+    const { loopDetected, visitCount } = registerAuthRedirectVisit(pathname);
+    if (loopDetected) {
+      const safeTarget = breakAuthRedirectLoop({ pathname, sessionStatus });
+      if (safeTarget !== currentRoute) {
+        router.replace(safeTarget);
+      }
+      return;
+    }
+
+    const decision = resolveSignInRouteDecision(sessionStatus);
+    if (decision.target && decision.target !== currentRoute) {
+      logAuthRedirectEvent('redirect_decision', {
+        from: pathname,
+        hasGuestToken: !!guestToken,
+        reason: decision.reason,
+        sessionStatus,
+        target: decision.target,
+        visitCount,
+      });
+      router.replace(decision.target);
+      return;
+    }
+
+    if (sessionStatus === 'unauthenticated') {
+      clearAuthRedirectTrace();
+    }
+  }, [router, sessionStatus]);
 
   const handleGoogleSignIn = async () => {
     try {
@@ -69,6 +144,14 @@ function SignInClient() {
       console.error('Error signing in with Google:', error);
     }
   };
+
+  if (sessionStatus !== 'unauthenticated') {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center bg-background">
+        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <main className="h-[100dvh] flex flex-col px-2 py-3 md:px-4 md:py-4 lg:px-0 max-w-[450px] mx-auto w-full overflow-hidden">
@@ -124,9 +207,6 @@ function SignInClient() {
             </button>
 
             <div className="flex justify-center gap-4 mt-3">
-              <Link href="/about" className="text-xs font-[500] text-primary hover:underline">
-                About
-              </Link>
               <Link href="/terms" className="text-xs font-[500] text-primary hover:underline">
                 Terms
               </Link>
@@ -137,7 +217,7 @@ function SignInClient() {
           </div>
         </div>
       </div>
-      <SearchParamsHandler />
+      <SearchParamsHandler enabled={sessionStatus === 'unauthenticated'} />
     </main>
   );
 }

@@ -3,12 +3,21 @@
 import { Conversation } from '@/components/Conversation';
 import { PricingModalProvider } from '@/contexts/PricingModalContext';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
+import {
+  breakAuthRedirectLoop,
+  clearAuthRedirectTrace,
+  clearGuestTokenState,
+  getGuestToken,
+  hasConsumedSuccessFlag,
+  logAuthRedirectEvent,
+  registerAuthRedirectVisit,
+  resolveHomeRouteDecision,
+  stripQueryParamsFromCurrentUrl,
+  type SessionStatus,
+} from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import React, { Suspense, useEffect, useState } from 'react';
-
-type SessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
-const SESSION_INIT_TIMEOUT_MS = 8000;
 
 export default function Home() {
   const { data: subscriptionData, isLoading: isLoadingSubscription } = useSubscriptionStatus();
@@ -19,46 +28,12 @@ export default function Home() {
   useEffect(() => {
     let mounted = true;
 
-    const getSessionWithTimeout = async () => {
-      let timeoutId: number | undefined;
-      try {
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutId = window.setTimeout(() => {
-            reject(new Error(`Supabase getSession timed out after ${SESSION_INIT_TIMEOUT_MS}ms`));
-          }, SESSION_INIT_TIMEOUT_MS);
-        });
-
-        return await Promise.race([supabase.auth.getSession(), timeoutPromise]);
-      } finally {
-        if (timeoutId !== undefined) {
-          window.clearTimeout(timeoutId);
-        }
-      }
-    };
-
-    const resolveInitialSession = async () => {
-      try {
-        const { data, error } = await getSessionWithTimeout();
-        if (!mounted) return;
-
-        if (error) {
-          console.error('Supabase getSession error:', error);
-          setSessionStatus('unauthenticated');
-          return;
-        }
-
-        setSessionStatus(data.session ? 'authenticated' : 'unauthenticated');
-      } catch (error) {
-        if (!mounted) return;
-        console.error('Supabase initial session lookup failed:', error);
-        setSessionStatus('unauthenticated');
-      }
-    };
-
-    void resolveInitialSession();
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      setSessionStatus(data.session ? 'authenticated' : 'unauthenticated');
+    });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
       setSessionStatus(session ? 'authenticated' : 'unauthenticated');
     });
 
@@ -68,30 +43,56 @@ export default function Home() {
     };
   }, []);
 
-  // If paid guest exists, force sign-in success flow (keep this if you want)
-  useEffect(() => {
-    const guestToken = localStorage.getItem('guest_token');
-    if (guestToken && !isLoadingSubscription && subscriptionData?.plan_type === 'paid') {
-      router.push('/sign-in?success=true');
-    }
-  }, [isLoadingSubscription, subscriptionData, router]);
-
   // Clean guest_token from URL if present (safe to keep)
   useEffect(() => {
-    const queryParams = new URLSearchParams(window.location.search);
-    if (queryParams.has('guest_token')) {
-      queryParams.delete('guest_token');
-      const newUrl = window.location.pathname;
-      window.history.replaceState({}, '', newUrl);
-    }
+    stripQueryParamsFromCurrentUrl(['guest_token']);
   }, []);
 
-  // Main rule: if not logged in, go to sign-in
   useEffect(() => {
-    if (sessionStatus === 'unauthenticated') {
-      router.replace('/sign-in');
+    const pathname = window.location.pathname;
+    const currentRoute = `${window.location.pathname}${window.location.search}`;
+    const guestToken = getGuestToken();
+
+    if (sessionStatus === 'authenticated' && guestToken) {
+      clearGuestTokenState('authenticated_home');
     }
-  }, [sessionStatus, router]);
+
+    const { loopDetected, visitCount } = registerAuthRedirectVisit(pathname);
+    if (loopDetected) {
+      const safeTarget = breakAuthRedirectLoop({ pathname, sessionStatus });
+      if (safeTarget !== currentRoute) {
+        router.replace(safeTarget);
+      }
+      return;
+    }
+
+    const decision = resolveHomeRouteDecision({
+      sessionStatus,
+      isSubscriptionLoading: isLoadingSubscription,
+      subscriptionData,
+      hasGuestToken: !!guestToken,
+      hasConsumedSuccess: hasConsumedSuccessFlag(),
+    });
+
+    if (decision.target && decision.target !== currentRoute) {
+      logAuthRedirectEvent('redirect_decision', {
+        from: pathname,
+        hasGuestToken: !!guestToken,
+        isSubscriptionLoading: isLoadingSubscription,
+        planType: subscriptionData?.plan_type ?? null,
+        reason: decision.reason,
+        sessionStatus,
+        target: decision.target,
+        visitCount,
+      });
+      router.replace(decision.target);
+      return;
+    }
+
+    if (sessionStatus === 'authenticated') {
+      clearAuthRedirectTrace();
+    }
+  }, [isLoadingSubscription, router, sessionStatus, subscriptionData]);
 
   // While checking session, show loader
   if (sessionStatus !== 'authenticated') {

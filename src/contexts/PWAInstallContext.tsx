@@ -19,7 +19,9 @@ interface PWAInstallContextType {
 }
 
 const PWAInstallContext = createContext<PWAInstallContextType | undefined>(undefined);
-const SW_CLEANUP_RELOAD_KEY = 'sw_cleanup_reload_done_v1';
+
+const RUNTIME_MIGRATION_STORAGE_KEY = 'meera_runtime_migration_2026_03_26_auth_fix_v1';
+const STALE_CACHE_MARKERS = ['meera-os-cache', 'workbox', '-precache-', '-runtime-'];
 
 export const usePWAInstall = () => {
   const context = useContext(PWAInstallContext);
@@ -42,48 +44,51 @@ export const PWAInstallProvider = ({ children }: { children: ReactNode }) => {
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    const cleanupLegacyServiceWorkers = async () => {
-      if (!('serviceWorker' in navigator)) return;
+    const runRuntimeMigration = async () => {
+      let changedRuntimeArtifacts = false;
 
-      const hadController = Boolean(navigator.serviceWorker.controller);
-
-      try {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((registration) => registration.unregister()));
-      } catch (error) {
-        console.error('Failed to unregister service workers:', error);
+      if ('serviceWorker' in navigator) {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          if (registrations.length > 0) {
+            changedRuntimeArtifacts = true;
+          }
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+        } catch (error) {
+          console.warn('Service worker cleanup failed:', error);
+        }
       }
 
       if ('caches' in window) {
         try {
           const keys = await caches.keys();
-          await Promise.all(keys.map((key) => caches.delete(key)));
+          const staleKeys = keys.filter((key) => STALE_CACHE_MARKERS.some((marker) => key.includes(marker)));
+          if (staleKeys.length > 0) {
+            changedRuntimeArtifacts = true;
+          }
+          await Promise.all(staleKeys.map((key) => caches.delete(key)));
         } catch (error) {
-          console.error('Failed to clear caches:', error);
+          console.warn('Cache cleanup failed:', error);
         }
       }
 
-      if (!hadController) {
-        try {
-          sessionStorage.removeItem(SW_CLEANUP_RELOAD_KEY);
-        } catch {
-          // ignore storage failures
+      if (!changedRuntimeArtifacts) return;
+
+      try {
+        if (window.sessionStorage.getItem(RUNTIME_MIGRATION_STORAGE_KEY) === 'done') {
+          return;
         }
+        window.sessionStorage.setItem(RUNTIME_MIGRATION_STORAGE_KEY, 'done');
+      } catch {
+        // Ignore sessionStorage errors and continue without forced refresh.
         return;
       }
 
-      try {
-        const hasReloadedForCleanup = sessionStorage.getItem(SW_CLEANUP_RELOAD_KEY) === '1';
-        if (!hasReloadedForCleanup) {
-          sessionStorage.setItem(SW_CLEANUP_RELOAD_KEY, '1');
-          window.location.reload();
-        }
-      } catch {
-        window.location.reload();
-      }
+      console.info('[runtime_migration] cleaned service worker artifacts, refreshing once');
+      window.location.replace(window.location.href);
     };
 
-    void cleanupLegacyServiceWorkers();
+    void runRuntimeMigration();
 
     if (typeof window !== 'undefined') {
       setIsStandalone(window.matchMedia('(display-mode: standalone)').matches);
