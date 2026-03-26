@@ -1,19 +1,52 @@
 import { paymentService } from '@/app/api/services/payment';
+import { supabase } from '@/lib/supabaseClient';
 import { SubscriptionData } from '@/types/subscription';
 import { useQuery } from '@tanstack/react-query';
-import { useSession } from 'next-auth/react';
+import { useEffect, useState } from 'react';
 
 export const SUBSCRIPTION_QUERY_KEY = ['subscription-status'];
 
 export const useSubscriptionStatus = () => {
-  const { status: sessionStatus } = useSession();
-  // Check for guest token in localStorage only on the client-side
+  const [sessionResolved, setSessionResolved] = useState(false);
+  const [hasSupabaseSession, setHasSupabaseSession] = useState(false);
   const guestToken = typeof window !== 'undefined' ? localStorage.getItem('guest_token') : null;
   const hasGuestToken = !!guestToken;
 
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!mounted) return;
+        setHasSupabaseSession(!!data.session);
+      } catch {
+        if (!mounted) return;
+        setHasSupabaseSession(false);
+      } finally {
+        if (mounted) setSessionResolved(true);
+      }
+    };
+
+    void loadSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      setHasSupabaseSession(!!session);
+      setSessionResolved(true);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
   const queryKey = [
     ...SUBSCRIPTION_QUERY_KEY,
-    sessionStatus,
+    hasSupabaseSession,
     hasGuestToken,
   ];
   return useQuery({
@@ -38,11 +71,10 @@ export const useSubscriptionStatus = () => {
         throw error;
       }
     },
-    retry: false,
+    retry: 1,
     staleTime: 0,
-    // This app primarily authenticates with Supabase cookies; NextAuth status can be
-    // unauthenticated even for valid sessions. Do not block subscription fetch on that.
-    enabled: sessionStatus !== 'loading',
+    // Wait until Supabase session read settles to avoid early unauthenticated balance fetches.
+    enabled: sessionResolved && (hasSupabaseSession || hasGuestToken),
     refetchOnMount: 'always',
   });
 };

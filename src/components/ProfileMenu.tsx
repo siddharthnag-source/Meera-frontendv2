@@ -1,5 +1,6 @@
 'use client';
 
+import { isPaidPlanActive } from '@/lib/subscriptionUtils';
 import type { SubscriptionData } from '@/types/subscription';
 import React from 'react';
 import { FaCrown } from 'react-icons/fa6';
@@ -31,14 +32,8 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
   if (!isOpen) return null;
 
   const tokenText = tokensConsumed?.trim() || '0';
-  const subscriptionEndTime = subscriptionData?.subscription_end_date
-    ? new Date(subscriptionData.subscription_end_date).getTime()
-    : Number.NaN;
-  const hasActivePro =
-    subscriptionData?.plan_type === 'paid' &&
-    Number.isFinite(subscriptionEndTime) &&
-    subscriptionEndTime >= Date.now();
-  const isPlanPending = isSubscriptionLoading && !subscriptionData;
+  const hasActivePro = isPaidPlanActive(subscriptionData);
+  const isPlanPending = isSubscriptionLoading || !subscriptionData;
   const isUpgradeDisabled = hasActivePro || isPlanPending;
   const upgradeLabel = isPlanPending ? 'Checking plan...' : hasActivePro ? 'Pro Activated' : 'Upgrade to Pro';
 
@@ -51,7 +46,7 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
     <div className="fixed inset-0 z-50">
       <button
         onClick={onClose}
-        className="absolute inset-0 bg-primary/5"
+        className="absolute inset-0 bg-transparent"
         aria-label="Close profile menu backdrop"
       />
 

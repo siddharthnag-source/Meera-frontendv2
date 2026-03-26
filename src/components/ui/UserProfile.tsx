@@ -5,6 +5,7 @@ import { usePricingModal } from '@/contexts/PricingModalContext';
 // import { usePWAInstall } from '@/contexts/PWAInstallContext';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
+import { isPaidPlanActive } from '@/lib/subscriptionUtils';
 import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
@@ -37,7 +38,12 @@ const TRANSITIONS = {
 export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
   const searchParams = useSearchParams();
   const referralId = searchParams.get('referral_id');
-  const { data: subscription } = useSubscriptionStatus();
+  const {
+    data: subscription,
+    isLoading: isSubscriptionLoading,
+    isError: isSubscriptionError,
+    refetch: refetchSubscription,
+  } = useSubscriptionStatus();
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   // const { installPrompt, isStandalone, isIOS, handleInstallClick } = usePWAInstall();
@@ -67,6 +73,8 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
   // Check if user is guest (has guest token but no Supabase user)
   const isGuest =
     typeof window !== 'undefined' && localStorage.getItem('guest_token') && !user;
+  const hasActivePro = isPaidPlanActive(subscription);
+  const isPlanPending = isSubscriptionLoading || (!subscription && !isSubscriptionError);
 
   // Logout handler
   const handleLogout = async () => {
@@ -194,7 +202,7 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
                         </div>
 	                    )}
 
-	                    {subscription?.plan_type === 'free_trial' && (
+	                    {!isPlanPending && !isSubscriptionError && subscription?.plan_type === 'free_trial' && (
 	                      <div className="rounded-xl border border-primary/20 bg-background overflow-hidden">
 	                        {/* Available Talktime */}
 	                        <div className="w-full flex items-center justify-between px-4 sm:px-5 py-3">
@@ -295,11 +303,26 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
 
                       {/* Upgrade to Pro Button */}
                       <div className="rounded-xl border border-primary/20 bg-background overflow-hidden">
-                        {subscription?.plan_type === 'free_trial' ||
-                        !(
-                          !!subscription?.subscription_end_date &&
-                          new Date(subscription.subscription_end_date) >= new Date()
-                        ) ? (
+                        {isPlanPending ? (
+                          <div className="w-full flex items-center justify-center px-4 sm:px-5 py-3 sm:py-4 bg-background">
+                            <div className="flex items-center">
+                              <FaCrown className="w-4 h-4 mr-3 text-primary/70" />
+                              <span className="text-[15px] text-primary/80">Checking plan...</span>
+                            </div>
+                          </div>
+                        ) : isSubscriptionError ? (
+                          <button
+                            className="w-full flex items-center justify-center px-4 sm:px-5 py-3 sm:py-4 bg-background hover:bg-primary/10 hover:cursor-pointer"
+                            onClick={() => {
+                              void refetchSubscription();
+                            }}
+                          >
+                            <div className="flex items-center">
+                              <FaCrown className="w-4 h-4 mr-3 text-primary/80" />
+                              <span className="text-[15px] text-primary">Retry plan check</span>
+                            </div>
+                          </button>
+                        ) : !hasActivePro ? (
                           <button
                             className="w-full flex items-center justify-center px-4 sm:px-5 py-3 sm:py-4 bg-background hover:bg-primary/10 hover:cursor-pointer"
                             onClick={handleUpgradeClick}
