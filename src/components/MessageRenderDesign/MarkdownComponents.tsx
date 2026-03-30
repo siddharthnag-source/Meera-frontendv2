@@ -5,6 +5,41 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FiCheck, FiCopy } from 'react-icons/fi';
 import 'highlight.js/styles/atom-one-light.css';
 
+const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
+const DATA_IMAGE_URL_RE = /^data:image\/(?:png|jpe?g|gif|webp|bmp);base64,[a-z0-9+/=\s]+$/i;
+
+const sanitizeLinkHref = (rawHref: unknown): string | null => {
+  if (typeof rawHref !== 'string') return null;
+  const href = rawHref.trim();
+  if (!href) return null;
+
+  if (href.startsWith('/')) return href;
+  if (href.startsWith('#')) return href;
+
+  try {
+    const url = new URL(href);
+    return SAFE_LINK_PROTOCOLS.has(url.protocol) ? href : null;
+  } catch {
+    return null;
+  }
+};
+
+const sanitizeImageSrc = (rawSrc: unknown): string | null => {
+  if (typeof rawSrc !== 'string') return null;
+  const src = rawSrc.trim();
+  if (!src) return null;
+
+  if (src.startsWith('/')) return src;
+  if (DATA_IMAGE_URL_RE.test(src)) return src;
+
+  try {
+    const url = new URL(src);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? src : null;
+  } catch {
+    return null;
+  }
+};
+
 // Props that react-markdown passes to custom components
 interface ReactMarkdownProps {
   node?: any;
@@ -114,12 +149,24 @@ export const renderStandardInlineCode = (
 
   if (urlRegex.test(codeContent)) {
     const href = codeContent.startsWith('www.') ? `http://${codeContent}` : codeContent;
+    const safeHref = sanitizeLinkHref(href);
+    if (!safeHref) {
+      return (
+        <code
+          {...htmlElementProps}
+          className={`${className || ''} bg-primary/10 text-primary p-0.5 rounded-sm [font-family:inherit] [font-size:inherit]`}
+        >
+          {children}
+        </code>
+      );
+    }
+
     return (
       <code
         {...htmlElementProps}
         className={`${className || ''} bg-primary/10 text-primary p-0.5 rounded-sm [font-family:inherit] [font-size:inherit]`}
       >
-        <a href={href} target="_blank" rel="noopener noreferrer" className="hover:underline">
+        <a href={safeHref} target="_blank" rel="noopener noreferrer nofollow" className="hover:underline">
           {children}
         </a>
       </code>
@@ -243,28 +290,41 @@ export const MyCustomHr: React.FC<CustomComponentProps<HTMLHRElement>> = ({ node
   null;
 // <hr className="my-4 border-gray-300" {...rest} />
 
-export const MyCustomA: React.FC<CustomComponentProps<HTMLAnchorElement>> = ({ children, node, href, ...rest }) => (
-  <a
-    href={href}
-    className="font-sans text-primary underline hover:no-underline focus:outline-none focus:ring-1 focus:ring-primary-focus break-words [overflow-wrap:anywhere]"
-    target="_blank"
-    rel="noopener noreferrer"
-    {...rest}
-  >
-    {children}
-  </a>
-);
+export const MyCustomA: React.FC<CustomComponentProps<HTMLAnchorElement>> = ({ children, node, href, ...rest }) => {
+  const safeHref = sanitizeLinkHref(href);
+  if (!safeHref) {
+    return <span className="font-sans break-words [overflow-wrap:anywhere]">{children}</span>;
+  }
 
-export const MyCustomImg: React.FC<CustomComponentProps<HTMLImageElement>> = ({ node, src, alt, ...rest }) => (
-  <div className="block my-4 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-md">
-    <img
-      src={src}
-      alt={src}
-      className="rounded-md border border-gray-200 shadow-sm font-sans w-full h-auto object-contain"
+  const isExternal = /^https?:\/\//i.test(safeHref);
+  return (
+    <a
+      href={safeHref}
+      className="font-sans text-primary underline hover:no-underline focus:outline-none focus:ring-1 focus:ring-primary-focus break-words [overflow-wrap:anywhere]"
+      target={isExternal ? '_blank' : undefined}
+      rel={isExternal ? 'noopener noreferrer nofollow' : undefined}
       {...rest}
-    />
-  </div>
-);
+    >
+      {children}
+    </a>
+  );
+};
+
+export const MyCustomImg: React.FC<CustomComponentProps<HTMLImageElement>> = ({ node, src, alt, ...rest }) => {
+  const safeSrc = sanitizeImageSrc(src);
+  if (!safeSrc) return null;
+
+  return (
+    <div className="block my-4 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-md">
+      <img
+        src={safeSrc}
+        alt={typeof alt === 'string' && alt.trim() ? alt : 'image'}
+        className="rounded-md border border-gray-200 shadow-sm font-sans w-full h-auto object-contain"
+        {...rest}
+      />
+    </div>
+  );
+};
 
 export const MyCustomDel: React.FC<CustomComponentProps<HTMLElement>> = ({ children, node, ...rest }) => (
   <del className="font-sans text-[15px]" {...rest}>

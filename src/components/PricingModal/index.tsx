@@ -53,13 +53,16 @@ const getErrorStatus = (error: unknown): number | null => {
 
 export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingModalProps) => {
   const [showEntryCode, setShowEntryCode] = useState(false);
-  const selectedPlan: PlanType = 'monthly';
+  const [selectedPlan, setSelectedPlan] = useState<PlanType>('lifetime');
   const [entryCode, setEntryCode] = useState('');
   const [cashfree, setCashfree] = useState<CashfreeInstance | null>(null);
   const [isPaymentLoading, setIsPaymentLoading] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState('');
   const [showSuccessCelebration, setShowSuccessCelebration] = useState(false);
-  const [discountedPrice, setDiscountedPrice] = useState<number | null>(null);
+  const [discountedPrices, setDiscountedPrices] = useState<{
+    monthly: number | null;
+    lifetime: number | null;
+  }>({ monthly: null, lifetime: null });
 
   const queryClient = useQueryClient();
   const hasTrackedOpenRef = useRef(false);
@@ -109,13 +112,16 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
   // Update both plan prices when coupon is applied/removed
   const updatePricesWithCoupon = (couponCode: string | null) => {
     if (!couponCode) {
-      setDiscountedPrice(null);
+      setDiscountedPrices({ monthly: null, lifetime: null });
       return;
     }
 
     const discountPercentage = COUPON_CODES[couponCode as keyof typeof COUPON_CODES];
     if (discountPercentage) {
-      setDiscountedPrice(calculateDiscountedPrice(PLAN_PRICES.monthly, discountPercentage));
+      setDiscountedPrices({
+        monthly: calculateDiscountedPrice(PLAN_PRICES.monthly, discountPercentage),
+        lifetime: calculateDiscountedPrice(PLAN_PRICES.lifetime, discountPercentage),
+      });
     }
   };
 
@@ -141,8 +147,8 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
   };
 
   // Get current price based on plan and discount
-  const getCurrentPrice = () => {
-    return discountedPrice ?? PLAN_PRICES.monthly;
+  const getCurrentPrice = (plan: PlanType) => {
+    return discountedPrices[plan] ?? PLAN_PRICES[plan];
   };
 
   const setPaidSubscriptionState = (subscriptionEndDate: string | null) => {
@@ -211,7 +217,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
 
       const response = await paymentService.createPayment({
         plan_type: selectedPlan,
-        amount: getCurrentPrice(),
+        amount: getCurrentPrice(selectedPlan),
         order_currency: 'INR',
         ...(appliedCoupon && { coupon_code: appliedCoupon }),
       });
@@ -494,34 +500,37 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                   {/* Pricing Plan */}
                   <div className="mb-2 sm:mb-3 md:mb-4">
                     <button
+                      onClick={() => setSelectedPlan('lifetime')}
                       className="w-full bg-white/10 backdrop-blur-sm border border-white rounded-xl
                                  p-4 flex items-center justify-between
                                  hover:bg-white/15 transition-colors"
                     >
                       <div className="flex flex-col items-start">
-                        <span className="text-white text-lg sm:text-xl font-medium mb-1">Monthly</span>
+                        <span className="text-white text-lg sm:text-xl font-medium mb-1">Lifetime</span>
                         <div className="text-white/80 text-base sm:text-lg">
-                          {getPriceDisplay('monthly', PLAN_PRICES.monthly, discountedPrice)}
+                          {getPriceDisplay('lifetime', PLAN_PRICES.lifetime, discountedPrices.lifetime)}
                         </div>
                         <div className="text-white/55 text-[11px] sm:text-xs leading-tight mt-1">
                           Text | Voice | Images
                         </div>
                       </div>
 
-                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white flex items-center justify-center flex-shrink-0">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-3 w-3 sm:h-4 sm:w-4 text-[#741942]"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      </div>
+                      {selectedPlan === 'lifetime' && (
+                        <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="h-3 w-3 sm:h-4 sm:w-4 text-[#741942]"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </div>
+                      )}
                     </button>
                   </div>
 
@@ -570,7 +579,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
                   >
                     {isPaymentLoading
                       ? 'Processing...'
-                      : getCurrentPrice() === 0
+                      : getCurrentPrice(selectedPlan) === 0
                         ? 'Continue Our Journey'
                         : 'Continue Our Journey'}
                   </button>

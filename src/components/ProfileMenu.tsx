@@ -2,6 +2,7 @@
 
 import { isPaidPlanActive } from '@/lib/subscriptionUtils';
 import type { SubscriptionData } from '@/types/subscription';
+import { isPaidPlanActive } from '@/lib/subscriptionUtils';
 import React from 'react';
 import { FaCrown } from 'react-icons/fa6';
 import { FiLogOut, FiSettings } from 'react-icons/fi';

@@ -20,7 +20,10 @@ interface PWAInstallContextType {
 
 const PWAInstallContext = createContext<PWAInstallContextType | undefined>(undefined);
 
-const RUNTIME_MIGRATION_STORAGE_KEY = 'meera_runtime_migration_2026_03_26_auth_fix_v1';
+const RUNTIME_MIGRATION_STORAGE_KEY = 'meera_runtime_migration_2026_03_29_global_fresh_start_v1';
+const CLIENT_STORAGE_RESET_KEY = 'meera_client_storage_reset_2026_03_29_global_fresh_start_v1';
+const CLIENT_SESSION_STORAGE_KEY_PREFIX = 'meera:chat_session_id:';
+const GUEST_TOKEN_STORAGE_KEY_PREFIX = 'guest_token';
 const STALE_CACHE_MARKERS = ['meera-os-cache', 'workbox', '-precache-', '-runtime-'];
 
 export const usePWAInstall = () => {
@@ -88,6 +91,44 @@ export const PWAInstallProvider = ({ children }: { children: ReactNode }) => {
       window.location.replace(window.location.href);
     };
 
+    const runClientStorageReset = () => {
+      if (typeof window === 'undefined') return;
+      try {
+        if (window.sessionStorage.getItem(CLIENT_STORAGE_RESET_KEY) === 'done') {
+          return;
+        }
+      } catch {
+        return;
+      }
+
+      try {
+        const localStorageKeysToDelete: string[] = [];
+        for (let idx = 0; idx < window.localStorage.length; idx += 1) {
+          const key = window.localStorage.key(idx);
+          if (!key) continue;
+          if (key.startsWith(CLIENT_SESSION_STORAGE_KEY_PREFIX)) {
+            localStorageKeysToDelete.push(key);
+            continue;
+          }
+          if (key === GUEST_TOKEN_STORAGE_KEY_PREFIX || key.startsWith(`${GUEST_TOKEN_STORAGE_KEY_PREFIX}_`)) {
+            localStorageKeysToDelete.push(key);
+          }
+        }
+        for (const key of localStorageKeysToDelete) {
+          window.localStorage.removeItem(key);
+        }
+      } catch (error) {
+        console.warn('Client storage cleanup failed:', error);
+      }
+
+      try {
+        window.sessionStorage.setItem(CLIENT_STORAGE_RESET_KEY, 'done');
+      } catch {
+        // Ignore sessionStorage errors and continue without forced refresh.
+      }
+    };
+
+    runClientStorageReset();
     void runRuntimeMigration();
 
     if (typeof window !== 'undefined') {

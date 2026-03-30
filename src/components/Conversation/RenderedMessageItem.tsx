@@ -44,7 +44,6 @@ import {
   FiStar,
 } from 'react-icons/fi';
 import ReactMarkdown from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 
 /* ---------------- Thinking status text inside the pill ---------------- */
@@ -302,7 +301,6 @@ export const RenderedMessageItem: React.FC<{
                     <div className="min-w-0 break-words [overflow-wrap:anywhere]">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
-                        rehypePlugins={[rehypeRaw]}
                         components={{
                           p: MyCustomParagraph,
                           h1: MyCustomH1,

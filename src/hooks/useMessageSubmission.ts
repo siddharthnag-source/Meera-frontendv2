@@ -37,6 +37,16 @@ type UploadedMeta = {
   type: 'image' | 'document';
 };
 
+type OutgoingAttachment = {
+  name: string;
+  url: string;
+  mimeType: string;
+  size: number;
+  type: 'image' | 'document';
+  bucket: string;
+  storagePath: string;
+};
+
 async function uploadAttachmentToStorage(
   file: File,
   type: 'image' | 'document',
@@ -192,13 +202,25 @@ export const useMessageSubmission = ({
       optimisticIdToUpdate?: string,
       isFromManualRetry: boolean = false,
     ) => {
-      if (isSending) return;
+      if (isSending) {
+        showToast('Please wait for the current response to finish.', {
+          type: 'info',
+          position: 'conversation',
+        });
+        return;
+      }
 
       const trimmedMessage = messageText.trim();
       const hasText = trimmedMessage.length > 0;
       const hasAttachments = attachments.length > 0;
 
-      if (!hasText && !hasAttachments) return;
+      if (!hasText && !hasAttachments) {
+        showToast('Type a message or add an attachment.', {
+          type: 'info',
+          position: 'conversation',
+        });
+        return;
+      }
 
       // STEP 1: upload attachments
       let uploaded: UploadedMeta[] = [];
@@ -279,23 +301,15 @@ export const useMessageSubmission = ({
       setIsAssistantTyping(true);
 
       // STEP 3: build payload
-      let payloadMessage = trimmedMessage;
-
-      if (uploaded.length > 0) {
-        const attachmentsTextLines = uploaded.map(
-          (meta) =>
-            `- ${meta.name} (${meta.mimeType}, ${meta.size} bytes): ${meta.publicUrl}`,
-        );
-
-        payloadMessage = [
-          trimmedMessage,
-          '',
-          'Attached files (public URLs, please open and read them):',
-          ...attachmentsTextLines,
-        ]
-          .filter(Boolean)
-          .join('\n');
-      }
+      const outgoingAttachments: OutgoingAttachment[] = uploaded.map((meta) => ({
+        name: meta.name,
+        url: meta.publicUrl,
+        mimeType: meta.mimeType,
+        size: meta.size,
+        type: meta.type,
+        bucket: ATTACHMENTS_BUCKET,
+        storagePath: meta.storagePath,
+      }));
 
       const assistantId = messageRelationshipMapRef.current.get(optimisticId);
 
@@ -303,7 +317,8 @@ export const useMessageSubmission = ({
         let fullAssistantText = '';
 
         await chatService.streamMessage({
-          message: payloadMessage,
+          message: trimmedMessage,
+          attachments: outgoingAttachments,
           onDelta: (delta) => {
             fullAssistantText += delta;
             if (!assistantId) return;
@@ -321,14 +336,19 @@ export const useMessageSubmission = ({
               ),
             );
           },
-          onDone: async () => {
+          onDone: async (finalMsg) => {
+            const finalMsgContent = String(finalMsg?.content || '').trim();
             if (assistantId) {
               setChatMessages((prev) =>
                 prev.map((msg) =>
                   msg.message_id === assistantId
                     ? {
                         ...msg,
-                        content: msg.content || fullAssistantText,
+                        content:
+                          finalMsgContent ||
+                          msg.content ||
+                          fullAssistantText ||
+                          'Sorry, I could not generate a response. Please try again.',
                         failed: false,
                         try_number: tryNumber,
                       }

@@ -1,4 +1,5 @@
 import { sendErrorToSlack } from '@/lib/slackService';
+import { getGuestToken } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
 import type { ApiErrorResponse } from '@/types/api';
 import axios, { AxiosRequestConfig, AxiosError } from 'axios';
@@ -59,7 +60,7 @@ apiClient.interceptors.request.use(async (config) => {
     }
 
     if (typeof window !== 'undefined') {
-      const guestToken = localStorage.getItem('guest_token');
+      const guestToken = getGuestToken();
       if (guestToken) {
         config.headers = config.headers || {};
         config.headers.Authorization = `Bearer ${guestToken}`;
@@ -71,7 +72,7 @@ apiClient.interceptors.request.use(async (config) => {
     console.error('Session retrieval error:', error);
 
     if (typeof window !== 'undefined') {
-      const guestToken = localStorage.getItem('guest_token');
+      const guestToken = getGuestToken();
       if (guestToken) {
         config.headers = config.headers || {};
         config.headers.Authorization = `Bearer ${guestToken}`;
@@ -89,6 +90,16 @@ const isFinalRetryAttempt = (error: AxiosError): boolean => {
   return (axiosError.config?.['axios-retry']?.retryCount ?? 0) >= 3 || !axiosRetry.isRetryableError(error);
 };
 
+const isPaymentEndpointRequest = (url?: string): boolean => {
+  if (!url) return false;
+  try {
+    const path = new URL(url, API_BASE_URL || 'http://localhost').pathname;
+    return path === '/payment' || path === '/payment/verify';
+  } catch {
+    return url.includes('/payment');
+  }
+};
+
 // 4. Response interceptor for error handling
 apiClient.interceptors.response.use(
   (response) => response,
@@ -100,7 +111,7 @@ apiClient.interceptors.response.use(
     } catch (sessionError) {
       console.error('Supabase session lookup failed during API error handling:', sessionError);
     }
-    const guestToken = typeof window !== 'undefined' ? localStorage.getItem('guest_token') : null;
+    const guestToken = getGuestToken();
 
     const errorResponse: ApiErrorResponse = {
       message: 'Something went wrong. Please try again.',
@@ -172,8 +183,8 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // Handle 401 errors (sign out user) but don't spam Slack
-    if (errorResponse.status === 401) {
+    // Keep payment requests on the same screen; the modal handles 401 UX explicitly.
+    if (errorResponse.status === 401 && !isPaymentEndpointRequest(error.config?.url)) {
       if (typeof window !== 'undefined') {
         localStorage.clear();
         try {

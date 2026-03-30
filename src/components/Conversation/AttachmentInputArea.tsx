@@ -20,7 +20,7 @@ interface Props {
   children?: React.ReactNode;
 }
 
-const MAX_FILE_SIZE_MB = 25;
+const MAX_FILE_SIZE_MB = 30;
 const UPLOADING_PREFIX = '__uploading__';
 
 export const AttachmentInputArea = forwardRef<AttachmentInputAreaRef, Props>(

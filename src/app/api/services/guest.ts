@@ -1,5 +1,7 @@
 'use client';
 
+import { getGuestToken, setGuestToken } from '@/lib/authRedirect';
+
 export interface GuestTokenResponse {
   guest_token: string;
 }
@@ -15,7 +17,7 @@ export const guestService = {
       return null;
     }
 
-    const existing = window.localStorage.getItem('guest_token');
+    const existing = getGuestToken();
     if (existing) {
       return { guest_token: existing };
     }
@@ -26,7 +28,7 @@ export const guestService = {
         ? window.crypto.randomUUID()
         : `guest-${Math.random().toString(36).slice(2)}`;
 
-    window.localStorage.setItem('guest_token', token);
+    setGuestToken(token);
 
     return { guest_token: token };
   },

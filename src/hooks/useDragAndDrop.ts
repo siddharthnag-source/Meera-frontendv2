@@ -19,7 +19,7 @@ interface UseDragAndDropProps {
   inputRef: MutableRefObject<HTMLTextAreaElement | null>;
 }
 
-const MAX_FILE_SIZE_MB = 25;
+const MAX_FILE_SIZE_MB = 30;
 
 export const useDragAndDrop = ({
   maxAttachments,

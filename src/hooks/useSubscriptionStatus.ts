@@ -1,4 +1,5 @@
 import { paymentService } from '@/app/api/services/payment';
+import { getGuestToken } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
 import { SubscriptionData } from '@/types/subscription';
 import { useQuery } from '@tanstack/react-query';
@@ -9,7 +10,7 @@ export const SUBSCRIPTION_QUERY_KEY = ['subscription-status'];
 export const useSubscriptionStatus = () => {
   const [sessionResolved, setSessionResolved] = useState(false);
   const [hasSupabaseSession, setHasSupabaseSession] = useState(false);
-  const guestToken = typeof window !== 'undefined' ? localStorage.getItem('guest_token') : null;
+  const guestToken = getGuestToken();
   const hasGuestToken = !!guestToken;
 
   useEffect(() => {
@@ -49,6 +50,7 @@ export const useSubscriptionStatus = () => {
     hasSupabaseSession,
     hasGuestToken,
   ];
+
   return useQuery({
     queryKey: queryKey,
     queryFn: async (): Promise<SubscriptionData> => {
@@ -73,8 +75,8 @@ export const useSubscriptionStatus = () => {
     },
     retry: 1,
     staleTime: 0,
-    // Wait until Supabase session read settles to avoid early unauthenticated balance fetches.
+    // Wait until initial Supabase session read settles to avoid early unauthenticated balance fetches.
     enabled: sessionResolved && (hasSupabaseSession || hasGuestToken),
-    refetchOnMount: 'always',
+    refetchOnMount: true,
   });
 };

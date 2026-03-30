@@ -702,6 +702,13 @@ export class GenAILiveClient extends EventEmitter<LiveClientEventTypes> {
       return false;
     }
 
+    const apiKey = typeof this.clientOptions?.apiKey === 'string' ? this.clientOptions.apiKey.trim() : '';
+    if (!apiKey) {
+      this._status = 'disconnected';
+      this.emit('error', new ErrorEvent('error', { message: 'Live voice API is disabled in this environment.' }));
+      return false;
+    }
+
     this._status = 'connecting';
     this.config = config;
     this._model = model;

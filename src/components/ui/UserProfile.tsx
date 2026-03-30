@@ -5,6 +5,7 @@ import { usePricingModal } from '@/contexts/PricingModalContext';
 // import { usePWAInstall } from '@/contexts/PWAInstallContext';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { useTotalCostTokens } from '@/hooks/useTotalCostTokens';
+import { getGuestToken, GUEST_TOKEN_COOKIE_KEY } from '@/lib/authRedirect';
 import { isPaidPlanActive } from '@/lib/subscriptionUtils';
 import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
@@ -72,7 +73,7 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
 
   // Check if user is guest (has guest token but no Supabase user)
   const isGuest =
-    typeof window !== 'undefined' && localStorage.getItem('guest_token') && !user;
+    typeof window !== 'undefined' && getGuestToken() && !user;
   const hasActivePro = isPaidPlanActive(subscription);
   const isPlanPending = isSubscriptionLoading || (!subscription && !isSubscriptionError);
 
@@ -95,10 +96,9 @@ export const UserProfile = ({ isOpen, onClose }: UserProfileProps) => {
       document.cookie = `referral_id=${referralId}; path=/; max-age=3600; SameSite=Lax`;
     }
 
-    const guestToken =
-      typeof window !== 'undefined' ? localStorage.getItem('guest_token') : null;
+    const guestToken = getGuestToken();
     if (guestToken) {
-      document.cookie = `guest_token=${guestToken}; path=/; max-age=3600; SameSite=Lax`;
+      document.cookie = `${GUEST_TOKEN_COOKIE_KEY}=${guestToken}; path=/; max-age=3600; SameSite=Lax`;
     }
 
     supabase.auth.signInWithOAuth({

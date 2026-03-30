@@ -1,3 +1,5 @@
+import { getGuestToken } from '@/lib/authRedirect';
+
 interface LogDetails {
   message?: string;
   endpoint?: string;
@@ -15,6 +17,39 @@ interface SuccessLogDetails extends LogDetails {
   successResponse?: unknown;
 }
 
+async function getClientAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (typeof window === 'undefined') {
+    return headers;
+  }
+
+  try {
+    const { supabase } = await import('@/lib/supabaseClient');
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token?.trim();
+    if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+      return headers;
+    }
+  } catch {
+    // Ignore and try guest token fallback.
+  }
+
+  try {
+    const guestToken = getGuestToken();
+    if (guestToken) {
+      headers.Authorization = `Bearer ${guestToken}`;
+    }
+  } catch {
+    // Ignore localStorage errors.
+  }
+
+  return headers;
+}
+
 export async function sendErrorToSlack({
   message,
   endpoint,
@@ -30,11 +65,11 @@ export async function sendErrorToSlack({
       processedPayload = Object.fromEntries(requestPayload.entries());
     }
 
+    const headers = await getClientAuthHeaders();
+
     const response = await fetch('/api/log-error-to-slack', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         message,
         endpoint,
@@ -100,11 +135,10 @@ export async function sendSuccessToSlack({
       });
     } else {
       // Client-side: use API route
+      const headers = await getClientAuthHeaders();
       const response = await fetch('/api/log-success-to-slack', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           message,
           endpoint,

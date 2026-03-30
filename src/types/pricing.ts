@@ -6,7 +6,7 @@ export interface CashfreeInstance {
 }
 
 // Pricing Types
-export type PlanType = 'monthly';
+export type PlanType = 'monthly' | 'lifetime';
 
 export interface PricingModalProps {
   isOpen: boolean;
@@ -17,10 +17,12 @@ export interface PricingModalProps {
 
 export interface PlanPrices {
   monthly: number;
+  lifetime: number;
 }
 
 export interface DiscountedPrices {
   monthly: number | null;
+  lifetime: number | null;
 }
 
 export interface CouponCodes {

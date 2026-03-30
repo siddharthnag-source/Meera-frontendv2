@@ -74,8 +74,10 @@ export default function Terms() {
               <li>
                 {appNameOS} offers a single subscription plan:
                 <br />
-                Monthly Plan: ₹219 per month
-                <br />
+                {/* Monthly Plan: ₹99 per month
+                <br /> */}
+                Lifetime Plan: ₹499
+                <br/>
                 Payments must be made in accordance with the pricing details provided at the time of purchase.
                 Subscription payments are non-refundable unless required by applicable laws.
               </li>

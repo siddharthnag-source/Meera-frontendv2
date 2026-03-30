@@ -15,7 +15,9 @@ type ProvidersProps = {
 };
 
 const apiOptions: LiveClientOptions = {
-  apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY as string,
+  // Browser-direct Live API access is intentionally disabled.
+  // Keep this empty until a server-mediated token/relay architecture is introduced.
+  apiKey: '',
 };
 
 export default function Providers({ children }: ProvidersProps) {

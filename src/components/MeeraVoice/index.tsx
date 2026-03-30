@@ -10,7 +10,7 @@ import { useLiveAPIContext } from '@/contexts/LiveAPIContext';
 import { usePricingModal } from '@/contexts/PricingModalContext';
 import { useMediaStreamMux } from '@/hooks/use-media-stream-mux';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
-import { PricingModalSource } from '@/types/pricing';
+import { isFreeTrialWindowActive, isPaidPlanActive } from '@/lib/subscriptionUtils';
 import { LiveConnectConfig, Modality, Tool } from '@google/genai';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSession } from 'next-auth/react';
@@ -28,6 +28,7 @@ interface MeeraVoiceProps {
 }
 
 const THIRTY_SECONDS = 30;
+const ENABLE_BROWSER_LIVE_API = process.env.NEXT_PUBLIC_ENABLE_BROWSER_LIVE_API === 'true';
 
 export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProps) => {
   const { data: sessionData, status: sessionAuthStatus } = useSession();
@@ -83,8 +84,7 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
 
   // Determine if subscription is active
   const isPaid = !!subscriptionData?.plan_type && subscriptionData.plan_type !== 'free_trial';
-  const hasActiveSub =
-    !!subscriptionData?.subscription_end_date && new Date(subscriptionData.subscription_end_date) >= new Date();
+  const hasActiveSub = isPaid ? isPaidPlanActive(subscriptionData) : isFreeTrialWindowActive(subscriptionData);
 
   // Cleanup function to reset all states and refs
   const cleanup = useCallback(() => {
@@ -275,132 +275,21 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
       return;
     }
 
-    if (!subscriptionData) {
-      const subscriptionErrorMessage =
-        typeof subscriptionError === 'object' &&
-        subscriptionError !== null &&
-        'message' in subscriptionError &&
-        typeof subscriptionError.message === 'string'
-          ? subscriptionError.message
-          : null;
-      console.warn('[MeeraVoice] Subscription verification unavailable. Continuing with fallback.', {
-        subscriptionErrorMessage,
-      });
-    }
-
-    if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
-      showToast('Voice is not configured. Missing NEXT_PUBLIC_GEMINI_API_KEY.', {
+    if (!ENABLE_BROWSER_LIVE_API) {
+      showToast('Voice is disabled in this deployment for security hardening.', {
         type: 'error',
         position: 'meera-voice',
       });
       return;
     }
 
-    try {
-      setIsConnecting(true);
-      isConnectingRef.current = true;
-      setCallEndedDueToTalktime(false);
-      pricingModalShownRef.current = false;
-
-      if (subscriptionData) {
-        const isPaidUser = subscriptionData.plan_type !== 'free_trial';
-        const isSubscriptionActive =
-          !!subscriptionData.subscription_end_date && new Date(subscriptionData.subscription_end_date) >= new Date();
-        const talkTimeAvailable = currentTotalTalkTime > 0;
-
-        const isCallPossible = isPaidUser ? isSubscriptionActive : talkTimeAvailable && isSubscriptionActive;
-
-        if (!isCallPossible) {
-          if (isPaidUser && !isSubscriptionActive) {
-            openModal('plan_expired_still_calling', true);
-          } else if (!isPaidUser) {
-            openModal('plan_expired_still_calling', false);
-          }
-          setIsConnecting(false);
-          isConnectingRef.current = false;
-          return;
-        }
-      }
-
-      // Check if component is still mounted before proceeding
-      if (!componentMountedRef.current) return;
-
-      const { model_name, model_fallbacks, temperature, max_tokens, system_prompt, google_search } =
-        MEERA_VOICE_CONFIG;
-
-      const tools: Tool[] = [];
-      if (google_search) {
-        tools.push({ googleSearch: {} });
-      }
-      const config: LiveConnectConfig = {
-        responseModalities: [Modality.AUDIO],
-        temperature: temperature,
-        maxOutputTokens: max_tokens,
-        speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Aoede' } },
-        },
-        systemInstruction: {
-          parts: [
-            {
-              text: system_prompt,
-            },
-          ],
-        },
-        tools: tools,
-        // realtimeInputConfig: {
-        //   automaticActivityDetection: {
-        //     startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-        //     prefixPaddingMs: 50,
-        //     endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
-        //     silenceDurationMs: 800,
-        //   },
-        // },
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
-      };
-
-      const modelsToTry = Array.from(new Set([
-        model_name,
-        ...(model_fallbacks || []),
-      ]));
-
-      let didConnect = false;
-      for (const modelCandidate of modelsToTry) {
-        didConnect = await connect(modelCandidate, config);
-        if (didConnect) {
-          break;
-        }
-      }
-
-      if (!didConnect) {
-        throw new Error('Unable to connect to voice model. Please try again in a moment.');
-      }
-
-      await start({ audio: { mic: true, system: false }, video: false });
-    } catch (err) {
-      console.error('Caught error in handleStartCall:', err);
-
-      if (componentMountedRef.current) {
-        const errorMessage = (err as { message?: string })?.message || 'Failed to start call. Please try again.';
-        showToast(errorMessage, {
-          type: 'error',
-          position: 'meera-voice',
-        });
-        setIsConnecting(false);
-        isConnectingRef.current = false;
-        await endCall(); // Ensure cleanup on error
-      }
-    }
+    showToast('Browser voice key path is disabled. Enable a secure server relay before turning voice on.', {
+      type: 'error',
+      position: 'meera-voice',
+    });
+    return;
   }, [
-    connect,
-    start,
-    openModal,
     showToast,
-    subscriptionData,
-    subscriptionError,
-    currentTotalTalkTime,
-    endCall,
-    sessionData,
   ]);
 
   // Enhanced auto-start logic with better race condition handling
@@ -425,6 +314,7 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
         (navigator as Navigator & { standalone?: boolean }).standalone === true);
 
     const shouldAttemptAutoStart =
+      ENABLE_BROWSER_LIVE_API &&
       isOpen &&
       !autoCallInitiatedRef.current &&
       !isInitializing &&
@@ -439,8 +329,9 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
     if (shouldAttemptAutoStart) {
       const isPaidUser = subscriptionData.plan_type !== 'free_trial';
       const talkTimeAvailable = currentTotalTalkTime > 0;
-      const isSubscriptionActive =
-        !!subscriptionData.subscription_end_date && new Date(subscriptionData.subscription_end_date) >= new Date();
+      const isSubscriptionActive = isPaidUser
+        ? isPaidPlanActive(subscriptionData)
+        : isFreeTrialWindowActive(subscriptionData);
 
       const isSubscriptionValidForAutoStart = isPaidUser
         ? isSubscriptionActive
@@ -454,21 +345,6 @@ export const MeeraVoice = ({ className, onClose, isOpen = true }: MeeraVoiceProp
 
         if (isSubscriptionValidForAutoStart) {
           handleStartCall();
-        } else {
-          if (isPaidUser && !isSubscriptionActive) {
-            openModal('paid_sub_expired', true);
-          } else {
-            // Free trial
-            let source: PricingModalSource | undefined;
-            if (!isSubscriptionActive) {
-              source = 'free_trial_expired';
-            } else if (!talkTimeAvailable) {
-              source = 'free_talktime_expired';
-            }
-            if (source) {
-              openModal(source, false);
-            }
-          }
         }
       }, 300);
     }

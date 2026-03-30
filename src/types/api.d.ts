@@ -30,7 +30,7 @@ export interface PaymentCustomerDetails {
 }
 
 export interface CreatePaymentRequest {
-  plan_type: 'monthly';
+  plan_type: 'monthly' | 'lifetime';
   amount?: number;
   order_currency?: string;
   customer_details?: Partial<PaymentCustomerDetails>;

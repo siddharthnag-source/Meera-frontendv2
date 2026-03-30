@@ -6,6 +6,7 @@ import {
   breakAuthRedirectLoop,
   clearAuthRedirectTrace,
   clearGuestTokenState,
+  GUEST_TOKEN_COOKIE_KEY,
   getGuestToken,
   hasConsumedSuccessFlag,
   hasSuccessQueryParam,
@@ -126,9 +127,9 @@ function SignInClient() {
         document.cookie = `referral_id=${referralId}; path=/; max-age=3600; SameSite=Lax`;
       }
 
-      const guestToken = localStorage.getItem('guest_token');
+      const guestToken = getGuestToken();
       if (guestToken) {
-        document.cookie = `guest_token=${guestToken}; path=/; max-age=3600; SameSite=Lax`;
+        document.cookie = `${GUEST_TOKEN_COOKIE_KEY}=${guestToken}; path=/; max-age=3600; SameSite=Lax`;
       }
 
       await supabase.auth.signInWithOAuth({

@@ -36,6 +36,17 @@ type ImageAttachment = {
   size?: number;
 };
 
+type OutgoingAttachment = {
+  name: string;
+  url?: string;
+  publicUrl?: string;
+  mimeType?: string;
+  type?: 'image' | 'document' | 'file' | string;
+  size?: number;
+  bucket?: string;
+  storagePath?: string;
+};
+
 type DbMessageRow = {
   message_id: string;
   user_id: string;
@@ -99,6 +110,9 @@ type AssistantMsg = {
 
 type MeeraImageResponse = {
   assistantMessageId?: string;
+  sessionId?: string;
+  webSearchEnabled?: boolean;
+  webSearchTriggerReason?: string;
   reply?: string;
   thoughts?: string;
   images?: { mimeType?: string; data: string; dataUrl?: string }[];
@@ -108,23 +122,159 @@ type MeeraImageResponse = {
 
 /* ---------- Constants ---------- */
 const CONTEXT_WINDOW = 40;
+const CLIENT_SESSION_NAMESPACE = (process.env.NEXT_PUBLIC_SESSION_NAMESPACE || 'r20260329f1').trim();
+const CLIENT_SESSION_PREFIX = `sess_${CLIENT_SESSION_NAMESPACE}_`;
+const CLIENT_SESSION_STORAGE_KEY_PREFIX = `meera:chat_session_id:${CLIENT_SESSION_NAMESPACE}:`;
 
 /* ---------- Env Vars ---------- */
-const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON_KEY =
-  process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.warn('Supabase env vars missing, streaming will fail.');
+  console.warn('Public Supabase env vars missing, streaming will fail.');
+}
+
+function normalizeSessionId(value?: string | null): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function isLegacySessionId(value: string): boolean {
+  return value === 'sess_1';
+}
+
+function isCurrentSessionNamespace(value: string): boolean {
+  return value.startsWith(CLIENT_SESSION_PREFIX);
+}
+
+function getOrCreateClientSessionId(userId: string, preferredSessionId?: string): string {
+  const explicitSessionId = normalizeSessionId(preferredSessionId);
+  if (explicitSessionId && !isLegacySessionId(explicitSessionId) && isCurrentSessionNamespace(explicitSessionId)) {
+    return explicitSessionId;
+  }
+
+  const storageKey = `${CLIENT_SESSION_STORAGE_KEY_PREFIX}${userId}`;
+
+  try {
+    const existing = normalizeSessionId(globalThis?.localStorage?.getItem(storageKey));
+    if (existing && !isLegacySessionId(existing) && isCurrentSessionNamespace(existing)) return existing;
+    if (existing && (!isCurrentSessionNamespace(existing) || isLegacySessionId(existing))) {
+      globalThis?.localStorage?.removeItem(storageKey);
+    }
+  } catch {
+    // Ignore storage read failures and fall back to ephemeral generation.
+  }
+
+  const generated = `${CLIENT_SESSION_PREFIX}${crypto.randomUUID()}`;
+
+  try {
+    globalThis?.localStorage?.setItem(storageKey, generated);
+  } catch {
+    // Ignore storage write failures; the generated session id is still valid for this request.
+  }
+
+  return generated;
+}
+
+function persistClientSessionId(userId: string, sessionId?: string | null): string | null {
+  const normalized = normalizeSessionId(sessionId);
+  if (!normalized || isLegacySessionId(normalized) || !isCurrentSessionNamespace(normalized)) return null;
+  const storageKey = `${CLIENT_SESSION_STORAGE_KEY_PREFIX}${userId}`;
+  try {
+    globalThis?.localStorage?.setItem(storageKey, normalized);
+  } catch {
+    // Ignore storage write failures; caller can still continue with this session id.
+  }
+  return normalized;
 }
 
 /* ---------- Image helpers ---------- */
 
 const IMAGE_TRIGGER_WORDS = ['image', 'photo', 'picture', 'img', 'pic'];
+const IMAGE_FILE_EXT_RE = /\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)(\?|#|$)/i;
 
 function isImagePrompt(text: string): boolean {
-  const lower = text.toLowerCase();
-  return IMAGE_TRIGGER_WORDS.some((w) => lower.includes(w));
+  const t = text.toLowerCase();
+  const hasImageNoun = IMAGE_TRIGGER_WORDS.some((w) => t.includes(w));
+  const hasGenerateVerb =
+    /\b(generate|create|draw|make|render|illustrate|paint|sketch|design)\b/.test(t);
+  const hasShowOrSendImage = /\b(show|send|give)\b.*\b(image|picture|photo|pic)\b/.test(t);
+  return hasShowOrSendImage || (hasGenerateVerb && hasImageNoun);
+}
+
+function hasImageAttachment(attachments: OutgoingAttachment[]): boolean {
+  return attachments.some((att) => {
+    const mime = String(att.mimeType || '').toLowerCase();
+    if (mime.startsWith('image/')) return true;
+    if (String(att.type || '').toLowerCase() === 'image') return true;
+    const name = String(att.name || '').toLowerCase();
+    const url = String(att.url || att.publicUrl || '').toLowerCase();
+    return IMAGE_FILE_EXT_RE.test(name) || IMAGE_FILE_EXT_RE.test(url);
+  });
+}
+
+function isLikelyImageEditPrompt(text: string): boolean {
+  const t = text.toLowerCase();
+  const hasEditVerb =
+    /\b(change|edit|modify|remove|replace|swap|erase|add|crop|blur|sharpen|resize|rotate|flip|brighten|darken|fix|retouch|enhance|improve|adjust|tweak|beautify|stylize|style|transform|restyle|convert|makeover)\b/.test(
+      t,
+    );
+  const hasTarget =
+    /\b(background|bg|colour|color|logo|text|font|watermark|person|people|object|sky|shirt|hair|eyes|face|layout|button|banner)\b/.test(
+      t,
+    );
+  if (hasEditVerb && hasTarget) return true;
+  if (/\b(change|set)\b.*\b(background|bg)\b.*\b(colou?r)\b/.test(t)) return true;
+  if (/\b(make|turn|set)\b.*\b(red|green|blue|black|white|gray|grey|purple|pink|orange|yellow|brown|teal|navy|beige|cream)\b/.test(t)) {
+    return true;
+  }
+  const hasStyleCue =
+    /\b(look|style|vibe|theme|aesthetic|avatar|character|costume|outfit|filter)\b/.test(t);
+  const hasSubjectRef =
+    /\b(him|her|them|me|my|our|it|this|that|face|selfie|portrait)\b/.test(t);
+  if (/\b(give|make|turn|transform|restyle|convert|style)\b/.test(t) && hasStyleCue && hasSubjectRef) return true;
+  if (/\b(make|turn)\b.*\binto\b/.test(t) && hasSubjectRef) return true;
+  return false;
+}
+
+function isLikelyAttachmentEditCue(text: string): boolean {
+  const t = text.toLowerCase();
+  const hasTransformVerb =
+    /\b(edit|change|modify|remove|replace|add|improve|enhance|retouch|stylize|upscale|restore|clean|fix|make|turn|set|adjust|tweak|transform|restyle|convert|give)\b/.test(
+      t,
+    );
+  const hasImageRef = /\b(image|photo|picture|pic|portrait|selfie)\b/.test(t);
+  const hasStyleCue =
+    /\b(look|style|vibe|theme|aesthetic|avatar|character|costume|outfit|filter)\b/.test(t);
+  const hasSubjectRef = /\b(him|her|them|me|my|our|it|this|that|face)\b/.test(t);
+  return hasTransformVerb && (hasImageRef || hasStyleCue || hasSubjectRef || t.length <= 180);
+}
+
+function isLikelyAttachmentReadCue(text: string): boolean {
+  const t = text.toLowerCase();
+  return /\b(read|describe|analy[sz]e|analy[sz]ing|explain|identify|ocr|transcribe|extract|summari[sz]e|caption|what(?:'s| is) in)\b/.test(
+    t,
+  );
+}
+
+function normalizeOutgoingAttachments(attachments: OutgoingAttachment[]): OutgoingAttachment[] {
+  const out: OutgoingAttachment[] = [];
+  for (const att of attachments) {
+    const url = String(att.url || att.publicUrl || '').trim();
+    const storagePath = String(att.storagePath || '').trim();
+    if (!url && !storagePath) continue;
+    out.push({
+      name: String(att.name || 'attachment'),
+      url: url || undefined,
+      mimeType: att.mimeType ? String(att.mimeType) : undefined,
+      type: att.type ? String(att.type) : undefined,
+      size: typeof att.size === 'number' ? att.size : undefined,
+      bucket: att.bucket ? String(att.bucket) : undefined,
+      storagePath: storagePath || undefined,
+    });
+  }
+  return out;
 }
 
 function base64ToBlobUrl(base64: string, mimeType: string): string {
@@ -539,13 +689,15 @@ export const chatService = {
   /* ---------- Streaming Chat ---------- */
   async streamMessage({
     message,
-    sessionId = 'sess_1',
+    attachments = [],
+    sessionId,
     onDelta,
     onDone,
     onError,
     signal,
   }: {
     message: string;
+    attachments?: OutgoingAttachment[];
     sessionId?: string;
     onDelta: (delta: string) => void;
     onDone?: (finalMsg: AssistantMsg) => void;
@@ -560,6 +712,7 @@ export const chatService = {
       if (!session?.user) throw new SessionExpiredError('Session expired');
       const userId = session.user.id;
       const accessToken = session.access_token;
+      const effectiveSessionId = getOrCreateClientSessionId(userId, sessionId);
 
       // Deterministic IDs for this interaction (fixes system_prompt + attachment updates)
       const userMessageId = crypto.randomUUID();
@@ -571,8 +724,9 @@ export const chatService = {
       try {
         const { data: page1 } = await supabase
           .from('messages')
-          .select('content_type, content, timestamp')
+          .select('content_type, content, timestamp, session_id')
           .eq('user_id', userId)
+          .eq('session_id', effectiveSessionId)
           .order('timestamp', { ascending: false })
           .limit(CONTEXT_WINDOW);
 
@@ -582,6 +736,7 @@ export const chatService = {
       }
 
       const sortedHistory = historyRows.slice().reverse();
+      const normalizedAttachments = normalizeOutgoingAttachments(attachments);
 
       const historyForModel: LLMHistoryMessage[] = sortedHistory
         .filter((r) => r.content?.trim())
@@ -592,18 +747,28 @@ export const chatService = {
 
       historyForModel.push({ role: 'user', content: message });
 
-      const isImage = isImagePrompt(message);
+      const hasIncomingImageAttachment = hasImageAttachment(normalizedAttachments);
+      const hasLikelyImageGenerateIntent = isImagePrompt(message);
+      const hasLikelyImageEditIntent = isLikelyImageEditPrompt(message);
+      const hasAttachmentEditCue = isLikelyAttachmentEditCue(message);
+      const hasAttachmentReadCue = isLikelyAttachmentReadCue(message);
+      const isImage =
+        hasLikelyImageGenerateIntent ||
+        (hasIncomingImageAttachment &&
+          (hasLikelyImageEditIntent || hasAttachmentEditCue) &&
+          !hasAttachmentReadCue);
 
       /* ---------- Save user message WITH message_id ---------- */
       await supabase.from('messages').insert([
         {
           message_id: userMessageId,
           user_id: userId,
-          session_id: sessionId,
+          session_id: effectiveSessionId,
           content_type: 'user',
           content: message,
           timestamp: new Date().toISOString(),
           message_type: 'text',
+          attachments: normalizedAttachments.length > 0 ? normalizedAttachments : null,
           is_call: false,
         },
       ]);
@@ -613,7 +778,7 @@ export const chatService = {
         {
           message_id: assistantMessageId,
           user_id: userId,
-          session_id: sessionId,
+          session_id: effectiveSessionId,
           content_type: 'assistant',
           content: '',
           timestamp: new Date().toISOString(),
@@ -641,8 +806,9 @@ export const chatService = {
             body: JSON.stringify({
               message,
               messages: historyForModel,
+              attachments: normalizedAttachments,
               userId,
-              sessionId,
+              sessionId: effectiveSessionId,
               stream: false,
 
               // NEW: send both IDs
@@ -658,6 +824,7 @@ export const chatService = {
           if (!res.ok) throw new Error(`Image call failed: ${res.status}`);
 
           const json = (await res.json()) as MeeraImageResponse;
+          persistClientSessionId(userId, json.sessionId);
 
           finalText = json.reply?.trim() || 'Here is your image.';
 
@@ -717,45 +884,124 @@ export const chatService = {
       /* ---------------------------------------------------------------------- */
 
       let finalText = '';
+      let streamError: unknown = null;
 
-      await streamMeera({
-        supabaseUrl: SUPABASE_URL!,
-        supabaseAnonKey: SUPABASE_ANON_KEY!,
-        accessToken,
-        messages: historyForModel,
-        userId,
-        sessionId,
-        userMessageId,
-        assistantMessageId,
-        signal,
-        onAnswerDelta: (d) => {
-          finalText += d;
-          onDelta(d);
-        },
-      });
+      try {
+        await streamMeera({
+          supabaseUrl: SUPABASE_URL!,
+          supabaseAnonKey: SUPABASE_ANON_KEY!,
+          accessToken,
+          message,
+          messages: historyForModel,
+          attachments: normalizedAttachments,
+          userId,
+          sessionId: effectiveSessionId,
+          userMessageId,
+          assistantMessageId,
+          onMeta: (meta) => {
+            persistClientSessionId(userId, meta?.sessionId);
+          },
+          signal,
+          idleTimeoutMs: 30000,
+          onAnswerDelta: (d) => {
+            finalText += d;
+            onDelta(d);
+          },
+        });
+      } catch (err) {
+        streamError = err;
+        console.warn('streamMessage: streaming path failed, retrying non-stream fallback', err);
+      }
 
+      if (streamError) {
+        const fallbackRes = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY!,
+            Authorization: `Bearer ${accessToken || SUPABASE_ANON_KEY!}`,
+          },
+          body: JSON.stringify({
+            message,
+            messages: historyForModel,
+            attachments: normalizedAttachments,
+            userId,
+            sessionId: effectiveSessionId,
+            stream: false,
+            userMessageId,
+            assistantMessageId,
+            messageId: assistantMessageId,
+          }),
+          signal,
+        });
+
+        if (!fallbackRes.ok) {
+          throw streamError;
+        }
+
+        const fallbackJson = (await fallbackRes.json()) as MeeraImageResponse;
+        persistClientSessionId(userId, fallbackJson.sessionId);
+        const fallbackReply = String(fallbackJson?.reply || '').trim();
+
+        if (fallbackReply) {
+          if (!finalText.trim()) {
+            finalText = fallbackReply;
+            onDelta(fallbackReply);
+          } else if (fallbackReply.startsWith(finalText)) {
+            const delta = fallbackReply.slice(finalText.length);
+            if (delta) onDelta(delta);
+            finalText = fallbackReply;
+          } else {
+            const stitchedDelta = `\n\n${fallbackReply}`;
+            onDelta(stitchedDelta);
+            finalText += stitchedDelta;
+          }
+        }
+      }
+
+      let resolvedFinalText = finalText.trim();
       const now = new Date().toISOString();
+      let row: DbMessageRow | undefined;
+      const assistantRowSelect =
+        'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments';
+      const readAssistantRow = async (): Promise<DbMessageRow | undefined> => {
+        const { data, error } = await supabase
+          .from('messages')
+          .select(assistantRowSelect)
+          .eq('message_id', assistantMessageId)
+          .limit(1);
 
-      // Update assistant placeholder (do not insert a new assistant row)
-      const { data: saved, error: saveErr } = await supabase
-        .from('messages')
-        .update({
-          content: finalText,
-          timestamp: now,
-        })
-        .eq('message_id', assistantMessageId)
-        .select(
-          'message_id, user_id, content_type, content, timestamp, session_id, is_call, model, message_type, image_url, attachments',
-        );
+        if (error) {
+          console.error('Assistant final row fetch error', error);
+          return undefined;
+        }
+        return (data as DbMessageRow[] | null)?.[0] ?? undefined;
+      };
 
-      if (saveErr) console.error('Assistant final update error', saveErr);
+      // Backend is the single writer for final assistant content.
+      // Poll briefly so we don't race and overwrite finalized backend replies with partial deltas.
+      const readDelaysMs = [0, 120, 250, 500, 900, 1400, 2200];
+      for (const delayMs of readDelaysMs) {
+        if (delayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+        const candidate = await readAssistantRow();
+        if (!candidate) continue;
+        row = candidate;
+        if (typeof candidate.content === 'string' && candidate.content.trim()) {
+          resolvedFinalText = candidate.content.trim();
+          break;
+        }
+      }
 
-      const row = (saved as DbMessageRow[] | null)?.[0];
+      if (!resolvedFinalText) {
+        resolvedFinalText = 'Sorry, I could not generate a response. Please try again.';
+      }
 
       const assistantMsg: AssistantMsg = {
         message_id: row?.message_id ?? assistantMessageId,
         content_type: 'assistant',
-        content: row?.content ?? finalText,
+        content: (typeof row?.content === 'string' && row.content.trim()) ? row.content : resolvedFinalText,
         timestamp: row?.timestamp ?? now,
         attachments: [],
         is_call: false,

@@ -8,12 +8,14 @@ import type {
   VerifyPaymentRequest,
   VerifyPaymentResponse,
 } from '@/types/api';
+import { getGuestToken as getStoredGuestToken } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
 import { api } from '../client';
 import { API_ENDPOINTS } from '../config';
 
-const PLAN_AMOUNT_MAP: Partial<Record<CreatePaymentRequest['plan_type'], number>> = {
-  monthly: 219,
+const PLAN_AMOUNT_MAP: Record<CreatePaymentRequest['plan_type'], number> = {
+  monthly: 1,
+  lifetime: 499,
 };
 
 const DEFAULT_ORDER_CURRENCY = 'INR';
@@ -22,8 +24,7 @@ const DEFAULT_CUSTOMER_EMAIL = 'guest@example.com';
 const DEFAULT_CUSTOMER_PHONE = '9999999999';
 
 const getGuestToken = (): string | null => {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('guest_token');
+  return getStoredGuestToken();
 };
 
 const normalizeAmount = (amount?: number): number | null => {

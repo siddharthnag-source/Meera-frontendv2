@@ -3,7 +3,10 @@ import type { SubscriptionData } from '@/types/subscription';
 
 export type SessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
-export const GUEST_TOKEN_STORAGE_KEY = 'guest_token';
+export const GUEST_TOKEN_NAMESPACE = (process.env.NEXT_PUBLIC_GUEST_TOKEN_NAMESPACE || 'g20260329f1').trim();
+export const GUEST_TOKEN_STORAGE_KEY = `guest_token_${GUEST_TOKEN_NAMESPACE}`;
+export const LEGACY_GUEST_TOKEN_STORAGE_KEY = 'guest_token';
+export const GUEST_TOKEN_COOKIE_KEY = 'guest_token';
 
 const AUTH_SUCCESS_QUERY_KEY = 'success';
 const AUTH_SUCCESS_QUERY_VALUE = 'true';
@@ -104,15 +107,37 @@ export const logAuthRedirectEvent = (event: string, meta: Record<string, unknown
   );
 };
 
-export const getGuestToken = (): string | null => {
+const readLocalStorageValue = (key: string): string | null => {
   if (!canUseWindow()) return null;
 
   try {
-    const value = window.localStorage.getItem(GUEST_TOKEN_STORAGE_KEY);
+    const value = window.localStorage.getItem(key);
     return typeof value === 'string' && value.trim() ? value.trim() : null;
   } catch {
     return null;
   }
+};
+
+export const getGuestToken = (): string | null => {
+  return readLocalStorageValue(GUEST_TOKEN_STORAGE_KEY);
+};
+
+const getLegacyGuestToken = (): string | null => readLocalStorageValue(LEGACY_GUEST_TOKEN_STORAGE_KEY);
+
+export const setGuestToken = (token: string): string => {
+  const normalized = token.trim();
+  if (!normalized || !canUseWindow()) return normalized;
+
+  try {
+    window.localStorage.setItem(GUEST_TOKEN_STORAGE_KEY, normalized);
+    if (LEGACY_GUEST_TOKEN_STORAGE_KEY !== GUEST_TOKEN_STORAGE_KEY) {
+      window.localStorage.removeItem(LEGACY_GUEST_TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore localStorage errors in private mode / disabled storage environments.
+  }
+
+  return normalized;
 };
 
 export const hasConsumedSuccessFlag = (): boolean =>
@@ -151,10 +176,14 @@ export const stripQueryParamsFromCurrentUrl = (keys: string[]): boolean => {
 };
 
 export const clearGuestTokenState = (reason: string): void => {
-  const hadGuestToken = !!getGuestToken();
+  const hadGuestToken = !!(getGuestToken() || getLegacyGuestToken());
   removeLocalStorage(GUEST_TOKEN_STORAGE_KEY);
+  removeLocalStorage(LEGACY_GUEST_TOKEN_STORAGE_KEY);
   if (canUseDocument()) {
-    document.cookie = `${GUEST_TOKEN_STORAGE_KEY}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+    document.cookie = `${GUEST_TOKEN_COOKIE_KEY}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+    if (GUEST_TOKEN_STORAGE_KEY !== GUEST_TOKEN_COOKIE_KEY) {
+      document.cookie = `${GUEST_TOKEN_STORAGE_KEY}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+    }
   }
   clearSuccessFlagConsumption();
   if (hadGuestToken) {
