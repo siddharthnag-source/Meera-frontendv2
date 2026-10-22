@@ -10,4 +10,6 @@ Checks passed: five focused Node tests; TypeScript noEmit; focused lint for all 
 
 Standard Next lint is blocked by the existing @typescript-eslint/no-empty-function plugin configuration; the repository's existing ESLint 8 workaround passed with zero errors.
 
-Runtime DOM confirms fbevents.js and the new dataset's signals/config script load. Events Manager has not yet displayed a received event in this session. A genuine new-user signup and its resulting CompleteRegistration receipt remain unverified; do not treat code tests as a received conversion. No extra campaign or budget changes were made.
+Runtime DOM confirms fbevents.js and the new dataset's signals/config script load. Events Manager has not yet displayed a received event in this session. No extra campaign or budget changes were made.
+
+Follow-up live signup verification: marketing@getmeera.space did not exist in auth.users before the test. Completed normal Google signup through the live website at 2026-10-22 21:11:26 UTC (23 October IST). Email confirmed; the real callback created exactly one meta_registration_claimed row. Signed out and signed in again at 21:12:32 UTC; the count remained exactly one. No synthetic Meta event was injected. This is internal QA, not a campaign-acquired signup, and must be excluded from acquisition results. Events Manager date range corrected to 23 October Asia/Kolkata; Diagnostics says no active errors. Meta receipt of PageView and CompleteRegistration is still unverified, despite successful live first-party signup/duplicate checks.
