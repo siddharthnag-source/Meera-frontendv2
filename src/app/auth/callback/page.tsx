@@ -3,13 +3,17 @@
 import { finishGoogleAgentConnection } from '@/lib/auth/startGoogleAgentConnection';
 import { clearAuthRedirectTrace, clearGuestTokenState, logAuthRedirectEvent } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
+import { META_REGISTRATION_PENDING_KEY } from '@/lib/marketingRegistration';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
+  const started = useRef(false);
 
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     const handle = async () => {
       try {
         // Touch auth so Supabase reads the #access_token from the URL
@@ -23,12 +27,21 @@ export default function AuthCallbackPage() {
         const { data, error } = await supabase.auth.getSession();
 
         if (data.session) {
-          await fetch('/api/analytics/growth-links/attribute', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${data.session.access_token}` },
-          }).catch(() => {
-            // Attribution is best-effort and must never block sign-in.
-          });
+          const headers = { Authorization: `Bearer ${data.session.access_token}` };
+          await Promise.allSettled([
+            fetch('/api/analytics/growth-links/attribute', {
+              method: 'POST', headers, signal: AbortSignal.timeout(3000),
+            }),
+            fetch('/api/analytics/meta-registration', {
+              method: 'POST', headers, signal: AbortSignal.timeout(3000),
+            }).then(async (response) => {
+              if (!response.ok) return;
+              const result = await response.json();
+              if (result.eligible && typeof result.eventId === 'string') {
+                sessionStorage.setItem(META_REGISTRATION_PENDING_KEY, result.eventId);
+              }
+            }),
+          ]);
           let returnTo: string | null = null;
           try {
             returnTo = await finishGoogleAgentConnection();
