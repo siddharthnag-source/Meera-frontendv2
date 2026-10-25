@@ -10,12 +10,14 @@ import {
 } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
 import { queueMarketingEvent } from '@/lib/marketingEvents';
+import { isUSPurchaseIntent, US_SIGN_IN_PATH } from '@/lib/purchaseIntent';
+import { isPaidPlanActive } from '@/lib/subscriptionUtils';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 
 function PaymentRouteContent() {
-  const { data: subscriptionData, isLoading: isLoadingSubscription } = useSubscriptionStatus();
+  const { data: subscriptionData, isLoading: isLoadingSubscription, isError: subscriptionError, refetch: retrySubscription } = useSubscriptionStatus();
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>('loading');
   const [sessionUserId, setSessionUserId] = useState<string>('');
   const [sessionAccessToken, setSessionAccessToken] = useState<string>('');
@@ -23,6 +25,7 @@ function PaymentRouteContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const checkoutSessionId = searchParams.get('checkout_session_id');
+  const isUSOffer = isUSPurchaseIntent(searchParams);
   const [checkoutStatus, setCheckoutStatus] = useState<'checking' | 'pending' | 'expired' | 'error'>('checking');
   const [checkAttempt, setCheckAttempt] = useState(0);
   const queryClient = useQueryClient();
@@ -101,11 +104,23 @@ function PaymentRouteContent() {
 
   useEffect(() => {
     if (checkoutSessionId && sessionStatus !== 'unauthenticated') return;
+    if (sessionStatus === 'authenticated' && subscriptionError) return;
     const decision = resolvePaymentRouteDecision({
       sessionStatus,
       isSubscriptionLoading: isLoadingSubscription,
       subscriptionData,
     });
+
+    // Explicit purchase intent also applies to legacy free accounts.
+    // An existing paid account still follows the normal access decision.
+    if (isUSOffer && sessionStatus === 'unauthenticated') {
+      router.replace(US_SIGN_IN_PATH);
+      return;
+    }
+    if (isUSOffer && sessionStatus === 'authenticated' && !isLoadingSubscription && subscriptionData && !isPaidPlanActive(subscriptionData)) {
+      decision.target = null;
+      decision.reason = 'payment_required';
+    }
 
     const currentRoute = `${window.location.pathname}${window.location.search}`;
 
@@ -149,6 +164,7 @@ function PaymentRouteContent() {
     }
   }, [
     checkoutSessionId,
+    isUSOffer,
     isLoadingSubscription,
     openModal,
     router,
@@ -156,6 +172,7 @@ function PaymentRouteContent() {
     sessionStatus,
     sessionUserId,
     subscriptionData,
+    subscriptionError,
   ]);
 
   if (checkoutSessionId) {
@@ -190,6 +207,19 @@ function PaymentRouteContent() {
           <a className="mt-5 block text-sm underline" href="mailto:siddharth.nag@himeera.com">
             Contact support
           </a>
+        </section>
+      </main>
+    );
+  }
+
+  if (subscriptionError && sessionStatus === 'authenticated') {
+    return (
+      <main className="flex min-h-[100dvh] items-center justify-center bg-background px-6 text-center text-primary">
+        <section className="max-w-md">
+          <h1 className="font-serif text-3xl">Let’s reconnect to checkout</h1>
+          <p className="mt-4">We couldn’t check your account. You haven’t been charged. Please try again.</p>
+          <button className="mt-6 rounded-full bg-primary px-6 py-3 text-background" onClick={() => void retrySubscription()}>Try again</button>
+          <a className="mt-5 block underline" href="mailto:siddharth.nag@himeera.com">Contact support</a>
         </section>
       </main>
     );

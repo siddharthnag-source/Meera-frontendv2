@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
         integration_identifier: 'meera_lifetime_kqpmzvra',
         billing_address_collection: 'required',
         success_url: `${origin}/payment?checkout_session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${origin}/payment?checkout=cancelled`,
+        cancel_url: `${origin}/payment?offer=us-lifetime&checkout=cancelled`,
         // Managed Payments owns Checkout's wording and rejects custom_text.
         // The one-time offer is described on our paywall and in the line item.
       },

@@ -5,6 +5,7 @@ import { clearAuthRedirectTrace, clearGuestTokenState, logAuthRedirectEvent } fr
 import { supabase } from '@/lib/supabaseClient';
 import { queueMarketingEvent } from '@/lib/marketingEvents';
 import { captureMarketingTouch } from '@/lib/captureMarketingTouch';
+import { consumePurchaseIntent, US_SIGN_IN_PATH } from '@/lib/purchaseIntent';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 
@@ -57,7 +58,8 @@ export default function AuthCallbackPage() {
           logAuthRedirectEvent('auth_callback_session_restored', {
             pathname: window.location.pathname,
           });
-          router.replace(returnTo || '/');
+          const purchaseTarget = consumePurchaseIntent();
+          router.replace(returnTo || purchaseTarget || '/');
           return;
         }
 
@@ -65,10 +67,10 @@ export default function AuthCallbackPage() {
           message: providerError || error?.message || 'No session returned',
           pathname: window.location.pathname,
         });
-        router.replace('/sign-in?auth_error=google');
+        router.replace(consumePurchaseIntent() ? `${US_SIGN_IN_PATH}&auth_error=google` : '/sign-in?auth_error=google');
       } catch (error) {
         console.error('Supabase auth callback error:', error);
-        router.replace('/sign-in?auth_error=google');
+        router.replace(consumePurchaseIntent() ? `${US_SIGN_IN_PATH}&auth_error=google` : '/sign-in?auth_error=google');
       }
     };
 

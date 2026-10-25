@@ -35,6 +35,9 @@ export default function PricingPage() {
               <p className="mt-3 text-primary/70">{plan.detail}</p>
               <p className="mt-5 font-serif text-3xl">US${INTERNATIONAL_LIFETIME_PRICE_USD} internationally</p>
               <p className="mt-2 text-primary/70">The same lifetime access, paid once through Stripe. Local-currency equivalents may be offered at checkout.</p>
+              <Link href="/sign-in?offer=us-lifetime" className="mt-5 inline-flex rounded-full bg-primary px-6 py-3 font-semibold text-background">
+                Get US$99 lifetime access
+              </Link>
               <p className="mt-6 text-sm text-primary/70">Includes text chat, web, and images.</p>
             </section>
           ))}

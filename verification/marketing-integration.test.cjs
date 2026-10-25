@@ -189,6 +189,7 @@ test('public sign-in content renders while session restoration is pending', () =
       if (id === 'next/image') return { default: (props) => React.createElement('img', { src: props.src, alt: props.alt }) };
       if (id === 'next/link') return { default: ({ href, children, ...props }) => React.createElement('a', { href, ...props }, children) };
       if (id === '@/lib/utils') return { cn: (...args) => args.filter(Boolean).join(' ') };
+      if (id === '@/lib/purchaseIntent') return load('src/lib/purchaseIntent.ts');
       if (id === 'react-icons/fc') return { FcGoogle: () => React.createElement('span') };
       if (id.startsWith('@/components/')) return new Proxy({}, { get: () => () => null });
       if (id.startsWith('@/lib/')) return {};

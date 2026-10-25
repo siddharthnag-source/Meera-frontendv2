@@ -1,5 +1,7 @@
 # Meera ads and product handoff - 25 October 2026
 
+> Latest continuation: [26 October sales release and campaign draft state](US_SALES_RELEASE_2026_10_26.md). The US offer and purchase-intent improvements are now published; Meta campaign replacement remains unpublished.
+
 > Updated sales audit: read [US sales audit and checkout repair](US_SALES_AUDIT_2026_10_25.md) first. It supersedes the older deployment and account-access status below. The earlier PDF does not include this addendum. Live US checkout failure was found and repaired after the tracking release.
 
 ## Release

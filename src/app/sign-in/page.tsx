@@ -20,6 +20,7 @@ import {
 } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
 import { startGoogleOAuth } from '@/lib/auth/startGoogleOAuth';
+import { isUSPurchaseIntent, rememberPurchaseIntent, US_CHECKOUT_PATH } from '@/lib/purchaseIntent';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -117,6 +118,9 @@ const testimonials = [
 
 function SignInClient() {
   const searchParams = useSearchParams();
+  const isUSOffer = isUSPurchaseIntent(searchParams);
+  const [signInError, setSignInError] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const referralId = searchParams.get('referral_id');
   const hasGoogleAuthError = searchParams.get('auth_error') === 'google';
   const router = useRouter();
@@ -178,16 +182,20 @@ function SignInClient() {
         target: decision.target,
         visitCount,
       });
-      router.replace(decision.target);
+      router.replace(isUSOffer ? US_CHECKOUT_PATH : decision.target);
       return;
     }
 
     if (sessionStatus === 'unauthenticated') {
       clearAuthRedirectTrace();
     }
-  }, [router, sessionStatus]);
+  }, [router, sessionStatus, isUSOffer]);
 
   const handleGoogleSignIn = async () => {
+    if (isSigningIn) return;
+    setIsSigningIn(true);
+    setSignInError(false);
+    rememberPurchaseIntent(isUSOffer);
     try {
       if (referralId) {
         document.cookie = `referral_id=${referralId}; path=/; max-age=3600; SameSite=Lax`;
@@ -206,10 +214,14 @@ function SignInClient() {
           browserHint: result.browserHint,
         });
       } else if (result.status === 'failed') {
+        setSignInError(true);
         console.error('Error signing in with Google:', result.message);
       }
     } catch (error) {
+      setSignInError(true);
       console.error('Error signing in with Google:', error);
+    } finally {
+      setIsSigningIn(false);
     }
   };
 
@@ -275,19 +287,28 @@ function SignInClient() {
 
               <button
                 onClick={handleGoogleSignIn}
+                disabled={isSigningIn}
                 className={cn(
                   'group relative mx-auto mt-8 flex h-14 w-full max-w-sm cursor-pointer items-center justify-center rounded-full bg-primary px-8 text-[15px] font-medium text-background transition-all duration-300 lg:mx-0',
                   'shadow-[0_16px_40px_rgba(12,60,38,0.16)] hover:-translate-y-0.5 hover:shadow-[0_20px_46px_rgba(12,60,38,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-background',
                 )}
               >
                 <FcGoogle className="absolute left-5 rounded-full bg-white p-1 text-[28px]" aria-hidden="true" />
-                <span>Talk to Meera</span>
+                <span>{isSigningIn ? 'Connecting…' : isUSOffer ? 'Continue to $99 lifetime access' : 'Talk to Meera'}</span>
                 <span className="ml-2 transition-transform duration-300 group-hover:translate-x-1" aria-hidden="true">
                   →
                 </span>
               </button>
 
-              {hasGoogleAuthError && (
+              {isUSOffer && (
+                <div className="mx-auto mt-4 max-w-sm text-sm leading-6 lg:mx-0">
+                  <p className="font-semibold">$99 once. Lifetime access. No recurring subscription.</p>
+                  <p className="text-primary/75">Text conversations, web information, and image creation. Sign in, then pay securely with Stripe.</p>
+                  <Link href="/refund-policy" className="underline underline-offset-4">Read our refund policy</Link>
+                </div>
+              )}
+
+              {(hasGoogleAuthError || signInError) && (
                 <p role="alert" className="mx-auto mt-3 max-w-sm text-sm text-[#a30d13] lg:mx-0">
                   Google sign-in could not be completed. Please try again from this page.
                 </p>

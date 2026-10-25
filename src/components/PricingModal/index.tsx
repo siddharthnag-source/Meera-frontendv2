@@ -5,6 +5,7 @@ import { trackingService } from '@/app/api/services/tracking';
 import { SUBSCRIPTION_QUERY_KEY } from '@/hooks/useSubscriptionStatus';
 import { supabase } from '@/lib/supabaseClient';
 import { queueMarketingEvent } from '@/lib/marketingEvents';
+import { isUSPurchaseIntent } from '@/lib/purchaseIntent';
 import type { CashfreeInstance, PlanType, PricingModalProps, PricingModalSource } from '@/types/pricing';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -134,7 +135,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
         return response.json();
       })
       .then((offer) => {
-        setMarket(offer.market === 'india' ? 'india' : 'international');
+        setMarket(isUSPurchaseIntent(new URLSearchParams(window.location.search)) ? 'international' : offer.market === 'india' ? 'india' : 'international');
         setStripeReady(offer.stripeReady === true);
       })
       .catch(() => {
