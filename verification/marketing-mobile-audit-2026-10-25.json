@@ -1,0 +1,16 @@
+{
+  "url": "https://www.himeera.com/sign-in",
+  "report": "https://pagespeed.web.dev/analysis/https-www-himeera-com-sign-in/xzz0j1h329?form_factor=mobile",
+  "deployment": "dpl_73sBZ17kGjZpqyvtgMsmuJvvGN5C",
+  "device": "Emulated Moto G Power, slow 4G, Lighthouse 13.5.0",
+  "accessibility": 100,
+  "bestPractices": 100,
+  "seo": 100,
+  "performanceScore": null,
+  "performanceError": "NO_LCP",
+  "firstContentfulPaintSeconds": 1.5,
+  "cumulativeLayoutShift": 0,
+  "speedIndexSeconds": 4.4,
+  "fieldData": "No Data",
+  "note": "The final screenshot visibly contains the public landing hero. NO_LCP also prevents TBT and the aggregate performance score; no field Core Web Vitals pass is claimed."
+}

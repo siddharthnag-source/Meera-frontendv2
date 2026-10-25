@@ -33,22 +33,17 @@ export async function POST(request: NextRequest) {
       auth: { persistSession: false },
     });
 
-    let resolvedUserId = typeof body.user_id === 'string' ? body.user_id.trim() : '';
-
-    if (!resolvedUserId) {
-      const bearerToken = getBearerToken(request);
-      if (bearerToken) {
-        const { data } = await supabase.auth.getUser(bearerToken);
-        const authUserId = data.user?.id ?? '';
-        if (authUserId) resolvedUserId = authUserId;
-      }
-    }
+    const bearerToken = getBearerToken(request);
+    if (!bearerToken) return NextResponse.json({ accepted: false }, { status: 401 });
+    const { data: identity, error: authError } = await supabase.auth.getUser(bearerToken);
+    if (authError || !identity.user) return NextResponse.json({ accepted: false }, { status: 401 });
+    const resolvedUserId = identity.user.id;
 
     const payload = {
       event_name: eventName,
       user_id: resolvedUserId || null,
-      source: String(body.source ?? 'analytics_route').slice(0, 100),
-      metadata: body.metadata ?? {},
+      source: 'payment_route',
+      metadata: { route: '/payment' },
       created_at: new Date().toISOString(),
     };
 

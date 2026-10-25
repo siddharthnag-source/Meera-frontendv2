@@ -1,5 +1,6 @@
 import { logAuthRedirectEvent } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
+import { captureMarketingTouch } from '@/lib/captureMarketingTouch';
 
 import { getBrowserContext } from './browserContext';
 
@@ -45,6 +46,7 @@ export const startGoogleOAuth = async (): Promise<StartGoogleOAuthResult> => {
     }
   }
 
+  await captureMarketingTouch();
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {

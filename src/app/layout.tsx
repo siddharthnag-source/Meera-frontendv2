@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import MetaPixel from '@/components/MetaPixel';
 import Providers from '@/components/Providers';
+import { Suspense } from 'react';
 
 // Function to generate metadata dynamically
 export async function generateMetadata(): Promise<Metadata> {
@@ -69,7 +70,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
-        <MetaPixel />
+        <Suspense fallback={null}><MetaPixel /></Suspense>
       </head>
       <body className={`antialiased`} suppressHydrationWarning>
         <Providers>{children}</Providers>

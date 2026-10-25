@@ -1,9 +1,11 @@
 import { requireAuthenticatedUser } from '@/lib/meeraServer';
+import { isNewRegistration } from '@/lib/marketingRegistration';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   const auth = await requireAuthenticatedUser(request);
   if (!auth.ok) return NextResponse.json({ attributed: false }, { status: auth.status });
+  if (!isNewRegistration(auth.user)) return NextResponse.json({ attributed: false, reason: 'not_new_registration' });
   const slug = request.cookies.get('meera_growth_link')?.value?.trim().toLowerCase() ?? '';
   if (!slug) return NextResponse.json({ attributed: false, reason: 'no_growth_link' });
 

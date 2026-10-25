@@ -1,5 +1,6 @@
 import { getGuestToken as getStoredGuestToken } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
+import { requestCommerceEvent } from '@/lib/requestCommerceEvent';
 import type {
   CreatePaymentRequest,
   CreatePaymentResponse,
@@ -103,7 +104,11 @@ export const paymentService = {
         customer_phone: customerDetails.customer_phone,
       };
 
-      return await api.post<CreatePaymentResponse>(API_ENDPOINTS.PAYMENT.CREATE, payload);
+      const result = await api.post<CreatePaymentResponse>(API_ENDPOINTS.PAYMENT.CREATE, payload);
+      const record = result as unknown as { order_id?: string; data?: { order_id?: string } };
+      const orderId = record.order_id ?? record.data?.order_id;
+      if (orderId) void requestCommerceEvent(orderId, 'InitiateCheckout');
+      return result;
     } catch (error) {
       console.error('Error in createPayment:', error);
 
@@ -113,10 +118,12 @@ export const paymentService = {
 
   async verifyPayment(data: VerifyPaymentRequest): Promise<VerifyPaymentResponse> {
     try {
-      return await api.post<VerifyPaymentResponse>(API_ENDPOINTS.PAYMENT.VERIFY, {
+      const result = await api.post<VerifyPaymentResponse>(API_ENDPOINTS.PAYMENT.VERIFY, {
         ...data,
         action: 'verify',
       });
+      if (data.order_id) void requestCommerceEvent(data.order_id, 'Purchase');
+      return result;
     } catch (error) {
       console.error('Error in verifyPayment:', error);
 

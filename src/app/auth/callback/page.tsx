@@ -3,7 +3,8 @@
 import { finishGoogleAgentConnection } from '@/lib/auth/startGoogleAgentConnection';
 import { clearAuthRedirectTrace, clearGuestTokenState, logAuthRedirectEvent } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
-import { META_REGISTRATION_PENDING_KEY } from '@/lib/marketingRegistration';
+import { queueMarketingEvent } from '@/lib/marketingEvents';
+import { captureMarketingTouch } from '@/lib/captureMarketingTouch';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 
@@ -28,6 +29,7 @@ export default function AuthCallbackPage() {
 
         if (data.session) {
           const headers = { Authorization: `Bearer ${data.session.access_token}` };
+          await captureMarketingTouch();
           await Promise.allSettled([
             fetch('/api/analytics/growth-links/attribute', {
               method: 'POST', headers, signal: AbortSignal.timeout(3000),
@@ -38,7 +40,7 @@ export default function AuthCallbackPage() {
               if (!response.ok) return;
               const result = await response.json();
               if (result.eligible && typeof result.eventId === 'string') {
-                sessionStorage.setItem(META_REGISTRATION_PENDING_KEY, result.eventId);
+                queueMarketingEvent({ name: 'CompleteRegistration', eventId: result.eventId });
               }
             }),
           ]);

@@ -9,7 +9,12 @@ function load(file, globals = {}) {
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  vm.runInNewContext(code, { exports, URLSearchParams, ...globals });
+  const localRequire = (id) => {
+    if (id === './marketingAttribution') return load('src/lib/marketingAttribution.ts');
+    if (globals.require) return globals.require(id);
+    return require(id);
+  };
+  vm.runInNewContext(code, { exports, URLSearchParams, ...globals, require: localRequire });
   return exports;
 }
 
@@ -51,7 +56,7 @@ test('initializes only the company pixel, once, without advanced matching fields
   const window = {};
   const { initializeMetaPixel, META_PIXEL_ID } = load('src/lib/metaPixel.ts', {
     window,
-    document: { createElement: () => ({}), head: { appendChild: (script) => scripts.push(script) } },
+    document: { querySelector: () => scripts[0] ?? null, createElement: () => ({}), head: { appendChild: (script) => scripts.push(script) } },
   });
   initializeMetaPixel();
   initializeMetaPixel();
@@ -63,7 +68,7 @@ test('initializes only the company pixel, once, without advanced matching fields
   assert.equal(META_PIXEL_ID, '933654956266333');
 });
 
-test('protected page sends nothing; strict-mode effect replay does not duplicate signup or page view', () => {
+test('protected page sends nothing; strict-mode effect replay does not duplicate page view', () => {
   const calls = [];
   const storage = new Map([['meera:meta-registration:v1', '11111111-1111-4111-8111-111111111111']]);
   const ref = { current: null };
@@ -74,23 +79,27 @@ test('protected page sends nothing; strict-mode effect replay does not duplicate
   const meta = load('src/lib/metaPixel.ts');
   const registration = load('src/lib/marketingRegistration.ts');
   const component = load('src/components/MetaPixel.tsx', {
-    window: { location },
+    window: { location, addEventListener: () => {}, removeEventListener: () => {} },
     sessionStorage: { getItem: (key) => storage.get(key), removeItem: (key) => storage.delete(key) },
     require: (id) => {
       if (id === 'react') return { useEffect: (fn) => { effect = fn; }, useRef: () => ref };
-      if (id === 'next/navigation') return { usePathname: () => path };
+      if (id === 'next/navigation') return { usePathname: () => path, useSearchParams: () => new URLSearchParams() };
       if (id === '@/lib/metaPixel') return { ...meta, initializeMetaPixel: () => fakePixel };
       if (id === '@/lib/marketingRegistration') return registration;
+      if (id === '@/lib/captureMarketingTouch') return { captureMarketingTouch: async () => {} };
+      if (id === '@/lib/marketingEvents') return { dispatchPendingMarketingEvents: () => {}, queueMarketingEvent: () => {} };
       throw new Error(id);
     },
+    setInterval: () => 1, clearInterval: () => {}, AbortController,
   }).default;
+  location.pathname = path;
   component(); effect();
   assert.equal(calls.length, 0);
   path = '/'; location.hash = '';
   component(); effect(); effect();
   assert.equal(calls.filter((x) => x[2] === 'PageView').length, 1);
-  assert.equal(calls.filter((x) => x[2] === 'CompleteRegistration').length, 1);
-  assert.equal(storage.size, 0);
+  assert.equal(calls.filter((x) => x[2] === 'CompleteRegistration').length, 0);
+  assert.equal(storage.size, 1);
   assert.equal(JSON.stringify(calls).includes('private'), false);
 });
 
@@ -99,7 +108,7 @@ test('signup endpoint authenticates, rejects returning users, and returns only a
   let claimed = false;
   const writes = [];
   const database = {
-    from: () => ({ insert: (record) => {
+    from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ single: async () => ({ data: { id: '11111111-1111-4111-8111-111111111111' }, error: null }) }) }) }), insert: (record) => {
       writes.push(record);
       return { select: () => ({ single: async () => {
         if (claimed) return { data: null, error: { code: '23505' } };
@@ -125,5 +134,7 @@ test('signup endpoint authenticates, rejects returning users, and returns only a
   assert.equal(first.body.eligible, true);
   assert.equal(JSON.stringify(first.body).includes('real-auth-id'), false);
   assert.equal(writes[0].user_id, 'real-auth-id');
-  assert.equal((await POST({})).body.eligible, false);
+  const retry = await POST({});
+  assert.equal(retry.body.eligible, true);
+  assert.equal(retry.body.eventId, first.body.eventId);
 });

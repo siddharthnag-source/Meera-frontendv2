@@ -4,8 +4,8 @@ import { paymentService } from '@/app/api/services/payment';
 import { trackingService } from '@/app/api/services/tracking';
 import { SUBSCRIPTION_QUERY_KEY } from '@/hooks/useSubscriptionStatus';
 import { supabase } from '@/lib/supabaseClient';
+import { queueMarketingEvent } from '@/lib/marketingEvents';
 import type { CashfreeInstance, PlanType, PricingModalProps, PricingModalSource } from '@/types/pricing';
-import { load } from '@cashfreepayments/cashfree-js';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
@@ -158,6 +158,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
     if (!isOpen || market !== 'india') return;
     let cancelled = false;
     const initializeCashfree = async () => {
+      const { load } = await import('@cashfreepayments/cashfree-js');
       const rawMode = process.env.NEXT_PUBLIC_CASHFREE_MODE?.toLowerCase();
       const cashfreeMode: 'sandbox' | 'production' = rawMode === 'production' ? 'production' : 'sandbox';
       const cfInstance = await load({
@@ -320,6 +321,7 @@ export const PricingModal = ({ isOpen, onClose, isClosable, source }: PricingMod
         const url = new URL(result.url);
         if (url.protocol !== 'https:' || url.hostname !== 'checkout.stripe.com')
           throw new Error('Invalid checkout URL.');
+        if (result.marketingEvent) queueMarketingEvent(result.marketingEvent);
         window.location.assign(url.toString());
         return;
       }

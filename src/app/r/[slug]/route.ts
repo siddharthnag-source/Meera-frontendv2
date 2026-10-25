@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { createSupabaseAdminClient } from '@/lib/meeraServer';
+import { marketingDestination } from '@/lib/marketingAttribution';
 import { NextRequest, NextResponse } from 'next/server';
 
 function deviceClass(userAgent: string): string {
@@ -21,7 +22,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ slu
     return NextResponse.redirect(new URL('/', request.url));
   }
 
-  const visitorId = request.cookies.get('meera_growth_visitor')?.value ?? randomUUID();
+  const cookieVisitor = request.cookies.get('meera_growth_visitor')?.value ?? '';
+  const visitorId = /^[a-f0-9-]{36}$/i.test(cookieVisitor) ? cookieVisitor : randomUUID();
   const referrer = request.headers.get('referer');
   let referrerHost: string | null = null;
   try {
@@ -36,23 +38,25 @@ export async function GET(request: NextRequest, context: { params: Promise<{ slu
     device_class: deviceClass(request.headers.get('user-agent') ?? ''),
   });
 
-  const destination = new URL(link.destination_path, request.nextUrl.origin);
-  destination.searchParams.set('utm_source', link.utm_source);
-  destination.searchParams.set('utm_medium', link.utm_medium);
-  destination.searchParams.set('utm_campaign', link.utm_campaign);
-  destination.searchParams.set('gl', link.slug);
+  let destination: URL;
+  try {
+    destination = marketingDestination(request.nextUrl.origin, link.destination_path, link, link.slug, request.nextUrl.search);
+  } catch {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
   const response = NextResponse.redirect(destination);
-  response.cookies.set('meera_growth_link', link.slug, {
+  response.headers.set('Cache-Control', 'private, no-store');
+  if (!request.cookies.get('meera_growth_link')?.value) response.cookies.set('meera_growth_link', link.slug, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: true,
+    secure: request.nextUrl.protocol === 'https:',
     path: '/',
     maxAge: 60 * 60 * 24 * 30,
   });
   response.cookies.set('meera_growth_visitor', visitorId, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: true,
+    secure: request.nextUrl.protocol === 'https:',
     path: '/',
     maxAge: 60 * 60 * 24 * 365,
   });

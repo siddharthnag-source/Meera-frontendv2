@@ -1,12 +1,15 @@
+import { isCampaignValue, isClickId, MARKETING_PATHS } from './marketingAttribution';
+
 export const META_PIXEL_ID = '933654956266333';
 
 // Never load marketing code on OAuth callbacks, dashboards, or conversation URLs.
 // Restrict campaign values too: links carrying emails or arbitrary text are excluded.
 export function isMarketingPage(pathname: string, search: string, hash: string): boolean {
-  if (!['/', '/sign-in'].includes(pathname) || hash) return false;
-  const allowedKeys = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gl']);
+  if (!MARKETING_PATHS.has(pathname) || hash) return false;
+  const campaignKeys = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']);
+  const clickKeys = new Set(['fbclid', 'gclid', 'msclkid', 'ttclid', 'gl', 'utm_id', 'gad_source', 'gad_campaignid']);
   return Array.from(new URLSearchParams(search)).every(
-    ([key, value]) => allowedKeys.has(key) && /^[a-zA-Z0-9_-]{1,500}$/.test(value),
+    ([key, value]) => campaignKeys.has(key) ? isCampaignValue(value) : clickKeys.has(key) && isClickId(value),
   );
 }
 
@@ -38,9 +41,13 @@ export function initializeMetaPixel(): Pixel {
     pixel.version = '2.0';
     window.fbq = pixel;
     window._fbq = pixel;
+  }
+  const source = 'https://connect.facebook.net/en_US/fbevents.js';
+  if (!window.fbq.callMethod && !document.querySelector(`script[src="${source}"]`)) {
     const script = document.createElement('script');
     script.async = true;
-    script.src = 'https://connect.facebook.net/en_US/fbevents.js';
+    script.src = source;
+    script.onerror = () => script.remove();
     document.head.appendChild(script);
   }
   if (!window.meeraMetaPixelInitialized) {
@@ -51,4 +58,8 @@ export function initializeMetaPixel(): Pixel {
     window.meeraMetaPixelInitialized = true;
   }
   return window.fbq;
+}
+
+export function isMetaPixelReady(): boolean {
+  return typeof window.fbq?.callMethod === 'function';
 }

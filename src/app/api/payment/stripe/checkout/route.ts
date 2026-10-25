@@ -1,5 +1,6 @@
 import { getStripe, paymentIdentity, STRIPE_LIFETIME_AMOUNT, stripeCheckoutReady } from '@/lib/stripePayments';
 import { NextRequest, NextResponse } from 'next/server';
+import { verifiedCommerceEvent } from '@/lib/metaCommerce';
 
 export async function POST(request: NextRequest) {
   try {
@@ -58,7 +59,10 @@ export async function POST(request: NextRequest) {
       },
       { idempotencyKey: `meera-lifetime-${identity.user.id}-${requestKey}` },
     );
-    return NextResponse.json({ url: session.url }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({
+      url: session.url,
+      marketingEvent: verifiedCommerceEvent('InitiateCheckout', session.id, STRIPE_LIFETIME_AMOUNT / 100, 'USD'),
+    }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('Stripe checkout failed', error instanceof Error ? error.name : 'unknown');
     return NextResponse.json({ error: 'Unable to start secure checkout. Please try again.' }, { status: 502 });

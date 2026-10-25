@@ -1,5 +1,6 @@
 import { getStripe, paymentIdentity } from '@/lib/stripePayments';
 import { NextRequest, NextResponse } from 'next/server';
+import { verifiedCommerceEvent } from '@/lib/metaCommerce';
 
 export async function GET(request: NextRequest) {
   try {
@@ -34,7 +35,11 @@ export async function GET(request: NextRequest) {
         });
     }
     return NextResponse.json(
-      { status: paid ? 'paid' : session.status === 'expired' ? 'expired' : 'pending' },
+      {
+        status: paid ? 'paid' : session.status === 'expired' ? 'expired' : 'pending',
+        marketingEvent: paid ? verifiedCommerceEvent('Purchase', session.id, Number(session.amount_total) / 100,
+          String(session.currency).toUpperCase()) : null,
+      },
       { headers: { 'Cache-Control': 'private, no-store' } },
     );
   } catch {

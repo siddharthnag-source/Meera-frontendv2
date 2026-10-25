@@ -226,7 +226,9 @@ function SignInClient() {
     });
   };
 
-  if (sessionStatus !== 'unauthenticated') {
+  // The public landing content must render before session restoration finishes.
+  // Only an already confirmed session needs the neutral redirect placeholder.
+  if (sessionStatus === 'authenticated') {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-background">
         <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
@@ -250,7 +252,7 @@ function SignInClient() {
 
             <a
               href="#intelligence"
-              className="text-xs font-medium tracking-wide text-primary/55 transition-colors hover:text-primary sm:text-sm"
+              className="text-xs font-medium tracking-wide text-primary/75 transition-colors hover:text-primary sm:text-sm"
             >
               About Meera
             </a>
@@ -258,7 +260,7 @@ function SignInClient() {
 
           <div className="grid flex-1 items-center gap-8 pb-10 pt-3 sm:gap-12 sm:pb-14 lg:grid-cols-[46fr_54fr] lg:gap-12 lg:pb-16 lg:pt-0 xl:gap-20">
             <div className="mx-auto w-full max-w-[37rem] text-center lg:mx-0 lg:text-left">
-              <p className="mb-5 text-[11px] font-semibold uppercase tracking-[0.28em] text-primary/45 sm:text-xs">
+              <p className="mb-5 text-[11px] font-semibold uppercase tracking-[0.28em] text-primary/75 sm:text-xs">
                 Meet Meera
               </p>
 
@@ -267,7 +269,7 @@ function SignInClient() {
                 <span className="lg:block">companion.</span>
               </h1>
 
-              <p className="mx-auto mt-7 max-w-lg text-base leading-7 text-primary/62 sm:text-lg sm:leading-8 lg:mx-0">
+              <p className="mx-auto mt-7 max-w-lg text-base leading-7 text-primary/75 sm:text-lg sm:leading-8 lg:mx-0">
                 Talk through bad days, learn something new, or simply have someone to talk to.
               </p>
 
@@ -291,7 +293,7 @@ function SignInClient() {
                 </p>
               )}
 
-              <p className={cn('text-[11px] tracking-wide text-primary/38', hasGoogleAuthError ? 'mt-2' : 'mt-3')}>
+              <p className={cn('text-[11px] tracking-wide text-primary/75', hasGoogleAuthError ? 'mt-2' : 'mt-3')}>
                 Continue securely with Google
               </p>
             </div>
@@ -314,7 +316,7 @@ function SignInClient() {
           <a
             href="#intelligence"
             aria-label="Discover more about Meera"
-            className="mb-6 hidden self-center text-[10px] uppercase tracking-[0.3em] text-primary/35 transition-colors hover:text-primary/70 lg:block"
+            className="mb-6 hidden self-center text-[10px] uppercase tracking-[0.3em] text-primary/75 transition-colors hover:text-primary/70 lg:block"
           >
             Discover ↓
           </a>
@@ -326,7 +328,7 @@ function SignInClient() {
 
         <div className="relative mx-auto w-full max-w-7xl px-5 pb-20 pt-16 sm:px-9 sm:pb-24 sm:pt-20 lg:px-14 lg:pb-28 lg:pt-20">
           <div className="mx-auto max-w-3xl text-center">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-primary/45 sm:text-xs">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-primary/75 sm:text-xs">
               Whatever the day brings
             </p>
             <h2 className="mt-5 text-balance font-serif text-[clamp(2.5rem,6vw,5.25rem)] font-normal leading-[0.98] tracking-[-0.04em]">
@@ -344,10 +346,10 @@ function SignInClient() {
                 key={number}
                 className="grid grid-cols-[2.5rem_1fr] gap-4 border-b border-primary/10 py-8 last:border-b-0 sm:block sm:border-b-0 sm:px-8 sm:py-10 lg:px-12 lg:py-14"
               >
-                <span className="font-serif text-sm italic text-primary/35">{number}</span>
+                <span className="font-serif text-sm italic text-primary/75">{number}</span>
                 <div>
                   <h3 className="font-serif text-2xl leading-tight sm:mt-8 sm:text-[1.7rem]">{title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-primary/55">{description}</p>
+                  <p className="mt-3 text-sm leading-6 text-primary/75">{description}</p>
                 </div>
               </article>
             ))}
@@ -356,10 +358,10 @@ function SignInClient() {
           <div className="mx-auto mt-16 max-w-6xl sm:mt-20 lg:mt-20">
             <div className="grid items-end gap-7 border-b border-primary/10 pb-8 sm:pb-10 lg:grid-cols-2 lg:gap-5">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.34em] text-primary/40 sm:text-xs">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.34em] text-primary/75 sm:text-xs">
                   Messages across cities
                 </p>
-                <p className="mt-4 text-xs leading-5 text-primary/40">Swipe or drag to explore</p>
+                <p className="mt-4 text-xs leading-5 text-primary/75">Swipe or drag to explore</p>
               </div>
               <h2 className="max-w-3xl text-balance font-serif text-[clamp(2.35rem,5vw,4.5rem)] font-normal leading-[0.94] tracking-[-0.04em]">
                 Different places. The same feeling of being understood.
@@ -367,12 +369,12 @@ function SignInClient() {
             </div>
 
             <div className="mt-4 flex items-center justify-between gap-6 sm:mt-5">
-              <p className="text-[10px] uppercase tracking-[0.22em] text-primary/32">01 — 06</p>
+              <p className="text-[10px] uppercase tracking-[0.22em] text-primary/75">01 — 06</p>
               <div className="flex gap-2" aria-label="Testimonial controls">
                 <button
                   type="button"
                   onClick={() => moveTestimonials(-1)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/12 text-xs text-primary/55 transition-colors hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/12 text-xs text-primary/75 transition-colors hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   aria-label="Previous testimonial"
                 >
                   ←
@@ -380,7 +382,7 @@ function SignInClient() {
                 <button
                   type="button"
                   onClick={() => moveTestimonials(1)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/12 text-xs text-primary/55 transition-colors hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/12 text-xs text-primary/75 transition-colors hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   aria-label="Next testimonial"
                 >
                   →
@@ -420,14 +422,14 @@ function SignInClient() {
                       <p
                         className={cn(
                           'text-[10px] font-semibold uppercase tracking-[0.28em]',
-                          index === 3 ? 'text-background/45' : 'text-primary/38',
+                          index === 3 ? 'text-background/75' : 'text-primary/75',
                         )}
                       >
                         Message {String(index + 1).padStart(2, '0')}
                       </p>
-                      <p className="mt-2 text-xs uppercase tracking-[0.16em] opacity-45">{testimonial.country}</p>
+                      <p className="mt-2 text-xs uppercase tracking-[0.16em] opacity-80">{testimonial.country}</p>
                     </div>
-                    <span className="font-serif text-[2.6rem] leading-none tracking-[-0.06em] opacity-[0.1] sm:text-[3rem]">
+                    <span aria-hidden="true" className="font-serif text-[2.6rem] leading-none tracking-[-0.06em] opacity-[0.1] sm:text-[3rem]">
                       {testimonial.code}
                     </span>
                   </div>
@@ -448,13 +450,13 @@ function SignInClient() {
                         {testimonial.name} <span className="mx-1.5 opacity-35">·</span> {testimonial.city}
                       </p>
                     </div>
-                    <p className="text-[9px] uppercase tracking-[0.18em] opacity-35">{testimonial.coordinates}</p>
+                    <p className="text-[9px] uppercase tracking-[0.18em] opacity-80">{testimonial.coordinates}</p>
                   </div>
                 </article>
               ))}
             </div>
 
-            <p className="mt-4 text-[10px] tracking-[0.16em] text-primary/30">
+            <p className="mt-4 text-[10px] tracking-[0.16em] text-primary/75">
               Names and locations changed for privacy · Responses lightly edited for clarity
             </p>
           </div>
@@ -467,7 +469,7 @@ function SignInClient() {
             <div aria-hidden="true" className="absolute bottom-0 left-1/2 h-px w-[82%] -translate-x-1/2 bg-background/12" />
 
             <div className="relative px-7 py-10 sm:px-12 sm:py-12 lg:px-14 lg:py-14">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.34em] text-background/45 sm:text-xs">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.34em] text-background/75 sm:text-xs">
                 Experience
               </p>
 
@@ -501,7 +503,7 @@ function SignInClient() {
             </div>
           </div>
 
-          <footer className="mx-auto mt-14 flex w-full max-w-6xl flex-col items-center justify-between gap-5 border-t border-primary/10 pt-7 text-xs text-primary/45 sm:mt-16 sm:flex-row">
+          <footer className="mx-auto mt-14 flex w-full max-w-6xl flex-col items-center justify-between gap-5 border-t border-primary/10 pt-7 text-xs text-primary/75 sm:mt-16 sm:flex-row">
             <div className="inline-flex items-center gap-2">
               <Image src="/icons/meera.svg" alt="" width={20} height={20} className="h-5 w-5" />
               <span>Meera · Your personal companion · By Meera Labs Inc.</span>

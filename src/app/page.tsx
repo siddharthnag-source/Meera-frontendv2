@@ -1,6 +1,6 @@
 'use client';
 
-import { Conversation } from '@/components/Conversation';
+import dynamic from 'next/dynamic';
 import { PricingModalProvider } from '@/contexts/PricingModalContext';
 import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import {
@@ -16,8 +16,19 @@ import {
   type SessionStatus,
 } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
+import { preserveMarketingParams } from '@/lib/marketingAttribution';
 import { useRouter } from 'next/navigation';
 import React, { Suspense, useEffect, useState } from 'react';
+
+// Public ad visitors redirect to sign-in without downloading the chat engine.
+const Conversation = dynamic(() => import('@/components/Conversation').then((module) => module.Conversation), {
+  ssr: false,
+  loading: () => (
+    <div role="status" aria-label="Loading Meera" className="min-h-[100dvh] flex items-center justify-center bg-background">
+      <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+    </div>
+  ),
+});
 
 export default function Home() {
   const { data: subscriptionData, isLoading: isLoadingSubscription } = useSubscriptionStatus();
@@ -85,7 +96,7 @@ export default function Home() {
         target: decision.target,
         visitCount,
       });
-      router.replace(decision.target);
+      router.replace(preserveMarketingParams(decision.target, window.location.search));
       return;
     }
 

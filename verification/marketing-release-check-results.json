@@ -1,0 +1,77 @@
+{
+  "deployment": "https://meera-frontendv2-e87wuvf7p-ss-projects-147424ea.vercel.app",
+  "checkedAt": "2026-10-25T09:18:51.697Z",
+  "checks": [
+    {
+      "check": "homepage serves",
+      "status": "passed",
+      "http": 200
+    },
+    {
+      "check": "sign-in serves with canonical URL and accessible viewport",
+      "status": "passed",
+      "http": 200
+    },
+    {
+      "check": "pricing serves",
+      "status": "passed",
+      "http": 200
+    },
+    {
+      "check": "regional payment offer serves",
+      "status": "passed",
+      "http": 200
+    },
+    {
+      "check": "registration requires authentication",
+      "status": "passed",
+      "http": 401
+    },
+    {
+      "check": "commerce requires authentication",
+      "status": "passed",
+      "http": 401
+    },
+    {
+      "check": "forged paywall identity rejected",
+      "status": "passed",
+      "http": 401
+    },
+    {
+      "check": "growth attribution requires authentication",
+      "status": "passed",
+      "http": 401
+    },
+    {
+      "check": "Stripe checkout requires authentication",
+      "status": "passed",
+      "http": 401
+    },
+    {
+      "check": "unsigned Stripe webhook rejected",
+      "status": "passed",
+      "http": 400
+    },
+    {
+      "check": "cross-origin capture rejected",
+      "status": "passed",
+      "http": 403
+    },
+    {
+      "check": "direct UTM capture stores first-party cookies",
+      "status": "passed",
+      "http": 200
+    },
+    {
+      "check": "returning capture retains first touch",
+      "status": "passed",
+      "http": 200
+    },
+    {
+      "check": "growth redirect retains Meta click ID and creative",
+      "status": "passed",
+      "http": 307
+    }
+  ],
+  "note": "HTTP-only QA traffic used the internal_qa campaign. No signup, Meta event or payment was fabricated."
+}

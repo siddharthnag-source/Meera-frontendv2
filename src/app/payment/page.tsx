@@ -9,6 +9,7 @@ import {
   type SessionStatus,
 } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
+import { queueMarketingEvent } from '@/lib/marketingEvents';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import React, { Suspense, useEffect, useRef, useState } from 'react';
@@ -44,6 +45,7 @@ function PaymentRouteContent() {
         const result = await response.json();
         if (controller.signal.aborted) return;
         if (result.status === 'paid') {
+          if (result.marketingEvent) queueMarketingEvent(result.marketingEvent);
           await queryClient.invalidateQueries({ queryKey: SUBSCRIPTION_QUERY_KEY });
           router.replace('/');
           return;
