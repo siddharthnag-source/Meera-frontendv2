@@ -43,6 +43,27 @@ test('ordinary campaign labels work while private URLs, emails and OAuth fragmen
   ]) assert.equal(isMarketingPage(path, search, hash), false);
 });
 
+test('production growth-link rows yield a pixel-eligible destination without registry fields', () => {
+  const { marketingDestination } = load('src/lib/marketingAttribution.ts');
+  const { isMarketingPage } = load('src/lib/metaPixel.ts');
+  const row = { id: 'registry-id', slug: 'meta-us-lifetime-99-oct2026', destination_path: '/sign-in',
+    utm_source: 'meta', utm_medium: 'paid_social', utm_campaign: 'us_lifetime_99_oct2026', active: true, expires_at: null };
+  const url = marketingDestination('https://www.himeera.com', row.destination_path, row, row.slug, '?fbclid=ad_click_123');
+  assert.deepEqual([...url.searchParams.keys()].sort(), ['fbclid', 'gl', 'utm_campaign', 'utm_medium', 'utm_source']);
+  assert.equal(isMarketingPage(url.pathname, url.search, ''), true);
+});
+
+test('fixed US offer and cancelled checkout allow measurement while arbitrary offers and session identifiers remain excluded', () => {
+  const { isMarketingPage } = load('src/lib/metaPixel.ts');
+  for (const path of ['/sign-in', '/payment']) assert.equal(isMarketingPage(path, '?offer=us-lifetime', ''), true);
+  assert.equal(isMarketingPage('/payment', '?offer=us-lifetime&checkout=cancelled', ''), true);
+  for (const [path, query] of [['/', '?offer=us-lifetime'], ['/payment', '?offer=private'],
+    ['/sign-in', '?checkout=cancelled'], ['/payment', '?checkout_session_id=cs_private'],
+    ['/payment', '?offer=us-lifetime&email=private%40example.com']]) {
+    assert.equal(isMarketingPage(path, query, ''), false);
+  }
+});
+
 test('home-to-sign-in navigation retains click attribution without propagating private query fields', () => {
   const { preserveMarketingParams } = load('src/lib/marketingAttribution.ts');
   const target = new URL(preserveMarketingParams('/sign-in', '?fbclid=ABC_123&utm_campaign=US+Meera&conversation_id=secret&email=private%40example.com'), 'https://www.himeera.com');

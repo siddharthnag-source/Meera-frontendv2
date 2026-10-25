@@ -30,7 +30,12 @@ export function marketingDestination(origin: string, path: string, touch: Campai
   const destination = new URL(path, origin);
   // An internal destination must never become an open redirect through //host.
   if (destination.origin !== origin) throw new Error('Invalid campaign destination');
-  for (const [key, value] of Object.entries(touch)) destination.searchParams.set(key, value);
+  // Database rows contain registry fields as well as campaign fields. Only
+  // publish the campaign tuple; extra fields also fail the pixel URL guard.
+  for (const key of ['utm_source', 'utm_medium', 'utm_campaign'] as const) {
+    if (!isCampaignValue(touch[key])) throw new Error('Invalid campaign value');
+    destination.searchParams.set(key, touch[key]);
+  }
   destination.searchParams.set('gl', slug);
   const incoming = new URLSearchParams(search);
   for (const key of ['fbclid', 'gclid', 'msclkid', 'ttclid']) {

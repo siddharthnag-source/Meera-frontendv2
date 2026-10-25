@@ -9,7 +9,11 @@ export function isMarketingPage(pathname: string, search: string, hash: string):
   const campaignKeys = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']);
   const clickKeys = new Set(['fbclid', 'gclid', 'msclkid', 'ttclid', 'gl', 'utm_id', 'gad_source', 'gad_campaignid']);
   return Array.from(new URLSearchParams(search)).every(
-    ([key, value]) => campaignKeys.has(key) ? isCampaignValue(value) : clickKeys.has(key) && isClickId(value),
+    ([key, value]) => {
+      if (key === 'offer') return ['/sign-in', '/payment'].includes(pathname) && value === 'us-lifetime';
+      if (key === 'checkout') return pathname === '/payment' && value === 'cancelled';
+      return campaignKeys.has(key) ? isCampaignValue(value) : clickKeys.has(key) && isClickId(value);
+    },
   );
 }
 
