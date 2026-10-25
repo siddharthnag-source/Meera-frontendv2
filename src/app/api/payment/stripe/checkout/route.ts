@@ -55,7 +55,8 @@ export async function POST(request: NextRequest) {
         billing_address_collection: 'required',
         success_url: `${origin}/payment?checkout_session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${origin}/payment?checkout=cancelled`,
-        custom_text: { submit: { message: 'One payment for lifetime access. No recurring subscription.' } },
+        // Managed Payments owns Checkout's wording and rejects custom_text.
+        // The one-time offer is described on our paywall and in the line item.
       },
       { idempotencyKey: `meera-lifetime-${identity.user.id}-${requestKey}` },
     );

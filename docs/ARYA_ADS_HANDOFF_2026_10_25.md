@@ -1,5 +1,7 @@
 # Meera ads and product handoff - 25 October 2026
 
+> Updated sales audit: read [US sales audit and checkout repair](US_SALES_AUDIT_2026_10_25.md) first. It supersedes the older deployment and account-access status below. The earlier PDF does not include this addendum. Live US checkout failure was found and repaired after the tracking release.
+
 ## Release
 
 Tracking repairs are published on https://www.himeera.com.
