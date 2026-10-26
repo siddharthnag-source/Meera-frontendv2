@@ -14,7 +14,7 @@ function load(file, globals = {}) {
     if (globals.require) return globals.require(id);
     return require(id);
   };
-  vm.runInNewContext(code, { exports, URLSearchParams, ...globals, require: localRequire });
+  vm.runInNewContext(code, { exports, URLSearchParams, process: { env: {} }, ...globals, require: localRequire });
   return exports;
 }
 
@@ -49,6 +49,12 @@ test('public marketing URLs work; private routes and sensitive query values are 
     ['/', '?email=user%40example.com', ''],
     ['/', '', '#access_token=secret'],
   ]) assert.equal(isMarketingPage(path, search, hash), false);
+});
+
+test('staging pixel switch excludes every marketing page and purchase event dispatch', () => {
+  const { isMarketingPage } = load('src/lib/metaPixel.ts', { process: { env: { NEXT_PUBLIC_META_PIXEL_ENABLED: 'false' } } });
+  assert.equal(isMarketingPage('/', '', ''), false);
+  assert.equal(isMarketingPage('/payment', '?offer=us-lifetime', ''), false);
 });
 
 test('initializes only the company pixel, once, without advanced matching fields', () => {

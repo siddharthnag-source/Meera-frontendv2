@@ -2,6 +2,9 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   distDir: process.env.MEERA_BUILD_DIR || '.next',
+  ...(process.env.MEERA_BUILD_CPUS ? {
+    experimental: { cpus: Math.max(1, Math.min(4, Number(process.env.MEERA_BUILD_CPUS) || 2)) },
+  } : {}),
   eslint: {
     // Temporary production safeguard: local lint still runs via npm scripts.
     // Keep lint as a separate check while existing lint issues are resolved.

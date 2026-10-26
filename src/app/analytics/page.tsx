@@ -96,7 +96,7 @@ type ConversationResponse = {
 
 type AccessMember = {
   email: string;
-  role: 'owner' | 'product_growth' | 'analyst' | 'support';
+  role: 'owner' | 'product_growth' | 'growth_aggregate' | 'analyst' | 'support';
   enabled: boolean;
   permissions: string[];
 };
@@ -289,7 +289,7 @@ export default function AnalyticsPage() {
   const [conversationError, setConversationError] = useState<string>('');
   const [accessMembers, setAccessMembers] = useState<AccessMember[]>([]);
   const [memberEmail, setMemberEmail] = useState<string>('');
-  const [memberRole, setMemberRole] = useState<AccessMember['role']>('product_growth');
+  const [memberRole, setMemberRole] = useState<AccessMember['role']>('growth_aggregate');
   const [memberSaving, setMemberSaving] = useState<boolean>(false);
   const [memberStatus, setMemberStatus] = useState<string>('');
   const [growthLinks, setGrowthLinks] = useState<GrowthLink[]>([]);
@@ -1135,7 +1135,8 @@ export default function AnalyticsPage() {
                     onChange={(event) => setMemberRole(event.target.value as AccessMember['role'])}
                     className="rounded-xl border border-primary/20 bg-white/50 px-3 py-2 text-sm focus:border-primary/45 focus:outline-none"
                   >
-                    <option value="product_growth">Product &amp; Growth</option>
+                    <option value="growth_aggregate">Growth reports only</option>
+                    <option value="product_growth">Product &amp; Growth with user and conversation access</option>
                     <option value="analyst">Analyst</option>
                     <option value="support">Support</option>
                     <option value="owner">Owner</option>
