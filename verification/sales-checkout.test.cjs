@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
 
-function checkoutRoute({ authenticated = true, alreadyPaid = false } = {}) {
+function checkoutRoute({ authenticated = true, alreadyPaid = false, paymentMode } = {}) {
   const calls = [];
   const query = { select() { return this; }, eq() { return this; }, in() { return this; },
     async limit() { return { data: alreadyPaid ? [{ payment_id: 'existing' }] : [], error: null }; } };
@@ -12,7 +12,7 @@ function checkoutRoute({ authenticated = true, alreadyPaid = false } = {}) {
   const source = ts.transpileModule(fs.readFileSync('src/app/api/payment/stripe/checkout/route.ts', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  vm.runInNewContext(source, { exports, console, process: { env: { VERCEL_ENV: 'production' } }, require(id) {
+  vm.runInNewContext(source, { exports, console, process: { env: { VERCEL_ENV: 'production', MEERA_PAYMENT_MODE: paymentMode } }, require(id) {
     if (id === 'next/server') return { NextResponse: { json(body, options = {}) { return { body, status: options.status || 200 }; } } };
     if (id === '@/lib/metaCommerce') return { verifiedCommerceEvent: () => null };
     if (id === '@/lib/stripePayments') return {
@@ -52,6 +52,14 @@ test('USD checkout works with Managed Payments, fixed price and verified ownersh
   assert.equal(params.integration_identifier, 'meera_lifetime_kqpmzvra');
   assert.equal(params.success_url, 'https://www.himeera.com/payment?checkout_session_id={CHECKOUT_SESSION_ID}');
   assert.equal(options.idempotencyKey, 'meera-lifetime-verified-auth-user-qa-request-20261025');
+});
+
+test('sandbox deployments return success and cancellation to their own origin even in Vercel production', async () => {
+  const route = checkoutRoute({ paymentMode: 'sandbox' });
+  assert.equal((await route.POST(request())).status, 200);
+  const { params } = route.calls[0];
+  assert.equal(params.success_url, 'https://untrusted-preview.invalid/payment?checkout_session_id={CHECKOUT_SESSION_ID}');
+  assert.equal(params.cancel_url, 'https://untrusted-preview.invalid/payment?offer=us-lifetime&checkout=cancelled');
 });
 
 test('unauthenticated, already-paid and invalid-key requests never create checkout sessions', async () => {

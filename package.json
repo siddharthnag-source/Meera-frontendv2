@@ -7,7 +7,11 @@
     "dev": "next dev --turbopack",
     "format": "prettier --write .",
     "lint": "next lint",
-    "start": "next start"
+    "start": "next start",
+    "staging:check": "node tools/run-arya-staging.cjs check",
+    "staging:dev": "node tools/run-arya-staging.cjs dev",
+    "staging:build": "node tools/run-arya-staging.cjs build",
+    "staging:start": "node tools/run-arya-staging.cjs start"
   },
   "dependencies": {
     "@cashfreepayments/cashfree-js": "^1.0.5",
@@ -33,7 +37,7 @@
     "dayjs": "^1.11.13",
     "ethers": "^6.16.0",
     "eventemitter3": "^5.0.1",
-    "framer-motion": "^12.6.2",
+    "framer-motion": "12.43.0",
     "highlight.js": "^11.11.1",
     "jwt-decode": "^4.0.0",
     "livekit-client": "^2.11.2",
@@ -58,6 +62,8 @@
     "@types/node": "^20.19.1",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
+    "@typescript-eslint/eslint-plugin": "8.72.0",
+    "@typescript-eslint/parser": "8.72.0",
     "@u3u/prettier-config": "^5.2.0",
     "eslint": "^9",
     "eslint-config-next": "15.5.24",
