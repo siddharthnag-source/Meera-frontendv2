@@ -17,6 +17,8 @@ jobs:
           node-version: 22.23.4
           cache: npm
       - run: npm ci
+      - name: Staging credential isolation cases
+        run: node --test verification/staging-environment.test.cjs
       - name: Source permission payment and experiment cases
         run: node --test --test-concurrency=1 verification/meta-pixel.test.cjs verification/marketing-integration.test.cjs verification/sales-checkout.test.cjs verification/stripe-fulfillment.test.cjs verification/purchase-intent.test.cjs verification/analytics-access.test.cjs verification/stripe-sandbox-boundary.test.cjs verification/growth-staging-entitlement.test.cjs verification/auth-callback-lifecycle.test.cjs verification/growth-staging-workbench.test.cjs
       - run: node node_modules/next/dist/bin/next typegen

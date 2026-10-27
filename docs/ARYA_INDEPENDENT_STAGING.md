@@ -1,5 +1,28 @@
 # Arya independent staging workflow
 
+## Latest checkpoint — 27 October 2026
+
+Production Vercel settings were inspected in the signed-in dashboard after the previous interrupted chat. The service-role database key, Google client secret, NextAuth secret and public Gemini key are now scoped to Production only. Clean public Supabase bindings and sandbox/disabled commerce settings exist separately for pre-production. This verifies current settings, not removal from historical deployments; keep Arya outside the production team and use the isolated resources below. The Vercel connector and local CLI currently deny the production scope; browser inspection succeeded.
+
+Supabase Team and Stripe Team were freshly inspected: `aryaratan@himeera.com` still has pending Developer and Sandbox User invitations respectively. Do not send duplicates or describe either as accepted. An owner session cannot complete Arya's own MFA or cloud-development acceptance.
+
+### Local frontend workflow without a Vercel seat
+
+Use Node 22 and the existing lockfile dependencies. Copy `docs/ARYA_STAGING_CONFIG.example.json` to ignored `.env.arya-staging.local`, replacing the public anonymous JWT with the key from clean staging only. The config is JSON despite its `.local` extension. Then run:
+
+```sh
+npm run staging:check
+npm run staging:dev
+```
+
+Open `http://127.0.0.1:3218`. An optional `-- --port 3220` changes the loopback port. The launcher accepts only the fixed clean database, a local optional backend, and Stripe test bindings; it clears inherited credentials and every detected dotenv binding before Next starts. AI, Meta Pixel/commerce and live payments remain off. It does not read Vercel credentials or start a deployment. It never falls back to the older `.env.growth-staging.local` file.
+
+Public-only configuration permits frontend development; it does not enable privileged APIs, useful AI actions, sandbox checkout or full build/start. The latter require a clean staging service-role key because some server modules initialize database clients. Obtain it through the accepted staging Developer access, then add it only to the ignored config. For payments also supply the actual authorized sandbox's test secret and webhook secret together. Provider OAuth/webhook return URLs and sandbox access still need acceptance. Do not substitute production keys. `staging:build` and `staging:start` now stop before launching Next when the staging service-role key is missing.
+
+Fresh checks passed: 45 focused source tests before the final launcher regression was added, plus all nine deployed public/auth/origin probes. The final launcher regression separately checks public configuration and blocked full builds without credentials. The earlier deployed 52-page build is historical; the new public-only local build was stopped during compilation and is not claimed successful. No production deployment, main merge, new paid service or AI request was made.
+
+Independent operation still requires Arya's own accepted service invitations and cloud branch/PR exercise, actual sandbox access, a compliant hosted arrangement within the no-new-spend constraint if hosting is needed, and a separately reviewed production aggregate reporting release. Meta remains deferred by user choice.
+
 The source provides isolated payment tests and a synthetic experiment workbench. Full operational acceptance is pending; this document is an engineering runbook, not the final accepted one-page handoff.
 
 ## Scope and identities
@@ -40,6 +63,12 @@ The security advisor showed zero errors and one leaked-password-protection warni
 
 At mobile width 390, the USD 99 paywall had no horizontal overflow, and cancelling Stripe Sandbox returned to `/payment?offer=us-lifetime&checkout=cancelled`. A second sandbox checkout was submitted with the decline test card under explicit approval, but its final result was not observed. Do not claim a decline, successful retry or fresh returning paid login; reconcile the existing checkout before another submission. Its test session is `cs_test_a1tMIw75G5FuRssejzBblVtxTuVemT9yLtGHOZvdf3blJH9xjwpfh1RFA7`.
 
-On 27 October, local browser use is disabled in Work settings. Supabase connector tools are now available, but the clean project returns permission denied; project discovery lists only production and old QA. Neither is an authorized substitute. Restore browser control and/or reconnect the connector to organization `dffhogkjqszrepajjbqe`, project `wyitdnwftdxlibdnldfe` only.
+Later on 27 October, browser dashboard access to the correct clean project worked while Supabase connector project/advisor calls still returned permission denied. The security linter was rerun: zero errors, one leaked-password-protection warning and nine informational suggestions. Disabling Email auth did not clear the warning; no upgrade was purchased.
 
-Remaining acceptance gates: final sandbox decline/retry plus fresh paid login; two-session disable/write behavior; a fresh marketing cloud branch/PR exercise; named service membership and production aggregate reporting. AI activation has not been configured or tested and requires approved isolated services and a cost cap. Meta remains pending by user choice. Do not describe full independent operation as A++ until the applicable gates are demonstrated; the final one-page handoff remains pending that readiness condition.
+The existing test checkout above was reconciled through Stripe Workbench: unpaid, no amount received, `card_declined` / `generic_decline`. Its original hosted checkout was recovered and retried with the previously approved success test card at USD 99, saving payment information unchecked. It returned to the app, recorded exactly one paid row for that session alongside the earlier refund and showed Pro Activated. Explicit app sign-out followed by Google account selection for `marketing@getmeera.space` restored Pro Activated. No new checkout or live charge was created.
+
+A separate synthetic experiment `concurrency_acceptance_20261027` was used for an overlapping two-session test. One transaction disabled it while holding its configuration row for 40 seconds; a writer launched during that hold failed with `P0001: Staging experiment is disabled` after commit. Final SQL showed both experiments disabled, zero assignments for the concurrency fixture and one historical readiness assignment. The readiness experiment stayed disabled throughout. This checks the disable-first ordering; no independent lock-monitor capture or reverse-ordering test is claimed. Nine deployed public/auth/origin checks passed again.
+
+The clean staging organization's Team page showed exactly one existing owner and neither Arya email. App operator allowlisting is not service membership. No invitation was submitted. Browser control subsequently stalled with repeated timeouts; stop retrying the unresponsive browser until it recovers. Local screenshot evidence and the exact remaining plan are in the workspace's `output/facebook-ads-handoff` pack.
+
+Remaining acceptance gates: a fresh cloud branch/PR exercise from Arya's marketing account, verified named service memberships and reviewed aggregate-only production reporting. AI activation remains unconfigured and requires approved isolated services and a cost cap. Meta stays pending by user choice. Full independent handoff remains provisional until the applicable account/release gates are demonstrated.

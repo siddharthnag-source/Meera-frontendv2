@@ -7,7 +7,11 @@
     "dev": "next dev --turbopack",
     "format": "prettier --write .",
     "lint": "next lint",
-    "start": "next start"
+    "start": "next start",
+    "staging:check": "node tools/run-arya-staging.cjs check",
+    "staging:dev": "node tools/run-arya-staging.cjs dev",
+    "staging:build": "node tools/run-arya-staging.cjs build",
+    "staging:start": "node tools/run-arya-staging.cjs start"
   },
   "dependencies": {
     "@cashfreepayments/cashfree-js": "^1.0.5",
