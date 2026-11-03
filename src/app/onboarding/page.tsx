@@ -8,7 +8,7 @@ import {
   AudioRecorder,
   AudioStreamer,
   base64ToArrayBuffer,
-} from "@/lib/voice-engine";
+} from "@/lib/onboarding-audio";
 import { onboardingConfig } from "@/lib/onboarding-agent";
 
 type Turnstile = {

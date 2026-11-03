@@ -27,7 +27,28 @@ export async function POST(request: NextRequest) {
     return reply({ error: "Request too large." }, 413);
   let challenge: unknown;
   try {
-    challenge = (await request.json()).challenge;
+    const reader = request.body?.getReader();
+    if (!reader) return reply({ error: "Invalid request." }, 400);
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 4096) {
+        await reader.cancel();
+        return reply({ error: "Request too large." }, 413);
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const body = JSON.parse(new TextDecoder().decode(bytes));
+    challenge = body?.challenge;
   } catch {
     return reply({ error: "Invalid request." }, 400);
   }
