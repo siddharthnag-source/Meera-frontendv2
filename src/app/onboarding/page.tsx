@@ -1,4 +1,6 @@
 "use client";
+import Image from "next/image";
+import styles from "@/components/onboarding/Onboarding.module.css";
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { onboardingAuth } from "@/lib/onboarding-auth-client";
@@ -402,296 +404,492 @@ export default function Onboarding() {
     /* Show date validation on save. */
   }
   return (
-    <main className="min-h-screen bg-background text-primary px-6 py-10">
-      <div className="mx-auto max-w-2xl space-y-6">
-        <header>
-          <p className="text-sm uppercase tracking-widest">Welcome to Meera</p>
-          <h1 className="text-4xl font-semibold my-3">
-            Let’s make this feel like you.
-          </h1>
-          <p>
-            A short conversation, one profile to review. Typing is always
-            available.
+    <main className={styles.shell} data-authenticated={Boolean(session)}>
+      <nav className={styles.navigation} aria-label="Meera navigation">
+        <a
+          className={styles.brand}
+          href="https://himeera.com"
+          aria-label="Himeera home"
+        >
+          <Image src="/icons/meera.svg" width={32} height={32} alt="" />
+          <span className={styles.wordmark}>meera</span>
+        </a>
+        <a className={styles.homeLink} href="https://himeera.com">
+          Back to Himeera <Icon name="arrow" />
+        </a>
+      </nav>
+
+      <div className={styles.layout}>
+        <header className={styles.introduction}>
+          <p className={styles.eyebrow}>Your personal companion</p>
+          <h1 className={styles.title}>Let’s make this feel like you.</h1>
+          <p className={styles.introText}>
+            A little about your day. A few things that make you, you. Start
+            wherever you feel comfortable.
           </p>
+          <div className={styles.artwork}>
+            <Image
+              src="/images/home.svg"
+              width={318}
+              height={350}
+              priority
+              unoptimized
+              alt="Meera, surrounded by everyday thoughts and conversations."
+            />
+          </div>
+          <div className={styles.principles}>
+            <span>Your pace</span>
+            <span>Your voice</span>
+            <span>Your choice</span>
+          </div>
         </header>
-        {!session ? (
-          <section className="rounded-3xl border p-6 space-y-4">
-            <p>
-              Continue with your existing Google account before using voice or
-              saving a profile.
-            </p>
-            <button
-              className="rounded-full bg-red-600 text-white px-6 py-3"
-              onClick={() => void signIn()}
+
+        <div className={styles.content}>
+          {!session ? (
+            <section
+              className={`${styles.card} ${styles.welcomeCard}`}
+              aria-labelledby="welcome-heading"
             >
-              Continue with Google
-            </button>
-          </section>
-        ) : (
-          <>
-            <p className="text-sm">Signed in as {session.user.email}</p>
-            {draft.complete ? (
-              <section className="rounded-3xl border p-6 space-y-4">
-                <h2 className="text-2xl">
-                  You’re all set, {draft.profile.name}.
-                </h2>
-                <p>Your saved profile has been restored.</p>
-                <a className="underline" href={workspace}>
-                  Open Meera
-                </a>
-              </section>
-            ) : (
-              <>
-                <section className="rounded-3xl border p-6 space-y-4">
-                  <fieldset disabled={busy || recording}>
-                    <legend className="font-semibold mb-3">
-                      Choose your voice
-                    </legend>
-                    <div className="flex gap-5">
-                      {(["sarah", "brian"] as const).map((item) => (
-                        <label key={item}>
-                          <input
-                            type="radio"
-                            name="voice"
-                            checked={voice === item}
-                            onChange={() => {
-                              stopSpeech();
-                              setVoice(item);
-                            }}
-                          />{" "}
-                          {item === "sarah" ? "Sarah" : "Brian"}{" "}
-                          <button
-                            type="button"
-                            className="underline text-sm ml-2"
-                            onClick={() =>
-                              void play(
-                                {
-                                  text:
-                                    item === "sarah"
-                                      ? "Preview Sarah"
-                                      : "Preview Brian",
-                                  clip: "preview",
-                                },
-                                item,
-                              )
-                            }
+              <Image
+                className={styles.welcomeMark}
+                src="/icons/meera.svg"
+                width={46}
+                height={46}
+                alt=""
+              />
+              <p className={styles.eyebrow}>A familiar hello</p>
+              <h2 id="welcome-heading" className={styles.cardHeading}>
+                Good to have you here.
+              </h2>
+              <p className={styles.description}>
+                Continue with Google, choose a voice, and tell Meera a little
+                about yourself. You can talk, type, or take your time.
+              </p>
+              <button
+                className={`${styles.primaryButton} ${styles.googleButton}`}
+                onClick={() => void signIn()}
+              >
+                <span>
+                  <GoogleMark />
+                  Continue with Google
+                </span>
+                <Icon name="arrow" />
+              </button>
+              <p className={styles.helper}>
+                Use your existing Google account to save your profile and return
+                to it later.
+              </p>
+              <div className={styles.welcomeFooter}>
+                <span className={styles.dot} aria-hidden="true" />
+                <span>A short welcome. Room to be yourself.</span>
+              </div>
+            </section>
+          ) : (
+            <>
+              <p className={styles.account}>
+                <Icon name="check" /> Signed in as {session.user.email}
+              </p>
+              {draft.complete ? (
+                <section className={`${styles.card} ${styles.successCard}`}>
+                  <div className={styles.successIcon}>
+                    <Icon name="check" />
+                  </div>
+                  <p className={styles.eyebrow}>A lovely place to begin</p>
+                  <h2 className={styles.cardHeading}>
+                    You’re all set, {draft.profile.name}.
+                  </h2>
+                  <p className={styles.description}>
+                    Your saved profile has been restored.
+                  </p>
+                  <a className={styles.primaryButton} href={workspace}>
+                    Open Meera <Icon name="arrow" />
+                  </a>
+                </section>
+              ) : (
+                <>
+                  <section
+                    className={styles.card}
+                    aria-labelledby="voice-heading"
+                  >
+                    <div className={styles.sectionHeader}>
+                      <div>
+                        <p className={styles.eyebrow}>Your voice, your way</p>
+                        <h2 id="voice-heading" className={styles.cardHeading}>
+                          Make yourself comfortable.
+                        </h2>
+                      </div>
+                      <span className={styles.step} aria-hidden="true">
+                        01
+                      </span>
+                    </div>
+                    <fieldset
+                      className={styles.fieldset}
+                      disabled={busy || recording}
+                    >
+                      <legend className={styles.label}>
+                        Choose your voice
+                      </legend>
+                      <div className={styles.voiceOptions}>
+                        {(["sarah", "brian"] as const).map((item) => (
+                          <div
+                            className={styles.voiceOption}
+                            data-selected={voice === item}
+                            key={item}
                           >
-                            Preview
+                            <label className={styles.voiceChoice}>
+                              <input
+                                type="radio"
+                                name="voice"
+                                checked={voice === item}
+                                onChange={() => {
+                                  stopSpeech();
+                                  setVoice(item);
+                                }}
+                              />
+                              {item === "sarah" ? "Sarah" : "Brian"}
+                            </label>
+                            <button
+                              type="button"
+                              className={styles.previewButton}
+                              onClick={() =>
+                                void play(
+                                  {
+                                    text:
+                                      item === "sarah"
+                                        ? "Preview Sarah"
+                                        : "Preview Brian",
+                                    clip: "preview",
+                                  },
+                                  item,
+                                )
+                              }
+                            >
+                              <Icon name="play" />
+                              Preview
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <label className={styles.language}>
+                      Language
+                      <select
+                        value={language}
+                        disabled={busy || recording}
+                        onChange={(event) => {
+                          stopSpeech();
+                          setLanguage(event.target.value as Language);
+                        }}
+                      >
+                        <option value="en">English</option>
+                        <option value="hi">Hindi / Hinglish</option>
+                      </select>
+                    </label>
+                    <div className={styles.prompt}>
+                      <div className={styles.promptLabel}>
+                        <span className={styles.dot} aria-hidden="true" />
+                        Meera
+                        {(recording || busy) && (
+                          <span className={styles.listening}>
+                            {recording
+                              ? muted
+                                ? "Microphone muted"
+                                : "Listening"
+                              : "One moment"}
+                          </span>
+                        )}
+                      </div>
+                      <p role="status" aria-live="polite">
+                        {status}
+                      </p>
+                    </div>
+                    {!ready && loaded && (
+                      <p className={styles.message}>
+                        Voice is not configured yet. You can still edit and save
+                        your profile.
+                      </p>
+                    )}
+                    <div className={styles.actions}>
+                      {recording ? (
+                        <>
+                          <button
+                            className={styles.primaryButton}
+                            onClick={() => recorder.current?.stop()}
+                          >
+                            <Icon name="arrow" />
+                            Send recording
                           </button>
+                          <button
+                            className={styles.secondaryButton}
+                            onClick={() => {
+                              const next = !muted;
+                              microphone.current
+                                ?.getAudioTracks()
+                                .forEach((track) => {
+                                  track.enabled = !next;
+                                });
+                              setMuted(next);
+                            }}
+                            aria-pressed={muted}
+                          >
+                            <Icon name="mic" />
+                            {muted ? "Unmute microphone" : "Mute microphone"}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className={styles.primaryButton}
+                          disabled={!loaded || !ready || !canRecord || busy}
+                          onClick={() => void record()}
+                          aria-label={
+                            consented.current
+                              ? "Record an answer"
+                              : "Start voice — allow microphone"
+                          }
+                        >
+                          <Icon name="mic" />
+                          {consented.current
+                            ? "Record an answer"
+                            : "Start voice"}
+                        </button>
+                      )}
+                      <button
+                        className={styles.secondaryButton}
+                        onClick={interrupt}
+                        aria-label="Stop / interrupt"
+                      >
+                        <Icon name="stop" />
+                        Stop
+                      </button>
+                    </div>
+                    <p className={styles.voiceDisclosure}>
+                      Starting voice asks for microphone access. Audio is
+                      processed through OpenRouter and its selected providers;
+                      recordings are not saved by this app. Never say passwords
+                      or verification codes.
+                    </p>
+                    {!canRecord && (
+                      <p className={styles.message}>
+                        Voice recording is unavailable in this browser. Please
+                        type below.
+                      </p>
+                    )}
+                    {elapsed && (
+                      <p className={styles.message} role="status">
+                        Take your time. You can keep typing or return later;
+                        your stored draft will be here.
+                      </p>
+                    )}
+                    {transcript && (
+                      <p className={styles.message}>
+                        <strong>You said: </strong>
+                        {transcript}
+                      </p>
+                    )}
+                    <form
+                      className={styles.answerForm}
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        setStarted(true);
+                        void answer({ text });
+                      }}
+                    >
+                      <label
+                        className={styles.label}
+                        htmlFor="onboarding-answer"
+                      >
+                        Your answer or correction
+                      </label>
+                      <textarea
+                        id="onboarding-answer"
+                        placeholder="A little about your day, in your own words…"
+                        maxLength={2000}
+                        value={text}
+                        onChange={(event) => setText(event.target.value)}
+                        disabled={busy || !loaded}
+                      />
+                      <div className={styles.answerFooter}>
+                        <p>Typing is always welcome.</p>
+                        <button
+                          className={styles.quietButton}
+                          disabled={busy || !loaded || !ready || !text.trim()}
+                        >
+                          Send answer <Icon name="arrow" />
+                        </button>
+                      </div>
+                    </form>
+                  </section>
+
+                  <section
+                    className={styles.card}
+                    aria-labelledby="profile-heading"
+                  >
+                    <div className={styles.sectionHeader}>
+                      <div>
+                        <p className={styles.eyebrow}>A little about you</p>
+                        <h2 id="profile-heading" className={styles.cardHeading}>
+                          Your profile
+                        </h2>
+                      </div>
+                      <span className={styles.step} aria-hidden="true">
+                        02
+                      </span>
+                    </div>
+                    <p className={styles.description}>
+                      Change anything you like. Only your name is needed; the
+                      rest is yours to share.
+                    </p>
+                    <div className={styles.profileFields}>
+                      {(
+                        [
+                          { key: "name", title: "Name", type: "text" },
+                          {
+                            key: "job_details",
+                            title: "Work or study",
+                            type: "text",
+                          },
+                          {
+                            key: "dob",
+                            title: "Birthday (optional)",
+                            type: "date",
+                          },
+                          {
+                            key: "caste",
+                            title: "Caste or community (optional)",
+                            type: "text",
+                          },
+                        ] as const
+                      ).map((field) => (
+                        <label className={styles.profileField} key={field.key}>
+                          {field.title}
+                          <input
+                            type={field.type}
+                            maxLength={500}
+                            value={draft.profile[field.key] || ""}
+                            disabled={busy || recording || !loaded}
+                            onChange={(event) => {
+                              saveKey.current = null;
+                              dirty.current = true;
+                              update({
+                                ...draftRef.current,
+                                profile: {
+                                  ...draftRef.current.profile,
+                                  [field.key]:
+                                    event.target.value ||
+                                    (field.key === "name" ? undefined : null),
+                                },
+                              });
+                            }}
+                          />
                         </label>
                       ))}
                     </div>
-                  </fieldset>
-                  <label className="block">
-                    Language{" "}
-                    <select
-                      className="border rounded p-2 ml-3"
-                      value={language}
-                      disabled={busy || recording}
-                      onChange={(event) => {
-                        stopSpeech();
-                        setLanguage(event.target.value as Language);
-                      }}
-                    >
-                      <option value="en">English</option>
-                      <option value="hi">Hindi / Hinglish</option>
-                    </select>
-                  </label>
-                  <p role="status" aria-live="polite">
-                    {status}
-                  </p>
-                  <p className="text-sm opacity-75">
-                    Voice audio is processed through OpenRouter and its selected
-                    providers. Recordings are not saved by this app. Never say
-                    passwords or verification codes.
-                  </p>
-                  {!ready && loaded && (
-                    <p>
-                      Voice is not configured yet. You can still edit and save
-                      your profile.
-                    </p>
-                  )}
-                  <div className="flex gap-3 flex-wrap">
-                    {recording ? (
-                      <>
-                        <button
-                          className="border rounded-full px-5 py-3"
-                          onClick={() => recorder.current?.stop()}
-                        >
-                          Send recording
-                        </button>
-                        <button
-                          className="border rounded-full px-5 py-3"
-                          onClick={() => {
-                            const next = !muted;
-                            microphone.current
-                              ?.getAudioTracks()
-                              .forEach((track) => {
-                                track.enabled = !next;
-                              });
-                            setMuted(next);
-                          }}
-                          aria-pressed={muted}
-                        >
-                          {muted ? "Unmute microphone" : "Mute microphone"}
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        className="rounded-full bg-red-600 text-white px-5 py-3 disabled:opacity-50"
-                        disabled={!loaded || !ready || !canRecord || busy}
-                        onClick={() => void record()}
-                      >
-                        {consented.current
-                          ? "Record an answer"
-                          : "Start voice — allow microphone"}
-                      </button>
+                    {age !== null && (
+                      <p className={styles.helper}>Age: {age}</p>
                     )}
-                    <button
-                      className="border rounded-full px-5 py-3"
-                      onClick={interrupt}
-                    >
-                      Stop / interrupt
-                    </button>
-                  </div>
-                  {!canRecord && (
-                    <p>
-                      Voice recording is unavailable in this browser. Please
-                      type below.
-                    </p>
-                  )}
-                  {elapsed && (
-                    <p role="status">
-                      Take your time. You can keep typing or return later; your
-                      stored draft will be here.
-                    </p>
-                  )}
-                  {transcript && (
-                    <p>
-                      <strong>You said: </strong>
-                      {transcript}
-                    </p>
-                  )}
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      setStarted(true);
-                      void answer({ text });
-                    }}
-                    className="space-y-3"
-                  >
-                    <label className="block" htmlFor="onboarding-answer">
-                      Your answer or correction
-                    </label>
-                    <textarea
-                      id="onboarding-answer"
-                      className="w-full border rounded-xl p-3"
-                      maxLength={2000}
-                      value={text}
-                      onChange={(event) => setText(event.target.value)}
-                      disabled={busy || !loaded}
-                    />
-                    <button
-                      className="border rounded-full px-5 py-2 disabled:opacity-50"
-                      disabled={busy || !loaded || !ready || !text.trim()}
-                    >
-                      Send answer
-                    </button>
-                  </form>
-                </section>
-                <section className="rounded-3xl border p-6 space-y-4">
-                  <h2 className="text-2xl font-semibold">Your profile</h2>
-                  <p>
-                    Review or edit anything. Work, birthday and community are
-                    optional; leave them blank to skip.
-                  </p>
-                  {(
-                    [
-                      { key: "name", title: "Name", type: "text" },
-                      {
-                        key: "job_details",
-                        title: "Work or study",
-                        type: "text",
-                      },
-                      {
-                        key: "dob",
-                        title: "Birthday (optional)",
-                        type: "date",
-                      },
-                      {
-                        key: "caste",
-                        title: "Caste or community (optional)",
-                        type: "text",
-                      },
-                    ] as const
-                  ).map((field) => (
-                    <label className="block" key={field.key}>
-                      {field.title}
-                      <input
-                        className="block w-full border rounded-lg p-3 mt-1"
-                        type={field.type}
-                        maxLength={500}
-                        value={draft.profile[field.key] || ""}
-                        disabled={busy || recording || !loaded}
-                        onChange={(event) => {
-                          saveKey.current = null;
-                          dirty.current = true;
-                          update({
-                            ...draftRef.current,
-                            profile: {
-                              ...draftRef.current.profile,
-                              [field.key]:
-                                event.target.value ||
-                                (field.key === "name" ? undefined : null),
-                            },
-                          });
+                    <div className={styles.profileActions}>
+                      <button
+                        className={styles.primaryButton}
+                        disabled={
+                          busy || !loaded || !draft.profile.name?.trim()
+                        }
+                        onClick={() => void finish()}
+                      >
+                        Save and begin <Icon name="arrow" />
+                      </button>
+                      <button
+                        className={styles.quietButton}
+                        disabled={busy || !loaded}
+                        onClick={() => {
+                          setBusy(true);
+                          void persist(draftRef.current.profile, false)
+                            .then(() =>
+                              setStatus(
+                                "Draft saved. Come back whenever you are ready.",
+                              ),
+                            )
+                            .catch((reason) => setError(reason.message))
+                            .finally(() => setBusy(false));
                         }}
-                      />
-                    </label>
-                  ))}
-                  {age !== null && <p>Age: {age}</p>}
-                  <div className="flex gap-3">
-                    <button
-                      className="rounded-full bg-red-600 text-white px-5 py-3 disabled:opacity-50"
-                      disabled={busy || !loaded || !draft.profile.name?.trim()}
-                      onClick={() => void finish()}
-                    >
-                      Save and begin
-                    </button>
-                    <button
-                      className="border rounded-full px-5 py-3"
-                      disabled={busy || !loaded}
-                      onClick={() => {
-                        setBusy(true);
-                        void persist(draftRef.current.profile, false)
-                          .then(() =>
-                            setStatus(
-                              "Draft saved. Come back whenever you are ready.",
-                            ),
-                          )
-                          .catch((reason) => setError(reason.message))
-                          .finally(() => setBusy(false));
-                      }}
-                    >
-                      Save draft
-                    </button>
-                  </div>
-                </section>
-              </>
-            )}
-          </>
-        )}
-        {error && (
-          <p role="alert" className="text-red-700">
-            {error}
-          </p>
-        )}
-        {session && !busy && (
-          <button className="underline text-sm" onClick={() => void load()}>
-            Reload saved profile
-          </button>
-        )}
+                      >
+                        Save draft
+                      </button>
+                    </div>
+                    <p className={styles.profileNote}>
+                      Not ready yet? Save a draft and pick up when it feels
+                      right.
+                    </p>
+                  </section>
+                </>
+              )}
+            </>
+          )}
+          {error && (
+            <p role="alert" className={styles.error}>
+              {error}
+            </p>
+          )}
+          {session && !busy && (
+            <button
+              className={`${styles.quietButton} ${styles.reload}`}
+              onClick={() => void load()}
+            >
+              Reload saved profile
+            </button>
+          )}
+        </div>
       </div>
+      <footer className={styles.footer}>
+        <span>Meera · Your personal companion.</span>
+        <span>No rush. A little hello is a lovely start.</span>
+      </footer>
     </main>
+  );
+}
+
+function Icon({ name }: { name: "arrow" | "mic" | "play" | "stop" | "check" }) {
+  const paths = {
+    arrow: "M4 12h15m-6-6 6 6-6 6",
+    mic: "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5Zm-3 6v1a6 6 0 0 0 12 0v-1M12 18v4m-3 0h6",
+    play: "m9 5 10 7-10 7V5Z",
+    stop: "M6 6h12v12H6V6Z",
+    check: "m5 12 4 4L19 6",
+  };
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d={paths[name]} />
+    </svg>
+  );
+}
+function GoogleMark() {
+  return (
+    <svg className={styles.googleMark} viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M21.6 12.23c0-.71-.06-1.39-.18-2.05H12v3.88h5.38a4.6 4.6 0 0 1-2 3.02v2.51h3.24c1.9-1.75 2.98-4.33 2.98-7.36Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 22c2.7 0 4.96-.9 6.61-2.41l-3.23-2.51c-.9.6-2.04.97-3.38.97-2.6 0-4.81-1.76-5.6-4.12H3.07v2.59A10 10 0 0 0 12 22Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M6.4 13.93a6 6 0 0 1 0-3.86V7.48H3.07a10 10 0 0 0 0 9.04l3.33-2.59Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.95c1.47 0 2.79.5 3.83 1.51l2.87-2.87A9.6 9.6 0 0 0 12 2a10 10 0 0 0-8.93 5.48l3.33 2.59A6 6 0 0 1 12 5.95Z"
+      />
+    </svg>
   );
 }
