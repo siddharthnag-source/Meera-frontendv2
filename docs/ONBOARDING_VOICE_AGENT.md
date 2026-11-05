@@ -1,91 +1,72 @@
-# Meera voice onboarding — OpenRouter
+# Meera onboarding — OpenRouter, optional profile, prototype voice view
 
-Onboarding uses **OpenRouter**, the existing **Google sign-in through Supabase**, and the existing **Meera/Supabase database**. It does not use Gemini Live, Turnstile, Cloudflare, or another service. Google authentication is unchanged; the main Meera voice/chat implementation outside onboarding is outside this migration.
+The page at `/onboarding` follows the supplied desktop/mobile prototypes: a centered red Meera orb and soft rings, cream background, compact header, prompt chips, an interrupt pill, and call controls. Meera's existing light/dark theme tokens and orb artwork are reused. Transcripts and voice settings open in native keyboard-accessible dialogs; the navigation and focus controls are functional.
 
-## User flow
+## Landing and sign-in
 
-Open `/onboarding` and continue with Google. A verified, non-anonymous Google/Supabase user is required before any paid provider call or profile write. The verified Google name is reused and remains editable. Choose Sarah (default) or Brian and English or Hindi/Hinglish; fixed prompts/previews use the 28 existing MP3 assets. Recording is explicit and bounded to 30 seconds per answer; recording pauses playback, Stop/interrupt cancels pending responses, and typing/manual editing remain available.
+The existing recorded Sarah/English introduction is attempted automatically once the page and initial account state finish loading. Its text is visible beneath the orb. The former Hear Meera’s welcome button is removed. Audible autoplay is subject to browser permissions: a blocked `play()` produces an explicit Enable Meera’s voice control rather than a silent failure or retry loop. No microphone permission or paid provider request is made by the landing intro. Sarah/Brian and English/Hindi previews remain in voice settings.
 
-OpenRouter transcribes recordings and extracts all explicitly stated details in a single bounded extraction call per answer. Proposed corrections are validated before saving as an owned draft. The user reviews one editable profile card and chooses **Save and begin**. The save is idempotent, reads back the persisted values, and shows the Open Meera handoff. Completed accounts see their saved status rather than setup questions. Community/caste is optional, never inferred, never solicited by voice, and may be left blank. Birthday is optional; age is derived from a validated full date.
+The Google sign-in button pulses gently for three cycles. Both the pulse and orb motion respect `prefers-reduced-motion`. Google sign-in through the existing Supabase provider is the only compulsory onboarding step. No Cloudflare, Turnstile or additional service is used.
 
-A 90-second prompt offers more time; it does not discard data. Persisted drafts resume after reload. Manual edits must be saved with Save draft or Save and begin; leaving with unsaved edits triggers the browser's warning. Audio is transient; this feature does not persist recordings or transcripts. Confirmed profile fields and explicitly saved drafts are stored under the authenticated account.
+## Optional details
 
-## Required staging database migration
+After sign-in or ending the voice introduction/call, the user can open Add details (optional):
 
-Apply `supabase/migrations/20261104140000_openrouter_onboarding.sql` to the existing **clean staging** Supabase project, not production. The runtime uses only the public Supabase URL/anon key and the user's verified bearer token. It needs no service-role key.
+- **What should Meera call you? (optional)** — the Google name is suggested only if a name has never been chosen. Clearing it stores an explicit skip; it is not silently restored on reload.
+- Birthday (optional), with age derived only from a valid complete date.
+- Work or study (optional).
+- Caste/community (optional), never inferred or asked by voice.
 
-The migration creates:
+Every field can be left blank, including Name. The API accepts `{}` or all-null fields as a completed profile. Values that are supplied are still validated. OpenRouter extraction supports explicit skips of every field, including Name. A visible Skip for now link proceeds to the existing Meera workspace without requiring a profile write. Optional database availability therefore cannot trap an authenticated user in onboarding. Purchase and connector return paths retain priority in the main OAuth callback.
 
-- `meera_onboarding_drafts`, with owner-only RLS reads and RPC-only writes.
-- `onboarding_read_draft` and `onboarding_write_draft`, deriving ownership from `auth.uid()`, checking revision numbers to reject stale writes, and supporting idempotent completed saves with the same UUID.
-- A private quota table and `onboarding_claim_quota`, atomically checking/incrementing shared counters before **each** paid request: 12 calls per user/minute, 60 per user/day, and 600 project-wide/day. The global daily counter is a request cap, not a currency budget. Failed provider requests still consume quota; there is no automatic retry loop.
+Saving is explicit and idempotent, with a readback and stale-revision checks. Drafts and completed profile fields are owned by the verified Supabase identity. Transcripts/audio remain transient; this feature does not persist recordings. Unsaved manual edits trigger the browser's leave warning; choosing Skip for now explicitly discards those unsaved edits.
 
-An unapplied/missing migration returns HTTP 503 before provider access. Quota denial returns HTTP 429 and leaves the editable form available. Neither in-memory counters nor an optional paid Vercel WAF plan are needed. Database transactions/RLS need live acceptance in staging after the migration; mocked tests do not establish real database isolation or concurrency.
+## Voice conversation
 
-## Preview environment variables
+Calls and microphone access begin only after user action. Start Call plays the first question before recording. Spoken answers are bounded recorded turns (30 seconds maximum), sent through OpenRouter speech recognition and extraction; fixed public prompts/previews reuse existing MP3s. Mute, interrupt, send-recording and end-call controls manage the actual recording/playback state. End Call releases the microphone and offers the optional profile. The menu's Transcripts dialog shows the in-memory conversation. Typed answers and manual profile edits remain available in the profile dialog.
 
-Dedicated Vercel project: `marketing-1785/meera-onboarding-staging` (`prj_h2wZ6OUirvZULBfLmVXeGxNmS5I9`). Use **Preview**, with no Git-branch filter if the project has no Git connection.
+Paid calls require a verified, non-anonymous Google/Supabase identity, same-origin requests and shared atomic quotas before each request. Missing quotas fail closed; landing previews never use paid endpoints. Current quotas are 12 calls/user/minute, 60/user/day and 600 project-wide/day. These request counts are not a currency budget. Failed provider requests consume quota; requests are not retried automatically.
 
-| Variable                        | Purpose                                                                                                      |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `OPENROUTER_API_KEY`            | Server-only, capped staging key; never a public variable                                                     |
-| `ONBOARDING_STT_MODEL`          | `openai/gpt-4o-mini-transcribe`                                                                              |
-| `ONBOARDING_LLM_MODEL`          | `openai/gpt-4.1-mini`                                                                                        |
-| `ONBOARDING_TTS_MODEL`          | `elevenlabs/eleven-flash-v2.5`                                                                               |
-| `ONBOARDING_ALLOWED_VOICES`     | `sarah,brian`                                                                                                |
-| `NEXT_PUBLIC_SUPABASE_URL`      | Existing clean staging database URL                                                                          |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Existing clean staging public anon key                                                                       |
-| `ONBOARDING_ALLOWED_ORIGIN`     | Exact protected staging origin, normally `https://meera-onboarding-staging.vercel.app`                       |
-| `ONBOARDING_WORKSPACE_URL`      | Optional existing Meera workspace URL; otherwise the existing `ONBOARDING_SIGN_IN_URL` origin or `/` is used |
+## Existing staging configuration
 
-No `GEMINI_*` or `TURNSTILE_*` settings are read by onboarding. Existing unrelated Meera features may still use Google SDK dependencies. Old Gemini variables in the dedicated staging project are unused by this implementation; no credential values are copied or exposed.
+Dedicated Vercel project: `marketing-1785/meera-onboarding-staging`, `prj_h2wZ6OUirvZULBfLmVXeGxNmS5I9`. Use Preview variables without a branch filter when deploying source uploads:
 
-The provided brief states that the installed OpenRouter key has a $10 total cap with no reset and expires on 11 November 2026. That billing setting has not been independently verified by this implementation. The account owner should confirm the limit/expiry before live use.
+| Variable                        | Value/purpose                                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `OPENROUTER_API_KEY`            | Capped staging key, server-only                                                               |
+| `ONBOARDING_STT_MODEL`          | `openai/gpt-4o-mini-transcribe`                                                               |
+| `ONBOARDING_LLM_MODEL`          | `openai/gpt-4.1-mini`                                                                         |
+| `ONBOARDING_TTS_MODEL`          | `elevenlabs/eleven-flash-v2.5`                                                                |
+| `ONBOARDING_ALLOWED_VOICES`     | `sarah,brian`                                                                                 |
+| `NEXT_PUBLIC_SUPABASE_URL`      | Existing clean staging project URL                                                            |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Existing clean staging public anon key                                                        |
+| `ONBOARDING_ALLOWED_ORIGIN`     | `https://meera-onboarding-staging.vercel.app`                                                 |
+| `ONBOARDING_WORKSPACE_URL`      | Optional existing workspace destination; defaults to the existing sign-in URL's origin or `/` |
 
-## Google sign-in and return paths
+The existing Supabase Google redirect allowlist must include `https://meera-onboarding-staging.vercel.app/auth/callback?onboarding=1`. No production OAuth secrets are copied. No `GEMINI_*` or `TURNSTILE_*` configuration is read by onboarding. The provided brief states that the staging OpenRouter key has a $10 total cap and expires 11 November 2026; those billing settings have not been independently verified by this implementation.
 
-The standalone app now performs the existing Supabase Google OAuth flow itself, with callback `/auth/callback?onboarding=1`, so the verified session belongs to the onboarding origin. Add the exact staging callback to the existing clean Supabase Auth redirect allowlist if it is not already permitted. Do not replace the provider configuration, Google credentials, production callback URLs, or existing redirects.
+## Required clean staging migrations
 
-The main Meera callback recognizes `onboarding=1` only after handling existing connector and purchase returns. Those returns retain priority. Onboarding does not collect a password or claim to send verification emails or create accounts by itself.
+Apply in order, to clean staging only:
 
-## Build and verification
+1. `supabase/migrations/20261104140000_openrouter_onboarding.sql` — owned drafts, private quota table, RPCs and RLS.
+2. `supabase/migrations/20261105170000_optional_onboarding_details.sql` — forward migration removing required Name/work/DOB checks while preserving identity, validation, stale-write protection and idempotency.
 
-From the repository root:
+The forward migration is necessary for an existing database that still has the original required-name function. It is not automatically applied by deploying Next.js. No Supabase administration connection is available in this task, so migration application and database acceptance have not been verified. Without optional storage, users can still continue after Google sign-in; paid voice calls still fail closed when the shared quota RPC is unavailable.
+
+## Verification and deployment
 
 ```sh
 node verification/onboarding-session.test.cjs
 node verification/auth-callback-lifecycle.test.cjs
 npx tsc --noEmit --incremental false
-npx next build onboarding-staging
+npm run build --prefix onboarding-staging
 ```
 
-The standalone project imports shared onboarding code but has no Meera database-admin or payment providers. Its package replaces the Gemini/event-emitter dependencies with the already-used Supabase client. CSP permits the existing Supabase authentication connection and same-origin onboarding routes; the browser does not connect directly to OpenRouter. Fixed audio files are explicitly traced into the Next.js server output.
+The browser harness requires existing Playwright/Chromium tooling and a local app with dummy public Supabase settings at `http://127.0.0.1:3223`. `MEERA_PLAYWRIGHT_MODULE` and `CHROMIUM_EXECUTABLE_PATH` can select available installations. It uses synthetic identity/provider responses and real playback of the fixed MP3s; it does not represent a live paid speech or OAuth/database test.
 
-For simulated browser checks, run the standalone app with dummy public Supabase settings and `ONBOARDING_ALLOWED_ORIGIN=http://127.0.0.1:3223`. Run `verification/onboarding-browser.cjs` with Playwright and Chromium available in the testing environment; `MEERA_PLAYWRIGHT_MODULE` and `CHROMIUM_EXECUTABLE_PATH` may select existing installations. The harness intercepts identity and API responses; it does not perform a real OAuth login, paid model call, or database write.
+Current local checks: 17 onboarding API tests, five OAuth lifecycle/return tests, TypeScript/lint/build, and grouped browser checks covering allowed and blocked autoplay, one intro attempt per load, no anonymous paid/microphone calls, reduced motion, prototype layout, voice selection, optional empty saves and name skips, readback, corrections, microphone cleanup, quota/provider failure, transcripts/focus controls, sign-out isolation and Google-only continuation without optional storage.
 
-Verified locally: 14 onboarding API tests, five OAuth return/lifecycle tests, root/standalone TypeScript checks, targeted ESLint, standalone build, and mobile simulated browser checks. Coverage includes multi-fact extraction, corrections, skipped fields, invalid dates, missing storage, fail-closed configuration, quota/provider errors, duplicate saves/readback, microphone denial, mute/interrupt/cleanup, and late-response isolation after sign-out.
+Protected preview: https://meera-onboarding-staging.vercel.app/onboarding . Changes are on `codex/arya-independent-staging`, in existing PR #3. Deployments use an isolated source upload with minimal pinned dependency packaging and the supplied public audio/orb assets; no environment files, service-role credentials or commerce code are uploaded. Vercel Authentication remains enabled. Production release is outside this staging change.
 
-## Live acceptance still required
-
-After the clean staging migration and callback allowlist are ready, rebuild the protected preview using its existing Preview settings. Exercise actual Google sign-in, English/Hindi speech and both voices, correction, save and matching values after reload, two-account isolation, denied microphone, provider failure, duplicate save and a real shared-database HTTP 429. Check human completion time and speech quality. No real-provider demo or real database verification is claimed by the mocked checks.
-
-Production release and migrations are not performed by this staging change.
-
-## Deployment checkpoint — 5 November 2026
-
-- Protected preview: https://meera-onboarding-staging.vercel.app/onboarding
-- Deployment `dpl_DJ5axULYzK46vcXwoyqZ7Sz1qgRs` is READY, Preview (Vercel API target `staging`). It uses the existing project's Preview settings and retains Vercel Authentication.
-- Runtime source commit: `146fa9345442da40bca8cdf1d93b2ca7b8a66afb` on `codex/arya-independent-staging`, included in existing PR #3. The isolated source upload contains no environment files, service-role keys, commerce code or Google inference SDK, and bundles the existing 28 audio clips. Only the minimal dependency manifest is pinned separately for source-upload packaging.
-- Authenticated hosted GET `/onboarding` returned HTTP 200 and the Google sign-in UI. The hosted CSP contains no Gemini or Cloudflare endpoints. A hosted session-API probe returned a Vercel protection/authentication error; that response is not claimed as proof of application authentication, database access, or a working OAuth session.
-- The code passes 14 API tests, five OAuth lifecycle/return tests, TypeScript/lint/build checks and 12 simulated mobile browser checks. Provider, session and database results in those tests are mocked; local microphone tests use synthetic input. The browser checks explicitly cover late-response isolation after sign-out.
-- The clean staging database migration and Supabase OAuth redirect allowlist have not been applied or verified in this task because no Supabase administrative connection is available. Those setup steps and actual provider/database acceptance remain necessary. Paid requests fail closed if storage or shared quotas are unavailable.
-
-## Brand design
-
-Onboarding shares `src/styles/meera-theme.css` with the main Himeera application: warm cream `#faf3e9`, forest green `#0c3c26`, and the existing dark-theme colors. It uses the site's serif heading style, original Meera logo/illustration, green pill buttons, subtle borders and generous spacing. Red is reserved for the existing orb and small status accents. The standalone layout reuses Meera's ThemeProvider so saved light/dark preferences match the main application. Voice controls, sign-in, API calls and profile persistence are unchanged by the visual update.
-
-## Visible, audible assistant entry
-
-Meera is visible on the initial page, before Google sign-in, with Sarah/Brian selection, English/Hindi previews and **Hear Meera’s welcome**. These public interactions play the existing recorded clips and make no paid provider calls or microphone requests. The page explicitly labels the welcome as recorded and asks the user to sign in for an interactive conversation.
-
-For signed-in users, Start voice plays Meera's first question before opening the microphone. The orb's speaking state follows actual audio playback, and Stop cancels pending playback/recording. Existing recorded-answer turns and authenticated OpenRouter calls remain protected by verified identity and the Supabase quotas. A missing account/storage connection is shown explicitly rather than silently leaving the microphone disabled. This does not remove the pending staging database/OAuth setup or establish real-provider acceptance.
+Live acceptance still requires the clean staging migrations and OAuth allowlist, actual Google sign-in, both real voices/languages, profile save/readback and account isolation in the real database, plus a real shared-quota 429. Human completion time, Safari autoplay/permissions and live provider quality are not claimed by the simulated tests.

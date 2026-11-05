@@ -109,7 +109,7 @@ export function provider(db: SupabaseClient) {
                     type: "array",
                     items: {
                       type: "string",
-                      enum: ["job_details", "dob", "caste"],
+                      enum: [...PROFILE_FIELDS],
                     },
                   },
                   clarification: { type: ["string", "null"] },
@@ -140,7 +140,7 @@ export function provider(db: SupabaseClient) {
           if (value !== null) updates[field] = value;
         }
         for (const field of parsed.skipped) {
-          if (!["job_details", "dob", "caste"].includes(field)) throw Error();
+          if (!PROFILE_FIELDS.includes(field)) throw Error();
           updates[field] = null;
         }
         return {

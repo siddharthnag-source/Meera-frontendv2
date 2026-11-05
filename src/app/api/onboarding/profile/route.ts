@@ -24,16 +24,6 @@ export async function POST(request: NextRequest) {
     if (data.complete !== false && data.complete !== true)
       throw new OnboardingError(400, "Choose whether to save or keep a draft.");
     if (
-      data.complete &&
-      (!profile.name ||
-        profile.job_details === undefined ||
-        profile.dob === undefined)
-    )
-      throw new OnboardingError(
-        400,
-        "Review or skip the missing details before saving.",
-      );
-    if (
       typeof data.saveKey !== "string" ||
       !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(
         data.saveKey,

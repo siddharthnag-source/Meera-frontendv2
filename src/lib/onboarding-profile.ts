@@ -1,7 +1,7 @@
 export type Voice = "sarah" | "brian";
 export type Language = "en" | "hi";
 export type Profile = {
-  name?: string;
+  name?: string | null;
   job_details?: string | null;
   dob?: string | null;
   caste?: string | null;
@@ -35,8 +35,8 @@ export function validateProfile(value: unknown): Profile {
   for (const [field, raw] of Object.entries(value)) {
     if (!PROFILE_FIELDS.includes(field as ProfileField))
       throw new Error("Unknown profile field.");
-    if (raw === null && field !== "name") {
-      profile[field as Exclude<ProfileField, "name">] = null;
+    if (raw === null || (typeof raw === "string" && !raw.trim())) {
+      profile[field as ProfileField] = null;
       continue;
     }
     if (typeof raw !== "string" || !raw.trim() || raw.length > 500)
@@ -47,13 +47,13 @@ export function validateProfile(value: unknown): Profile {
   return profile;
 }
 export function nextPrompt(profile: Profile, language: Language) {
-  if (!profile.name)
+  if (profile.name === undefined)
     return {
       clip: null,
       text:
         language === "hi"
           ? "मैं आपको किस नाम से बुलाऊँ?"
-          : "What would you like me to call you?",
+          : "What should Meera call you? You can skip this.",
     };
   if (profile.job_details === undefined)
     return {

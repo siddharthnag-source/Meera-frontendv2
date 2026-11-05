@@ -396,3 +396,61 @@ test("manual typed profile saves require no OpenRouter key and reject unknown fi
     400,
   );
 });
+
+test("every profile field is optional, including an entirely empty completed profile", async () => {
+  for (const profile of [
+    {},
+    { name: null, job_details: null, dob: null, caste: null },
+    { name: "", job_details: "", dob: "", caste: "" },
+  ]) {
+    const h = harness();
+    const response = await h.request("profile", {
+      profile,
+      revision: 0,
+      complete: true,
+      saveKey,
+    });
+    assert.equal(response.status, 200);
+    assert.equal(h.draft.complete, true);
+    assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 0);
+  }
+});
+test("explicit name skip is accepted without being re-inferred", async () => {
+  const h = harness({
+    extraction: {
+      updates: { name: null, job_details: null, dob: null, caste: null },
+      skipped: ["name", "job_details", "dob", "caste"],
+    },
+  });
+  const response = await h.request("answer", {
+    text: "Skip all details",
+    language: "en",
+    revision: 0,
+  });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.proposal.profile.name, null);
+  assert.equal(result.prompt.clip, "review");
+});
+test("optional storage cannot block verified sign-in or expose anonymous paid access", async () => {
+  const h = harness({ storageMissing: true });
+  const response = await h.request("session", undefined, {}, "GET");
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.profileReady, false);
+  assert.equal(result.draft, null);
+  assert.equal(result.voiceConfigured, false);
+  assert.ok(result.workspace);
+  assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 0);
+  assert.equal(
+    (
+      await harness({ noUser: true }).request("profile", {
+        profile: {},
+        revision: 0,
+        complete: true,
+        saveKey,
+      })
+    ).status,
+    401,
+  );
+});

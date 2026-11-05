@@ -17,6 +17,20 @@ type Prompt = { text: string; clip: string | null };
 const empty: Draft = { profile: {}, revision: 0, complete: false };
 export default function Onboarding() {
   const [session, setSession] = useState<Session | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
+  const [profileChecked, setProfileChecked] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const autoplayAttempted = useRef(false);
+  const [callActive, setCallActive] = useState(false);
+  const [panel, setPanel] = useState<"voice" | "profile" | "transcript" | null>(
+    null,
+  );
+  const dialog = useRef<HTMLDialogElement | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [conversation, setConversation] = useState<
+    Array<{ role: "Meera" | "You"; text: string }>
+  >([]);
   const [draft, setDraft] = useState<Draft>(empty);
   const draftRef = useRef(draft);
   const [voice, setVoice] = useState<Voice>("sarah");
@@ -98,12 +112,16 @@ export default function Onboarding() {
     );
     const auth = onboardingAuth();
     if (!auth) {
+      setAuthResolved(true);
       setStatus("Staging Google sign-in needs configuration.");
       return;
     }
     let mounted = true;
     auth.auth.getSession().then(({ data }) => {
-      if (mounted) setSession(data.session);
+      if (mounted) {
+        setSession(data.session);
+        setAuthResolved(true);
+      }
     });
     const { data } = auth.auth.onAuthStateChange((_event, value) => {
       if (!mounted) return;
@@ -114,6 +132,12 @@ export default function Onboarding() {
       cleanup.current();
       setSession(value);
       setLoaded(false);
+      setProfileChecked(false);
+      setCallActive(false);
+      setPanel(null);
+      setConversation([]);
+      setTranscript("");
+      setText("");
       dirty.current = false;
       saveKey.current = null;
       update(empty);
@@ -165,22 +189,28 @@ export default function Onboarding() {
     try {
       const result = await (await api("session")).json();
       if (attempt !== generation.current) return;
-      const profile = { ...result.draft.profile };
-      if (!profile.name && result.googleName) profile.name = result.googleName;
-      update({ ...result.draft, profile });
-      dirty.current = !result.draft.profile.name && Boolean(profile.name);
+      const storedDraft = result.draft || empty;
+      const profile = { ...storedDraft.profile };
+      if (profile.name === undefined && result.googleName)
+        profile.name = result.googleName;
+      update({ ...storedDraft, profile });
+      dirty.current =
+        storedDraft.profile.name === undefined && Boolean(profile.name);
       setWorkspace(result.workspace);
-      setReady(result.voiceConfigured);
-      setLoaded(true);
+      setReady(Boolean(result.voiceConfigured));
+      setLoaded(result.profileReady !== false && Boolean(result.draft));
       setStatus(
-        result.draft.complete
+        storedDraft.complete
           ? "Your profile is saved. Welcome back."
           : nextPrompt(profile, language).text,
       );
     } catch (reason) {
       if (attempt === generation.current) setError((reason as Error).message);
     } finally {
-      if (attempt === generation.current) setBusy(false);
+      if (attempt === generation.current) {
+        setBusy(false);
+        setProfileChecked(true);
+      }
     }
   }
   const loadRef = useRef(load);
@@ -226,9 +256,16 @@ export default function Onboarding() {
     selectedVoice = voice,
     selectedLanguage = language,
     onDone?: () => void,
+    automatic = false,
   ) {
     stopSpeech();
     setStatus(prompt.text);
+    setAutoplayBlocked(false);
+    setConversation((previous) =>
+      previous.at(-1)?.text === prompt.text
+        ? previous
+        : [...previous.slice(-39), { role: "Meera", text: prompt.text }],
+    );
     if (muted) return;
     const attempt = generation.current;
     const playId = playback.current;
@@ -258,17 +295,57 @@ export default function Onboarding() {
         if (playback.current === playId) setSpeaking(false);
       };
       await player.play();
-    } catch {
-      if (generation.current === attempt && playback.current === playId)
+    } catch (reason) {
+      if (generation.current !== attempt || playback.current !== playId) return;
+      setSpeaking(false);
+      if (
+        automatic &&
+        reason instanceof DOMException &&
+        reason.name === "NotAllowedError"
+      ) {
+        setAutoplayBlocked(true);
+      } else {
         setError(
           "Audio could not play. You can read the prompt and type instead.",
         );
+      }
     }
   }
+  const autoWelcome = useRef(() => {});
+  autoWelcome.current = () => {
+    void play(welcomePrompt(language), voice, language, undefined, true);
+  };
+  useEffect(() => {
+    if (
+      !authResolved ||
+      (session && !profileChecked) ||
+      autoplayAttempted.current
+    )
+      return;
+    const start = () => {
+      if (autoplayAttempted.current) return;
+      autoplayAttempted.current = true;
+      autoWelcome.current();
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (document.readyState === "complete") timer = setTimeout(start, 0);
+    else window.addEventListener("load", start, { once: true });
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("load", start);
+    };
+  }, [authResolved, session, profileChecked]);
+  useEffect(() => {
+    if (panel && !dialog.current?.open) dialog.current?.showModal();
+    if (!panel && dialog.current?.open) dialog.current.close();
+  }, [panel]);
+
   function startVoice() {
+    autoplayAttempted.current = true;
     interrupt();
     setError("");
     setStarted(true);
+    setCallActive(true);
     void play(
       nextPrompt(draftRef.current.profile, language),
       voice,
@@ -279,6 +356,7 @@ export default function Onboarding() {
     );
   }
   function previewVoice(item: Voice) {
+    autoplayAttempted.current = true;
     void play(
       {
         text:
@@ -312,6 +390,10 @@ export default function Onboarding() {
       ).json();
       if (attempt !== generation.current) return;
       setTranscript(result.transcript);
+      setConversation((previous) => [
+        ...previous.slice(-39),
+        { role: "You", text: result.transcript },
+      ]);
       update({ ...draftRef.current, profile: result.proposal.profile });
       dirty.current = true;
       await persist(result.proposal.profile, false);
@@ -387,6 +469,7 @@ export default function Onboarding() {
         });
       };
       capture.start(250);
+      setCallActive(true);
       setRecording(true);
       setBusy(false);
       setStarted(true);
@@ -411,6 +494,7 @@ export default function Onboarding() {
     try {
       const profile = {
         ...draftRef.current.profile,
+        name: draftRef.current.profile.name ?? null,
         job_details: draftRef.current.profile.job_details ?? null,
         dob: draftRef.current.profile.dob ?? null,
         caste: draftRef.current.profile.caste ?? null,
@@ -435,6 +519,8 @@ export default function Onboarding() {
       }
       if (attempt !== generation.current) return;
       update(check.draft);
+      setPanel(null);
+      setCallActive(false);
       setStatus("Your profile is saved. You can open Meera.");
     } catch (reason) {
       if (attempt === generation.current) setError((reason as Error).message);
@@ -448,488 +534,562 @@ export default function Onboarding() {
   } catch {
     /* Show date validation on save. */
   }
+  function endCall() {
+    interrupt();
+    setCallActive(false);
+    setStatus(
+      "Take your time. You can add a few optional details, or continue to Meera.",
+    );
+    if (session && !draft.complete) setPanel("profile");
+  }
+  const publicPrompt = conversation.length
+    ? status
+    : welcomePrompt(language).text;
   return (
-    <main className={styles.shell} data-authenticated={Boolean(session)}>
-      <nav className={styles.navigation} aria-label="Meera navigation">
+    <main className={styles.screen} data-focused={focused}>
+      <header className={styles.topbar}>
+        <div className={styles.menuAnchor}>
+          <button
+            className={styles.iconButton}
+            aria-label="Open navigation"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            <Icon name="menu" />
+          </button>
+          {menuOpen && (
+            <nav className={styles.menu} aria-label="Onboarding navigation">
+              <a href="https://himeera.com">About Meera</a>
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  setPanel("voice");
+                }}
+              >
+                Voice settings
+              </button>
+              {session && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setPanel("profile");
+                  }}
+                >
+                  Optional profile
+                </button>
+              )}
+            </nav>
+          )}
+        </div>
         <a
-          className={styles.brand}
+          className={styles.wordmark}
           href="https://himeera.com"
           aria-label="Himeera home"
         >
-          <Image src="/icons/meera.svg" width={32} height={32} alt="" />
-          <span className={styles.wordmark}>meera</span>
+          Meera <Icon name="wave" />
         </a>
-        <a className={styles.homeLink} href="https://himeera.com">
-          Back to Himeera <Icon name="arrow" />
-        </a>
-      </nav>
+        <div className={styles.headerActions}>
+          <button
+            className={styles.iconButton}
+            aria-label="Show transcripts"
+            onClick={() => setPanel("transcript")}
+          >
+            <Icon name="transcript" />
+          </button>
+          <button
+            className={styles.iconButton}
+            aria-label={focused ? "Restore voice view" : "Expand voice view"}
+            aria-pressed={focused}
+            onClick={() => setFocused(!focused)}
+          >
+            <Icon name="expand" />
+          </button>
+        </div>
+      </header>
 
-      <div className={styles.layout}>
-        <header className={styles.introduction}>
-          <p className={styles.eyebrow}>Your personal companion</p>
-          <h1 className={styles.title}>Let’s make this feel like you.</h1>
-          <p className={styles.introText}>
-            A little about your day. A few things that make you, you. Start
-            wherever you feel comfortable.
-          </p>
-          <div className={styles.artwork}>
+      <section className={styles.stage} aria-label="Meera voice assistant">
+        <button
+          className={styles.orbShell}
+          disabled={!speaking && !recording}
+          data-speaking={speaking}
+          data-listening={recording && !muted}
+          aria-label={
+            speaking || recording ? "Interrupt Meera" : "Meera voice assistant"
+          }
+          onClick={() => {
+            if (speaking || recording) interrupt();
+          }}
+        >
+          <span className={styles.orbMiddle}>
             <Image
-              src="/images/home.svg"
-              width={318}
-              height={350}
+              className={styles.orb}
+              src="/icons/meera.svg"
+              width={184}
+              height={184}
               priority
-              unoptimized
-              alt="Meera, surrounded by everyday thoughts and conversations."
+              alt=""
             />
-          </div>
-          <div className={styles.principles}>
-            <span>Your pace</span>
-            <span>Your voice</span>
-            <span>Your choice</span>
-          </div>
-        </header>
-
-        <div className={styles.content}>
-          {!session ? (
-            <section
-              className={`${styles.card} ${styles.welcomeCard}`}
-              aria-labelledby="welcome-heading"
+          </span>
+        </button>
+        <p className={styles.voiceState} aria-live="polite">
+          {speaking
+            ? "Meera is speaking"
+            : recording
+              ? muted
+                ? "Microphone muted"
+                : "Meera is listening"
+              : busy
+                ? "One moment…"
+                : "Your personal companion"}
+        </p>
+        <p className={styles.prompt} role="status" aria-live="polite">
+          {session
+            ? draft.complete
+              ? "You’re all set. Welcome to Meera."
+              : status
+            : publicPrompt}
+        </p>
+        {speaking || callActive || busy ? (
+          <button className={styles.interrupt} onClick={interrupt}>
+            Tap to interrupt Meera
+          </button>
+        ) : (
+          <div className={styles.suggestions} aria-label="Get to know Meera">
+            <button
+              onClick={() => {
+                setStatus(
+                  "Talk, type, and get to know Meera at your own pace. Google sign-in is the only required step.",
+                );
+                setConversation((previous) => [
+                  ...previous,
+                  {
+                    role: "Meera",
+                    text: "Talk, type, and get to know Meera at your own pace. Google sign-in is the only required step.",
+                  },
+                ]);
+              }}
             >
-              <div className={styles.assistant} data-speaking={speaking}>
-                <Image
-                  className={styles.assistantOrb}
-                  src="/icons/meera.svg"
-                  width={86}
-                  height={86}
-                  alt=""
-                />
-                <p className={styles.eyebrow} role="status">
-                  {speaking
-                    ? "Meera is speaking"
-                    : "Your onboarding voice assistant"}
-                </p>
-              </div>
-              <h2 id="welcome-heading" className={styles.cardHeading}>
-                Hi, I’m Meera.
-              </h2>
-              <p className={styles.description}>
-                I’m here to help you get started. Hear my welcome, then continue
-                with Google to begin our conversation.
-              </p>
-              <div className={styles.actions}>
-                <button
-                  className={styles.primaryButton}
-                  onClick={() => previewVoice(voice)}
-                >
-                  <Icon name="play" />
-                  Hear Meera’s welcome
-                </button>
-                {speaking && (
+              How it works
+            </button>
+            <button onClick={() => setPanel("voice")}>Choose a voice</button>
+            <button
+              onClick={() => {
+                if (session) setPanel("profile");
+                else {
+                  setStatus(
+                    "After Google sign-in, you can share a name, birthday or work details. Every detail is optional.",
+                  );
+                  setConversation((previous) => [
+                    ...previous,
+                    {
+                      role: "Meera",
+                      text: "After Google sign-in, you can share a name, birthday or work details. Every detail is optional.",
+                    },
+                  ]);
+                }
+              }}
+            >
+              Your optional profile
+            </button>
+          </div>
+        )}
+        {autoplayBlocked && (
+          <div className={styles.soundFallback}>
+            <p>Your browser needs a tap to enable sound.</p>
+            <button onClick={() => previewVoice(voice)}>
+              <Icon name="play" />
+              Enable Meera’s voice
+            </button>
+          </div>
+        )}
+        {error && !panel && (
+          <p role="alert" className={styles.error}>
+            {error}
+          </p>
+        )}
+      </section>
+
+      <section className={styles.dock} aria-label="Onboarding controls">
+        {!session ? (
+          <>
+            <p className={styles.invitation}>
+              Continue with Google to begin. Everything else is optional.
+            </p>
+            <button
+              className={styles.googleButton}
+              onClick={() => void signIn()}
+            >
+              <GoogleMark />
+              Continue with Google <Icon name="arrow" />
+            </button>
+          </>
+        ) : (
+          <>
+            {callActive ? (
+              <div className={styles.callControls}>
+                {recording ? (
+                  <>
+                    <button
+                      className={styles.callControl}
+                      aria-pressed={muted}
+                      onClick={() => {
+                        const next = !muted;
+                        microphone.current
+                          ?.getAudioTracks()
+                          .forEach((track) => {
+                            track.enabled = !next;
+                          });
+                        setMuted(next);
+                      }}
+                    >
+                      <span>
+                        <Icon name="mic" />
+                      </span>
+                      {muted ? "Unmute microphone" : "Mute microphone"}
+                    </button>
+                    <button
+                      className={styles.callControl}
+                      onClick={() => recorder.current?.stop()}
+                    >
+                      <span>
+                        <Icon name="arrow" />
+                      </span>
+                      Send recording
+                    </button>
+                  </>
+                ) : (
                   <button
-                    className={styles.secondaryButton}
-                    onClick={stopSpeech}
+                    className={styles.callControl}
+                    disabled={busy || !loaded || !ready || !canRecord}
+                    onClick={() => void record()}
                   >
-                    Stop welcome
+                    <span>
+                      <Icon name="mic" />
+                    </span>
+                    Record an answer
                   </button>
                 )}
+                <button className={styles.callControl} onClick={endCall}>
+                  <span>
+                    <Icon name="phone" />
+                  </span>
+                  End Call
+                </button>
               </div>
-              <p className={styles.helper}>
-                A recorded hello to meet Meera. Sign in below for interactive
-                voice and a saved profile.
-              </p>
-              <div className={styles.publicPreferences}>
-                <VoicePreferences
-                  voice={voice}
-                  language={language}
-                  disabled={false}
-                  onVoice={(item) => {
-                    stopSpeech();
-                    setVoice(item);
-                  }}
-                  onLanguage={(item) => {
-                    stopSpeech();
-                    setLanguage(item);
-                  }}
-                  onPreview={previewVoice}
-                />
-              </div>
-              <button
-                className={`${styles.secondaryButton} ${styles.googleButton}`}
-                onClick={() => void signIn()}
-              >
-                <span>
-                  <GoogleMark />
-                  Continue with Google
-                </span>
-                <Icon name="arrow" />
+            ) : (
+              !draft.complete && (
+                <button
+                  className={`${styles.callControl} ${styles.startCall}`}
+                  disabled={!loaded || !ready || !canRecord || busy}
+                  aria-label="Start voice — allow microphone"
+                  onClick={startVoice}
+                >
+                  <span>
+                    <Icon name="phone" />
+                  </span>
+                  Start Call
+                </button>
+              )
+            )}
+            <div className={styles.accountLinks}>
+              <button onClick={() => setPanel("profile")}>
+                Add details (optional)
               </button>
-              <p className={styles.helper}>
-                Use your existing Google account to save your profile and return
-                to it later.
+              <a
+                href={workspace}
+                onClick={() => {
+                  dirty.current = false;
+                  interrupt();
+                }}
+              >
+                {draft.complete
+                  ? "Open Meera"
+                  : "Skip for now — continue to Meera"}{" "}
+                <Icon name="arrow" />
+              </a>
+            </div>
+            {!loaded && !busy && (
+              <p className={styles.notice}>
+                Optional profile storage isn’t ready. You can continue to Meera
+                without filling in any details.
               </p>
-              <div className={styles.welcomeFooter}>
-                <span className={styles.dot} aria-hidden="true" />
-                <span>A short welcome. Room to be yourself.</span>
-              </div>
-            </section>
-          ) : (
-            <>
-              <p className={styles.account}>
-                <Icon name="check" /> Signed in as {session.user.email}
-              </p>
-              {draft.complete ? (
-                <section className={`${styles.card} ${styles.successCard}`}>
-                  <div className={styles.successIcon}>
-                    <Icon name="check" />
-                  </div>
-                  <p className={styles.eyebrow}>A lovely place to begin</p>
-                  <h2 className={styles.cardHeading}>
-                    You’re all set, {draft.profile.name}.
-                  </h2>
-                  <p className={styles.description}>
-                    Your saved profile has been restored.
-                  </p>
-                  <a className={styles.primaryButton} href={workspace}>
-                    Open Meera <Icon name="arrow" />
-                  </a>
-                </section>
-              ) : (
-                <>
-                  <section
-                    className={styles.card}
-                    aria-labelledby="voice-heading"
-                  >
-                    <div className={styles.sectionHeader}>
-                      <div>
-                        <p className={styles.eyebrow}>Your voice, your way</p>
-                        <h2 id="voice-heading" className={styles.cardHeading}>
-                          Talk with Meera.
-                        </h2>
-                      </div>
-                      <span className={styles.step} aria-hidden="true">
-                        01
-                      </span>
-                    </div>
-                    <div
-                      className={styles.activeAssistant}
-                      data-speaking={speaking}
-                    >
-                      <Image
-                        className={styles.assistantOrb}
-                        src="/icons/meera.svg"
-                        width={64}
-                        height={64}
-                        alt=""
-                      />
-                      <p className={styles.label} aria-live="polite">
-                        {speaking
-                          ? "Meera is speaking"
-                          : recording
-                            ? "Meera is listening"
-                            : "Your voice guide is here"}
-                      </p>
-                    </div>
-                    <VoicePreferences
-                      voice={voice}
-                      language={language}
-                      disabled={busy || recording}
-                      onVoice={(item) => {
-                        stopSpeech();
-                        setVoice(item);
-                      }}
-                      onLanguage={(item) => {
-                        stopSpeech();
-                        setLanguage(item);
-                      }}
-                      onPreview={previewVoice}
-                    />
-                    <div className={styles.prompt}>
-                      <div className={styles.promptLabel}>
-                        <span className={styles.dot} aria-hidden="true" />
-                        Meera
-                        {(recording || busy) && (
-                          <span className={styles.listening}>
-                            {recording
-                              ? muted
-                                ? "Microphone muted"
-                                : "Listening"
-                              : "One moment"}
-                          </span>
-                        )}
-                      </div>
-                      <p role="status" aria-live="polite">
-                        {status}
-                      </p>
-                    </div>
-                    {!loaded && !busy && error && (
-                      <p className={styles.message}>
-                        Your voice conversation cannot start until your account
-                        connection is ready. Voice previews above are available
-                        now.
-                      </p>
-                    )}
-                    {!ready && loaded && (
-                      <p className={styles.message}>
-                        Voice is not configured yet. You can still edit and save
-                        your profile.
-                      </p>
-                    )}
-                    <div className={styles.actions}>
-                      {recording ? (
-                        <>
-                          <button
-                            className={styles.primaryButton}
-                            onClick={() => recorder.current?.stop()}
-                          >
-                            <Icon name="arrow" />
-                            Send recording
-                          </button>
-                          <button
-                            className={styles.secondaryButton}
-                            onClick={() => {
-                              const next = !muted;
-                              microphone.current
-                                ?.getAudioTracks()
-                                .forEach((track) => {
-                                  track.enabled = !next;
-                                });
-                              setMuted(next);
-                            }}
-                            aria-pressed={muted}
-                          >
-                            <Icon name="mic" />
-                            {muted ? "Unmute microphone" : "Mute microphone"}
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          className={styles.primaryButton}
-                          disabled={!loaded || !ready || !canRecord || busy}
-                          onClick={() =>
-                            consented.current ? void record() : startVoice()
-                          }
-                          aria-label={
-                            consented.current
-                              ? "Record an answer"
-                              : "Start voice — allow microphone"
-                          }
-                        >
-                          <Icon name="mic" />
-                          {consented.current
-                            ? "Record an answer"
-                            : "Start voice"}
-                        </button>
-                      )}
-                      <button
-                        className={styles.secondaryButton}
-                        onClick={interrupt}
-                        aria-label="Stop / interrupt"
-                      >
-                        <Icon name="stop" />
-                        Stop
-                      </button>
-                    </div>
-                    <p className={styles.voiceDisclosure}>
-                      Starting voice asks for microphone access. Audio is
-                      processed through OpenRouter and its selected providers;
-                      recordings are not saved by this app. Never say passwords
-                      or verification codes.
-                    </p>
-                    {!canRecord && (
-                      <p className={styles.message}>
-                        Voice recording is unavailable in this browser. Please
-                        type below.
-                      </p>
-                    )}
-                    {elapsed && (
-                      <p className={styles.message} role="status">
-                        Take your time. You can keep typing or return later;
-                        your stored draft will be here.
-                      </p>
-                    )}
-                    {transcript && (
-                      <p className={styles.message}>
-                        <strong>You said: </strong>
-                        {transcript}
-                      </p>
-                    )}
-                    <form
-                      className={styles.answerForm}
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        setStarted(true);
-                        void answer({ text });
-                      }}
-                    >
-                      <label
-                        className={styles.label}
-                        htmlFor="onboarding-answer"
-                      >
-                        Your answer or correction
-                      </label>
-                      <textarea
-                        id="onboarding-answer"
-                        placeholder="A little about your day, in your own words…"
-                        maxLength={2000}
-                        value={text}
-                        onChange={(event) => setText(event.target.value)}
-                        disabled={busy || !loaded}
-                      />
-                      <div className={styles.answerFooter}>
-                        <p>Typing is always welcome.</p>
-                        <button
-                          className={styles.quietButton}
-                          disabled={busy || !loaded || !ready || !text.trim()}
-                        >
-                          Send answer <Icon name="arrow" />
-                        </button>
-                      </div>
-                    </form>
-                  </section>
+            )}
+          </>
+        )}
+        <p className={styles.disclosure}>
+          {session
+            ? "Microphone access starts only when you choose a call. Voice is processed through OpenRouter; recordings are not stored by this app."
+            : "The introduction is recorded. Interactive voice starts after Google sign-in."}
+        </p>
+      </section>
 
-                  <section
-                    className={styles.card}
-                    aria-labelledby="profile-heading"
-                  >
-                    <div className={styles.sectionHeader}>
-                      <div>
-                        <p className={styles.eyebrow}>A little about you</p>
-                        <h2 id="profile-heading" className={styles.cardHeading}>
-                          Your profile
-                        </h2>
-                      </div>
-                      <span className={styles.step} aria-hidden="true">
-                        02
-                      </span>
-                    </div>
-                    <p className={styles.description}>
-                      Change anything you like. Only your name is needed; the
-                      rest is yours to share.
-                    </p>
-                    <div className={styles.profileFields}>
-                      {(
-                        [
-                          { key: "name", title: "Name", type: "text" },
-                          {
-                            key: "job_details",
-                            title: "Work or study",
-                            type: "text",
-                          },
-                          {
-                            key: "dob",
-                            title: "Birthday (optional)",
-                            type: "date",
-                          },
-                          {
-                            key: "caste",
-                            title: "Caste or community (optional)",
-                            type: "text",
-                          },
-                        ] as const
-                      ).map((field) => (
-                        <label className={styles.profileField} key={field.key}>
-                          {field.title}
-                          <input
-                            type={field.type}
-                            maxLength={500}
-                            value={draft.profile[field.key] || ""}
-                            disabled={busy || recording || !loaded}
-                            onChange={(event) => {
-                              saveKey.current = null;
-                              dirty.current = true;
-                              update({
-                                ...draftRef.current,
-                                profile: {
-                                  ...draftRef.current.profile,
-                                  [field.key]:
-                                    event.target.value ||
-                                    (field.key === "name" ? undefined : null),
-                                },
-                              });
-                            }}
-                          />
-                        </label>
-                      ))}
-                    </div>
-                    {age !== null && (
-                      <p className={styles.helper}>Age: {age}</p>
-                    )}
-                    <div className={styles.profileActions}>
-                      <button
-                        className={styles.primaryButton}
-                        disabled={
-                          busy || !loaded || !draft.profile.name?.trim()
-                        }
-                        onClick={() => void finish()}
-                      >
-                        Save and begin <Icon name="arrow" />
-                      </button>
-                      <button
-                        className={styles.quietButton}
-                        disabled={busy || !loaded}
-                        onClick={() => {
-                          setBusy(true);
-                          void persist(draftRef.current.profile, false)
-                            .then(() =>
-                              setStatus(
-                                "Draft saved. Come back whenever you are ready.",
-                              ),
-                            )
-                            .catch((reason) => setError(reason.message))
-                            .finally(() => setBusy(false));
-                        }}
-                      >
-                        Save draft
-                      </button>
-                    </div>
-                    <p className={styles.profileNote}>
-                      Not ready yet? Save a draft and pick up when it feels
-                      right.
-                    </p>
-                  </section>
-                </>
-              )}
-            </>
-          )}
-          {error && (
-            <p role="alert" className={styles.error}>
-              {error}
-            </p>
-          )}
-          {session && !busy && (
-            <button
-              className={`${styles.quietButton} ${styles.reload}`}
-              onClick={() => void load()}
-            >
-              Reload saved profile
-            </button>
-          )}
+      <dialog
+        ref={dialog}
+        className={styles.dialog}
+        onCancel={() => setPanel(null)}
+        onClose={() => setPanel(null)}
+        aria-labelledby="panel-title"
+      >
+        <div className={styles.panelHeader}>
+          <h2 id="panel-title">
+            {panel === "voice"
+              ? "Your voice, your way"
+              : panel === "transcript"
+                ? "Transcripts"
+                : "A little about you"}
+          </h2>
+          <button
+            className={styles.iconButton}
+            aria-label="Close panel"
+            onClick={() => setPanel(null)}
+          >
+            <Icon name="close" />
+          </button>
         </div>
-      </div>
-      <footer className={styles.footer}>
-        <span>Meera · Your personal companion.</span>
-        <span>No rush. A little hello is a lovely start.</span>
-      </footer>
+        {panel === "voice" && (
+          <>
+            <VoicePreferences
+              voice={voice}
+              language={language}
+              disabled={busy || recording}
+              onVoice={(item) => {
+                stopSpeech();
+                setVoice(item);
+              }}
+              onLanguage={(item) => {
+                stopSpeech();
+                setLanguage(item);
+                if (!session) setStatus(welcomePrompt(item).text);
+              }}
+              onPreview={previewVoice}
+            />
+            <p className={styles.panelNote}>
+              Preview Sarah or Brian, and choose English or Hindi/Hinglish.
+            </p>
+          </>
+        )}
+        {panel === "transcript" && (
+          <div className={styles.transcripts}>
+            {conversation.length ? (
+              conversation.map((line, index) => (
+                <p key={index}>
+                  <strong>{line.role}</strong>
+                  <span>{line.text}</span>
+                </p>
+              ))
+            ) : (
+              <p>
+                Your conversation will appear here. Transcripts stay in this
+                page’s memory.
+              </p>
+            )}
+          </div>
+        )}
+        {panel === "profile" && (
+          <>
+            {!session ? (
+              <p>
+                Continue with Google first. Name, birthday, work and other
+                details are all optional.
+              </p>
+            ) : draft.complete ? (
+              <>
+                <p>Your saved profile has been restored.</p>
+                <a className={styles.primaryButton} href={workspace}>
+                  Open Meera <Icon name="arrow" />
+                </a>
+              </>
+            ) : (
+              <>
+                <p className={styles.panelNote}>
+                  Share only what feels right. You can skip every detail and
+                  still use Meera.
+                </p>
+                <div className={styles.profileFields}>
+                  {(
+                    [
+                      {
+                        key: "name",
+                        title: "What should Meera call you? (optional)",
+                        type: "text",
+                      },
+                      {
+                        key: "dob",
+                        title: "Birthday (optional)",
+                        type: "date",
+                      },
+                      {
+                        key: "job_details",
+                        title: "Work or study (optional)",
+                        type: "text",
+                      },
+                      {
+                        key: "caste",
+                        title: "Caste or community (optional)",
+                        type: "text",
+                      },
+                    ] as const
+                  ).map((field) => (
+                    <label key={field.key}>
+                      {field.title}
+                      <input
+                        type={field.type}
+                        maxLength={500}
+                        value={draft.profile[field.key] || ""}
+                        disabled={busy || recording || !loaded}
+                        onChange={(event) => {
+                          saveKey.current = null;
+                          dirty.current = true;
+                          update({
+                            ...draftRef.current,
+                            profile: {
+                              ...draftRef.current.profile,
+                              [field.key]: event.target.value || null,
+                            },
+                          });
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+                {age !== null && <p className={styles.panelNote}>Age: {age}</p>}
+                <div className={styles.profileActions}>
+                  <button
+                    className={styles.primaryButton}
+                    disabled={busy || !loaded}
+                    onClick={() => void finish()}
+                  >
+                    Save and begin <Icon name="arrow" />
+                  </button>
+                  <a
+                    href={workspace}
+                    onClick={() => {
+                      dirty.current = false;
+                      interrupt();
+                    }}
+                  >
+                    Skip for now
+                  </a>
+                </div>
+                <button
+                  className={styles.textButton}
+                  disabled={busy || !loaded}
+                  onClick={() => {
+                    setBusy(true);
+                    void persist(draftRef.current.profile, false)
+                      .then(() =>
+                        setStatus(
+                          "Draft saved. Come back whenever you are ready.",
+                        ),
+                      )
+                      .catch((reason) => setError(reason.message))
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  Save draft
+                </button>
+              </>
+            )}
+            <form
+              className={styles.answerForm}
+              onSubmit={(event) => {
+                event.preventDefault();
+                setStarted(true);
+                void answer({ text });
+              }}
+            >
+              <label htmlFor="onboarding-answer">
+                Your answer or correction
+              </label>
+              <textarea
+                id="onboarding-answer"
+                value={text}
+                maxLength={2000}
+                disabled={busy || !loaded}
+                onChange={(event) => setText(event.target.value)}
+                placeholder="Tell Meera, or skip anything you prefer."
+              />
+              <button
+                className={styles.textButton}
+                disabled={busy || !loaded || !ready || !text.trim()}
+              >
+                Send answer <Icon name="arrow" />
+              </button>
+            </form>
+            {transcript && (
+              <p className={styles.panelNote}>
+                <strong>You said: </strong>
+                {transcript}
+              </p>
+            )}
+            {session && (
+              <button
+                className={styles.textButton}
+                disabled={busy}
+                onClick={() => void load()}
+              >
+                Reload saved profile
+              </button>
+            )}
+            {elapsed && (
+              <p className={styles.panelNote}>
+                No rush. Your saved draft will be here when you return.
+              </p>
+            )}
+          </>
+        )}
+        {error && (
+          <p role="alert" className={styles.error}>
+            {error}
+          </p>
+        )}
+      </dialog>
     </main>
   );
 }
 
-function Icon({ name }: { name: "arrow" | "mic" | "play" | "stop" | "check" }) {
+function welcomePrompt(language: Language): Prompt {
+  return {
+    text:
+      language === "hi"
+        ? "नमस्ते, मैं मीरा हूँ। चलिए, आपकी पसंद से शुरुआत करते हैं।"
+        : "Hi, I'm Meera. Let's make this feel like you.",
+    clip: "preview",
+  };
+}
+function Icon({
+  name,
+}: {
+  name:
+    | "arrow"
+    | "mic"
+    | "play"
+    | "phone"
+    | "wave"
+    | "menu"
+    | "transcript"
+    | "expand"
+    | "close";
+}) {
   const paths = {
     arrow: "M4 12h15m-6-6 6 6-6 6",
     mic: "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5Zm-3 6v1a6 6 0 0 0 12 0v-1M12 18v4m-3 0h6",
     play: "m9 5 10 7-10 7V5Z",
-    stop: "M6 6h12v12H6V6Z",
-    check: "m5 12 4 4L19 6",
+    phone: "M4 13c3-6 13-6 16 0l-3 2-3-3h-4l-3 3-3-2Z",
+    wave: "M4 10v4m4-7v10m4-13v16m4-13v10m4-7v4",
+    menu: "M4 6h16M4 12h16M4 18h16",
+    transcript: "M4 5h16M4 10h16M4 15h8m3-2 4 3-4 3",
+    expand: "M4 4h6M4 4v6M4 4l6 6m10 10h-6m6 0v-6m0 6-6-6",
+    close: "m6 6 12 12M6 18 18 6",
   };
   return (
     <svg
-      width="16"
-      height="16"
+      width="19"
+      height="19"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.5"
+      strokeWidth="1.4"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -960,7 +1120,6 @@ function GoogleMark() {
     </svg>
   );
 }
-
 function VoicePreferences({
   voice,
   language,
@@ -972,14 +1131,14 @@ function VoicePreferences({
   voice: Voice;
   language: Language;
   disabled: boolean;
-  onVoice: (voice: Voice) => void;
-  onLanguage: (language: Language) => void;
-  onPreview: (voice: Voice) => void;
+  onVoice: (value: Voice) => void;
+  onLanguage: (value: Language) => void;
+  onPreview: (value: Voice) => void;
 }) {
   return (
     <>
       <fieldset className={styles.fieldset} disabled={disabled}>
-        <legend className={styles.label}>Choose your voice</legend>
+        <legend>Choose your voice</legend>
         <div className={styles.voiceOptions}>
           {(["sarah", "brian"] as const).map((item) => (
             <div
@@ -987,7 +1146,7 @@ function VoicePreferences({
               data-selected={voice === item}
               key={item}
             >
-              <label className={styles.voiceChoice}>
+              <label>
                 <input
                   type="radio"
                   name="voice"
@@ -997,8 +1156,8 @@ function VoicePreferences({
                 {item === "sarah" ? "Sarah" : "Brian"}
               </label>
               <button
+                className={styles.textButton}
                 type="button"
-                className={styles.previewButton}
                 onClick={() => onPreview(item)}
               >
                 <Icon name="play" />

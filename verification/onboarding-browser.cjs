@@ -1,4 +1,4 @@
-// Browser verification with simulated Supabase identity and onboarding API responses.
+// UI/provider boundary verification with synthetic identity and recordings; no live provider calls.
 const { chromium } = require(
   process.env.MEERA_PLAYWRIGHT_MODULE ||
     "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright",
@@ -10,44 +10,114 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_EXECUTABLE_PATH || "/usr/bin/chromium",
     headless: true,
-    args: ["--no-sandbox"],
+    args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"],
   });
+  const results = [];
+  // Allowed autoplay: starts on load exactly once, without asking for a microphone or paid API call.
   const guestContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
   const guest = await guestContext.newPage();
-  const guestPaidRequests = [];
-  guest.on("request", (request) => {
-    if (
-      request.url().includes("/api/onboarding/") &&
-      !request.url().includes("/clips/")
-    )
-      guestPaidRequests.push(request.url());
+  const paid = [];
+  guest.on("request", (r) => {
+    if (r.url().includes("/api/onboarding/") && !r.url().includes("/clips/"))
+      paid.push(r.url());
   });
   await guest.addInitScript(() => {
-    window.__micRequests = 0;
+    window.__plays = 0;
+    window.__mics = 0;
+    const real = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+      window.__plays++;
+      return real.call(this);
+    };
     navigator.mediaDevices.getUserMedia = async () => {
-      window.__micRequests++;
-      throw Error("Guest must not request a microphone");
+      window.__mics++;
+      throw Error("No anonymous microphone");
     };
   });
   await guest.goto(base + "/onboarding");
-  await guest.getByRole("button", { name: "Hear Meera’s welcome" }).waitFor();
-  await guest.getByLabel("Brian", { exact: false }).check();
-  await guest.getByLabel("Language").selectOption("hi");
-  const greeting = guest.waitForResponse((response) =>
-    response.url().includes("brian-hi-preview.mp3"),
-  );
-  await guest.getByRole("button", { name: "Hear Meera’s welcome" }).click();
-  assert.equal((await greeting).status(), 200);
   await guest.getByText("Meera is speaking", { exact: true }).waitFor();
-  await guest.getByRole("button", { name: "Stop welcome" }).click();
+  assert.equal(await guest.evaluate(() => window.__plays), 1);
+  assert.equal(await guest.evaluate(() => window.__mics), 0);
+  assert.equal(paid.length, 0);
+  assert.equal(
+    await guest.getByRole("button", { name: "Hear Meera’s welcome" }).count(),
+    0,
+  );
+  const google = guest.getByRole("button", { name: "Continue with Google" });
+  assert.ok(
+    (await google.evaluate((e) => getComputedStyle(e).animationName)).includes(
+      "signin-invite",
+    ),
+  );
+  await guest.getByRole("button", { name: "Tap to interrupt Meera" }).click();
+  await guest.screenshot({
+    path: "work/prototype/landing-mobile.png",
+    fullPage: true,
+  });
+  await guest.setViewportSize({ width: 1440, height: 900 });
+  await guest.screenshot({
+    path: "work/prototype/landing-desktop.png",
+    fullPage: true,
+  });
+
   await guest
-    .getByText("Your onboarding voice assistant", { exact: true })
-    .waitFor();
-  assert.equal(await guest.evaluate(() => window.__micRequests), 0);
-  assert.equal(guestPaidRequests.length, 0);
+    .getByRole("button", { name: "Choose a voice", exact: true })
+    .click();
+  await guest.getByLabel("Brian", { exact: true }).check();
+  await guest.getByLabel("Language").selectOption("hi");
+  const preview = guest.waitForResponse((r) =>
+    r.url().endsWith("brian-hi-preview.mp3"),
+  );
+  await guest
+    .getByRole("button", { name: "Preview", exact: true })
+    .nth(1)
+    .click();
+  assert.equal((await preview).status(), 200);
+  await guest.getByRole("button", { name: "Close panel" }).click();
+  await guest.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(
+    await google.evaluate((e) => getComputedStyle(e).animationName),
+    "none",
+  );
+  assert.equal(
+    await guest.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  results.push(
+    "automatic recorded intro once after load; no anonymous microphone or paid calls",
+    "visible prompt, pulsing Google CTA, reduced-motion support and prototype layout",
+    "Sarah/Brian, Hindi previews and native settings dialog",
+  );
   await guestContext.close();
+  // Simulate a browser rejecting audible autoplay; a manual permission control must remain.
+  const blockedContext = await browser.newContext();
+  const blocked = await blockedContext.newPage();
+  await blocked.addInitScript(() => {
+    window.__attempts = 0;
+    const real = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+      window.__attempts++;
+      if (window.__attempts === 1)
+        return Promise.reject(
+          new DOMException("Autoplay blocked", "NotAllowedError"),
+        );
+      return real.call(this);
+    };
+  });
+  await blocked.goto(base + "/onboarding");
+  await blocked.getByRole("button", { name: "Enable Meera’s voice" }).waitFor();
+  assert.equal(await blocked.evaluate(() => window.__attempts), 1);
+  await blocked.getByRole("button", { name: "Enable Meera’s voice" }).click();
+  await blocked.getByText("Meera is speaking", { exact: true }).waitFor();
+  assert.equal(await blocked.evaluate(() => window.__attempts), 2);
+  results.push(
+    "blocked autoplay has an explicit enable-sound fallback, without retry loops",
+  );
+  await blockedContext.close();
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
@@ -79,49 +149,49 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     ).toString("base64url"),
     "mock-signature",
   ].join(".");
-  await page.addInitScript(
-    ({ user, jwt }) => {
-      localStorage.setItem(
-        "sb-staging-auth-token",
-        JSON.stringify({
-          access_token: jwt,
-          refresh_token: "mock-refresh",
-          token_type: "bearer",
-          expires_at: Math.floor(Date.now() / 1000) + 3600,
-          expires_in: 3600,
-          user,
-        }),
-      );
-      window.__tracks = [];
-      navigator.mediaDevices.getUserMedia = async () => {
-        const audio = new AudioContext();
-        const stream = audio.createMediaStreamDestination().stream;
-        window.__tracks.push(...stream.getTracks());
-        return stream;
-      };
-    },
-    { user, jwt },
-  );
-  await page.route("https://staging.supabase.co/**", (route) =>
-    route.fulfill({ json: user }),
-  );
+  async function seed(target) {
+    await target.addInitScript(
+      ({ user, jwt }) => {
+        localStorage.setItem(
+          "sb-staging-auth-token",
+          JSON.stringify({
+            access_token: jwt,
+            refresh_token: "mock-refresh",
+            token_type: "bearer",
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+            expires_in: 3600,
+            user,
+          }),
+        );
+        window.__tracks = [];
+        navigator.mediaDevices.getUserMedia = async () => {
+          const audio = new AudioContext();
+          const stream = audio.createMediaStreamDestination().stream;
+          window.__tracks.push(...stream.getTracks());
+          return stream;
+        };
+      },
+      { user, jwt },
+    );
+    await target.route("https://staging.supabase.co/**", (route) =>
+      route.fulfill({ json: user }),
+    );
+  }
+  await seed(page);
   let stored = { profile: {}, revision: 0, complete: false },
-    key,
+    saveKey,
     deny = false,
     fail = false,
     delayed = false,
-    release;
-  let delaySession = false,
-    sessionRelease;
-  const requests = [];
+    release,
+    delaySession = false,
+    releaseSession;
   await page.route("**/api/onboarding/session", async (route) => {
-    if (delaySession)
-      await new Promise((resolve) => {
-        sessionRelease = resolve;
-      });
+    if (delaySession) await new Promise((r) => (releaseSession = r));
     return route.fulfill({
       json: {
         draft: stored,
+        profileReady: true,
         googleName: "Arya",
         workspace: base + "/workspace-test",
         voiceConfigured: true,
@@ -130,29 +200,24 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
   });
   await page.route("**/api/onboarding/profile", async (route) => {
     const data = route.request().postDataJSON();
-    requests.push(data);
-    if (stored.complete && data.complete && key === data.saveKey)
+    if (stored.complete && data.complete && saveKey === data.saveKey)
       return route.fulfill({ json: { draft: stored } });
     if (data.revision !== stored.revision)
       return route.fulfill({
         status: 409,
-        json: { error: "Stale profile. Please reload." },
+        json: { error: "Reload your draft" },
       });
     stored = {
       profile: data.profile,
       revision: stored.revision + 1,
       complete: data.complete,
     };
-    key = data.saveKey;
+    saveKey = data.saveKey;
     return route.fulfill({ json: { draft: stored } });
   });
   await page.route("**/api/onboarding/answer", async (route) => {
     const data = route.request().postDataJSON();
-    requests.push(data);
-    if (delayed)
-      await new Promise((resolve) => {
-        release = resolve;
-      });
+    if (delayed) await new Promise((r) => (release = r));
     if (deny)
       return route.fulfill({
         status: 429,
@@ -173,60 +238,64 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
           revision: stored.revision,
           profile: {
             ...stored.profile,
-            job_details: data.text?.includes("teacher")
-              ? "Teacher"
-              : "Designer",
+            job_details: "Designer",
             dob: "1998-06-04",
           },
         },
-        transcript: data.text || "I am a designer, born 4 June 1998.",
+        transcript: data.text || "I am a designer.",
         prompt: { text: "Please review your profile.", clip: "review" },
       },
     });
   });
   await page.goto(base + "/onboarding");
-  await page.getByText("Signed in as arya@example.test").waitFor();
-  await page.getByRole("textbox", { name: "Name", exact: true }).waitFor();
-  assert.equal(
-    await page.getByRole("textbox", { name: "Name", exact: true }).inputValue(),
-    "Arya",
-  );
-  assert.equal(
-    await page.locator("input[name=voice]:checked").inputValue(),
-    "on",
-  );
-  await page.getByLabel("Brian", { exact: false }).check();
-  await page.getByLabel("Language").selectOption("hi");
-  const clip = page.waitForResponse((r) =>
-    r.url().includes("brian-hi-preview.mp3"),
-  );
-  await page.getByRole("button", { name: "Preview" }).nth(1).click();
-  assert.equal((await clip).status(), 200);
+  await page.getByRole("button", { name: "Add details (optional)" }).click();
+  const name = page.getByRole("textbox", {
+    name: "What should Meera call you? (optional)",
+    exact: true,
+  });
+  await name.fill("");
+  assert.equal(await page.locator("input[required]").count(), 0);
   await page
     .getByLabel("Your answer or correction")
     .fill("I am a designer, born 4 June 1998.");
   await page.getByRole("button", { name: "Send answer", exact: true }).click();
-  await page.getByRole("textbox", { name: "Work or study" }).fill("Teacher");
-  await page.getByRole("button", { name: "Save draft", exact: true }).click();
-  await page
-    .getByText("Draft saved. Come back whenever you are ready.")
-    .waitFor();
-  assert.equal(stored.profile.job_details, "Teacher");
-  await page.reload();
-  await page.getByRole("textbox", { name: "Work or study" }).waitFor();
   await page.waitForFunction(() =>
-    [...document.querySelectorAll("input")].some(
-      (input) => input.value === "Teacher",
+    [...document.querySelectorAll("input")].some((e) => e.value === "Designer"),
+  );
+  assert.equal(stored.profile.name, null);
+  await page
+    .getByRole("textbox", { name: "Work or study (optional)", exact: true })
+    .fill("Teacher");
+  const savedDraft = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/profile") &&
+      response.request().postDataJSON()?.profile?.job_details === "Teacher",
+  );
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await savedDraft;
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("button")].some(
+      (button) => button.textContent === "Save draft" && !button.disabled,
     ),
   );
-  assert.equal(
-    await page.getByRole("textbox", { name: "Work or study" }).inputValue(),
-    "Teacher",
+  await page.waitForFunction(
+    () => document.querySelector("dialog button") !== null,
+  );
+  await page.getByRole("button", { name: "Close panel" }).click();
+  await page.reload();
+  await page.getByRole("button", { name: "Add details (optional)" }).click();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("input")].some((e) => e.value === "Teacher"),
+  );
+  assert.equal(await name.inputValue(), "");
+  results.push(
+    "all details optional; blank name stays skipped after save/reload",
+    "multi-fact extraction, corrections and owned draft resume",
   );
   deny = true;
   await page
     .getByLabel("Your answer or correction")
-    .fill("Please update my job.");
+    .fill("Please change my work");
   await page.getByRole("button", { name: "Send answer", exact: true }).click();
   await page
     .getByRole("alert")
@@ -240,31 +309,23 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     .filter({ hasText: "temporarily unavailable" })
     .waitFor();
   fail = false;
-  // Real MediaRecorder over a silent synthetic MediaStream: no live provider is contacted.
-  const firstQuestion = page.waitForResponse(
-    (response) =>
-      response.url().includes("/clips/") &&
-      response.url().endsWith("-review.mp3"),
+  await page.getByRole("button", { name: "Close panel" }).click();
+  const question = page.waitForResponse(
+    (r) => r.url().includes("/clips/") && r.url().endsWith("-review.mp3"),
   );
   await page
     .getByRole("button", { name: "Start voice — allow microphone" })
     .click();
-  assert.equal((await firstQuestion).status(), 200);
+  assert.equal((await question).status(), 200);
   await page.getByText("Meera is speaking", { exact: true }).waitFor();
-  assert.equal(
-    await page.evaluate(() => window.__tracks.length),
-    0,
-    "Meera speaks before opening the microphone",
-  );
+  assert.equal(await page.evaluate(() => window.__tracks.length), 0);
   await page
     .getByRole("button", { name: "Mute microphone", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Unmute microphone", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Stop / interrupt", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Tap to interrupt Meera" }).click();
   await page.waitForFunction(() =>
     window.__tracks.every((t) => t.readyState === "ended"),
   );
@@ -280,36 +341,60 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     .getByRole("alert")
     .filter({ hasText: "Microphone access is unavailable" })
     .waitFor();
-  // Delayed answer can be interrupted without applying a late proposal.
+  await page.getByRole("button", { name: "End Call", exact: true }).click();
+  results.push(
+    "assistant-first call, mute/unmute, interruption and released microphone",
+    "denied microphone, HTTP 429 and provider failure preserve typing",
+  );
   delayed = true;
-  await page
-    .getByLabel("Your answer or correction")
-    .fill("Correction to teacher");
+  await page.getByLabel("Your answer or correction").fill("Late correction");
+  const pending = page.waitForRequest((r) => r.url().endsWith("/answer"));
   await page.getByRole("button", { name: "Send answer", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Stop / interrupt", exact: true })
-    .click();
+  await pending;
+  await page.getByRole("button", { name: "Close panel" }).click();
+  await page.getByRole("button", { name: "Expand voice view" }).click(); // control works independently of the form
+  await page.getByRole("button", { name: "Tap to interrupt Meera" }).click();
+  await page.getByRole("button", { name: "Add details (optional)" }).click();
+  await page.getByRole("button", { name: "Reload saved profile" }).click();
   if (release) release();
   delayed = false;
-  await page
-    .getByRole("textbox", { name: "Caste or community (optional)" })
-    .fill("");
+  for (const label of [
+    "What should Meera call you? (optional)",
+    "Birthday (optional)",
+    "Work or study (optional)",
+    "Caste or community (optional)",
+  ])
+    await page.getByLabel(label, { exact: true }).fill("");
   await page
     .getByRole("button", { name: "Save and begin", exact: true })
     .click();
-  await page.getByText("Your saved profile has been restored.").waitFor();
+  await page
+    .getByRole("link", { name: "Open Meera", exact: false })
+    .first()
+    .waitFor();
   assert.equal(stored.complete, true);
-  assert.equal(stored.profile.caste, null);
-  await page.reload();
-  await page.getByText("Your saved profile has been restored.").waitFor();
-  assert.equal(
-    await page.getByRole("button", { name: "Save and begin" }).count(),
-    0,
+  assert.equal(stored.profile.name, null);
+  assert.equal(stored.profile.dob, null);
+  assert.equal(stored.profile.job_details, null);
+  results.push(
+    "empty personalization can be completed and read back; no compulsory name/DOB/work",
   );
-  // A late profile response must not restore the prior account's personal data after sign-out.
+  await page.reload();
+  await page.getByRole("link", { name: "Open Meera", exact: false }).waitFor();
+  await page.getByRole("button", { name: "Show transcripts" }).click();
+  await page
+    .getByRole("heading", { name: "Transcripts", exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Close panel" }).click();
+  assert.equal(forbidden.length, 0);
+  assert.deepEqual(errors, []);
+  results.push(
+    "transcripts and focus-view controls are functional; no Google inference or Cloudflare requests",
+  );
   delaySession = true;
-  const pendingReload = page.waitForRequest((request) =>
-    request.url().endsWith("/api/onboarding/session"),
+  await page.getByRole("button", { name: "Add details (optional)" }).click();
+  const pendingReload = page.waitForRequest((r) =>
+    r.url().endsWith("/api/onboarding/session"),
   );
   await page.getByRole("button", { name: "Reload saved profile" }).click();
   await pendingReload;
@@ -319,41 +404,64 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     setTimeout(() => channel.close(), 100);
   });
   await page.getByRole("button", { name: "Continue with Google" }).waitFor();
-  if (sessionRelease) sessionRelease();
-  await page.waitForTimeout(150);
+  if (releaseSession) releaseSession();
+  await page.waitForTimeout(100);
   assert.equal(
     await page.getByText("Your saved profile has been restored.").count(),
     0,
   );
-  assert.equal(forbidden.length, 0);
-  assert.deepEqual(errors, []);
-  const results = [
-    "public voice assistant is visible and plays chosen welcome without login, microphone or paid calls",
-    "mobile form renders and reuses Google name",
-    "Brian/Hindi static audio preview returns 200",
-    "multi-fact text answer and editable correction",
-    "owned draft reload",
-    "HTTP 429 and provider failure preserve form",
-    "assistant speaks the first question before requesting the microphone",
-    "record/mute/unmute/interrupt release microphone tracks",
-    "denied microphone retains typing",
-    "cancelled response not applied",
-    "optional community skipped",
-    "save and readback; completed user bypasses setup",
-    "no Cloudflare or Gemini network requests",
-    "late profile response cannot restore prior-account data after sign-out",
-  ];
+  results.push(
+    "late responses cannot restore prior-account profile data after sign-out",
+  );
+  // Missing optional storage never traps a verified account in onboarding.
+  const skipContext = await browser.newContext();
+  const skip = await skipContext.newPage();
+  await seed(skip);
+  const skipWrites = [];
+  skip.on("request", (r) => {
+    if (r.method() === "POST" && r.url().includes("/api/onboarding/"))
+      skipWrites.push(r.url());
+  });
+  await skip.route("**/api/onboarding/session", (route) =>
+    route.fulfill({
+      json: {
+        draft: null,
+        profileReady: false,
+        googleName: "Arya",
+        workspace: base + "/workspace-test",
+        voiceConfigured: false,
+      },
+    }),
+  );
+  await skip.route("**/workspace-test", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<main>Meera workspace</main>",
+    }),
+  );
+  await skip.goto(base + "/onboarding");
+  await skip
+    .getByRole("link", { name: "Skip for now — continue to Meera" })
+    .click();
+  await skip.getByText("Meera workspace", { exact: true }).waitFor();
+  assert.equal(skipWrites.length, 0);
+  results.push(
+    "Google-only continuation works without optional profile storage or paid calls",
+  );
   fs.writeFileSync(
-    "work/openrouter/browser-results.json",
+    "work/prototype/browser-results.json",
     JSON.stringify(
-      { mode: "simulated identity and providers", results },
+      {
+        mode: "synthetic identity/provider responses; allowed and blocked autoplay",
+        results,
+      },
       null,
       2,
     ),
   );
   console.log(JSON.stringify(results, null, 2));
   await browser.close();
-})().catch((error) => {
-  console.error(error);
+})().catch((e) => {
+  console.error(e);
   process.exit(1);
 });
