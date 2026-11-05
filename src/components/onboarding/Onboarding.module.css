@@ -658,3 +658,49 @@
     scroll-behavior: auto;
   }
 }
+
+.assistant {
+  display: grid;
+  justify-items: center;
+  gap: 24px;
+  margin-bottom: 22px;
+}
+.assistantOrb {
+  border-radius: 50%;
+  box-shadow: 0 0 0 12px color-mix(in srgb, var(--primary) 4%, transparent);
+  transition: box-shadow 0.3s;
+}
+.assistant[data-speaking="true"] .assistantOrb,
+.activeAssistant[data-speaking="true"] .assistantOrb {
+  animation: meera-speaking 1.5s ease-in-out infinite;
+}
+.publicPreferences {
+  margin-top: 28px;
+}
+.activeAssistant {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 5px 12px 24px;
+  margin-bottom: 18px;
+}
+.activeAssistant p {
+  margin: 0;
+}
+@keyframes meera-speaking {
+  0%,
+  100% {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--primary) 5%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 19px color-mix(in srgb, var(--primary) 10%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistantOrb {
+    animation: none !important;
+  }
+}
+.welcomeCard .actions {
+  margin-top: 22px;
+}

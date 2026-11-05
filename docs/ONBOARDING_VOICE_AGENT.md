@@ -83,3 +83,9 @@ Production release and migrations are not performed by this staging change.
 ## Brand design
 
 Onboarding shares `src/styles/meera-theme.css` with the main Himeera application: warm cream `#faf3e9`, forest green `#0c3c26`, and the existing dark-theme colors. It uses the site's serif heading style, original Meera logo/illustration, green pill buttons, subtle borders and generous spacing. Red is reserved for the existing orb and small status accents. The standalone layout reuses Meera's ThemeProvider so saved light/dark preferences match the main application. Voice controls, sign-in, API calls and profile persistence are unchanged by the visual update.
+
+## Visible, audible assistant entry
+
+Meera is visible on the initial page, before Google sign-in, with Sarah/Brian selection, English/Hindi previews and **Hear Meera’s welcome**. These public interactions play the existing recorded clips and make no paid provider calls or microphone requests. The page explicitly labels the welcome as recorded and asks the user to sign in for an interactive conversation.
+
+For signed-in users, Start voice plays Meera's first question before opening the microphone. The orb's speaking state follows actual audio playback, and Stop cancels pending playback/recording. Existing recorded-answer turns and authenticated OpenRouter calls remain protected by verified identity and the Supabase quotas. A missing account/storage connection is shown explicitly rather than silently leaving the microphone disabled. This does not remove the pending staging database/OAuth setup or establish real-provider acceptance.

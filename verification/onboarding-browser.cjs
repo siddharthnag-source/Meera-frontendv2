@@ -12,6 +12,42 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     headless: true,
     args: ["--no-sandbox"],
   });
+  const guestContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const guest = await guestContext.newPage();
+  const guestPaidRequests = [];
+  guest.on("request", (request) => {
+    if (
+      request.url().includes("/api/onboarding/") &&
+      !request.url().includes("/clips/")
+    )
+      guestPaidRequests.push(request.url());
+  });
+  await guest.addInitScript(() => {
+    window.__micRequests = 0;
+    navigator.mediaDevices.getUserMedia = async () => {
+      window.__micRequests++;
+      throw Error("Guest must not request a microphone");
+    };
+  });
+  await guest.goto(base + "/onboarding");
+  await guest.getByRole("button", { name: "Hear Meera’s welcome" }).waitFor();
+  await guest.getByLabel("Brian", { exact: false }).check();
+  await guest.getByLabel("Language").selectOption("hi");
+  const greeting = guest.waitForResponse((response) =>
+    response.url().includes("brian-hi-preview.mp3"),
+  );
+  await guest.getByRole("button", { name: "Hear Meera’s welcome" }).click();
+  assert.equal((await greeting).status(), 200);
+  await guest.getByText("Meera is speaking", { exact: true }).waitFor();
+  await guest.getByRole("button", { name: "Stop welcome" }).click();
+  await guest
+    .getByText("Your onboarding voice assistant", { exact: true })
+    .waitFor();
+  assert.equal(await guest.evaluate(() => window.__micRequests), 0);
+  assert.equal(guestPaidRequests.length, 0);
+  await guestContext.close();
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
@@ -205,9 +241,21 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     .waitFor();
   fail = false;
   // Real MediaRecorder over a silent synthetic MediaStream: no live provider is contacted.
+  const firstQuestion = page.waitForResponse(
+    (response) =>
+      response.url().includes("/clips/") &&
+      response.url().endsWith("-review.mp3"),
+  );
   await page
     .getByRole("button", { name: "Start voice — allow microphone" })
     .click();
+  assert.equal((await firstQuestion).status(), 200);
+  await page.getByText("Meera is speaking", { exact: true }).waitFor();
+  assert.equal(
+    await page.evaluate(() => window.__tracks.length),
+    0,
+    "Meera speaks before opening the microphone",
+  );
   await page
     .getByRole("button", { name: "Mute microphone", exact: true })
     .click();
@@ -280,11 +328,13 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
   assert.equal(forbidden.length, 0);
   assert.deepEqual(errors, []);
   const results = [
+    "public voice assistant is visible and plays chosen welcome without login, microphone or paid calls",
     "mobile form renders and reuses Google name",
     "Brian/Hindi static audio preview returns 200",
     "multi-fact text answer and editable correction",
     "owned draft reload",
     "HTTP 429 and provider failure preserve form",
+    "assistant speaks the first question before requesting the microphone",
     "record/mute/unmute/interrupt release microphone tracks",
     "denied microphone retains typing",
     "cancelled response not applied",

@@ -27,6 +27,8 @@ export default function Onboarding() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const playback = useRef(0);
   const [started, setStarted] = useState(false);
   const [text, setText] = useState("");
   const [transcript, setTranscript] = useState("");
@@ -54,6 +56,9 @@ export default function Onboarding() {
     setDraft(value);
   }
   function stopSpeech() {
+    playback.current++;
+    setSpeaking(false);
+    if (audio.current) audio.current.onended = null;
     audio.current?.pause();
     audio.current = null;
     if (audioUrl.current) URL.revokeObjectURL(audioUrl.current);
@@ -220,11 +225,13 @@ export default function Onboarding() {
     prompt: Prompt,
     selectedVoice = voice,
     selectedLanguage = language,
+    onDone?: () => void,
   ) {
     stopSpeech();
     setStatus(prompt.text);
     if (muted) return;
     const attempt = generation.current;
+    const playId = playback.current;
     try {
       const response = prompt.clip
         ? await fetch(
@@ -233,17 +240,55 @@ export default function Onboarding() {
         : await api("speech", { text: prompt.text, voice: selectedVoice });
       if (!response.ok) throw new Error();
       const blob = await response.blob();
-      if (generation.current !== attempt) return;
+      if (generation.current !== attempt || playback.current !== playId) return;
       audioUrl.current = URL.createObjectURL(blob);
       const player = new Audio(audioUrl.current);
       audio.current = player;
+      player.onplaying = () => {
+        if (generation.current === attempt && playback.current === playId)
+          setSpeaking(true);
+      };
+      player.onended = () => {
+        if (generation.current !== attempt || playback.current !== playId)
+          return;
+        setSpeaking(false);
+        onDone?.();
+      };
+      player.onerror = () => {
+        if (playback.current === playId) setSpeaking(false);
+      };
       await player.play();
     } catch {
-      if (generation.current === attempt)
+      if (generation.current === attempt && playback.current === playId)
         setError(
           "Audio could not play. You can read the prompt and type instead.",
         );
     }
+  }
+  function startVoice() {
+    interrupt();
+    setError("");
+    setStarted(true);
+    void play(
+      nextPrompt(draftRef.current.profile, language),
+      voice,
+      language,
+      () => {
+        void record();
+      },
+    );
+  }
+  function previewVoice(item: Voice) {
+    void play(
+      {
+        text:
+          language === "hi"
+            ? "नमस्ते, मैं मीरा हूँ। चलिए, आपकी पसंद से शुरुआत करते हैं।"
+            : "Hi, I'm Meera. Let's make this feel like you.",
+        clip: "preview",
+      },
+      item,
+    );
   }
   async function answer(
     value: { text: string } | { audio: string; format: string },
@@ -450,23 +495,66 @@ export default function Onboarding() {
               className={`${styles.card} ${styles.welcomeCard}`}
               aria-labelledby="welcome-heading"
             >
-              <Image
-                className={styles.welcomeMark}
-                src="/icons/meera.svg"
-                width={46}
-                height={46}
-                alt=""
-              />
-              <p className={styles.eyebrow}>A familiar hello</p>
+              <div className={styles.assistant} data-speaking={speaking}>
+                <Image
+                  className={styles.assistantOrb}
+                  src="/icons/meera.svg"
+                  width={86}
+                  height={86}
+                  alt=""
+                />
+                <p className={styles.eyebrow} role="status">
+                  {speaking
+                    ? "Meera is speaking"
+                    : "Your onboarding voice assistant"}
+                </p>
+              </div>
               <h2 id="welcome-heading" className={styles.cardHeading}>
-                Good to have you here.
+                Hi, I’m Meera.
               </h2>
               <p className={styles.description}>
-                Continue with Google, choose a voice, and tell Meera a little
-                about yourself. You can talk, type, or take your time.
+                I’m here to help you get started. Hear my welcome, then continue
+                with Google to begin our conversation.
               </p>
+              <div className={styles.actions}>
+                <button
+                  className={styles.primaryButton}
+                  onClick={() => previewVoice(voice)}
+                >
+                  <Icon name="play" />
+                  Hear Meera’s welcome
+                </button>
+                {speaking && (
+                  <button
+                    className={styles.secondaryButton}
+                    onClick={stopSpeech}
+                  >
+                    Stop welcome
+                  </button>
+                )}
+              </div>
+              <p className={styles.helper}>
+                A recorded hello to meet Meera. Sign in below for interactive
+                voice and a saved profile.
+              </p>
+              <div className={styles.publicPreferences}>
+                <VoicePreferences
+                  voice={voice}
+                  language={language}
+                  disabled={false}
+                  onVoice={(item) => {
+                    stopSpeech();
+                    setVoice(item);
+                  }}
+                  onLanguage={(item) => {
+                    stopSpeech();
+                    setLanguage(item);
+                  }}
+                  onPreview={previewVoice}
+                />
+              </div>
               <button
-                className={`${styles.primaryButton} ${styles.googleButton}`}
+                className={`${styles.secondaryButton} ${styles.googleButton}`}
                 onClick={() => void signIn()}
               >
                 <span>
@@ -515,76 +603,46 @@ export default function Onboarding() {
                       <div>
                         <p className={styles.eyebrow}>Your voice, your way</p>
                         <h2 id="voice-heading" className={styles.cardHeading}>
-                          Make yourself comfortable.
+                          Talk with Meera.
                         </h2>
                       </div>
                       <span className={styles.step} aria-hidden="true">
                         01
                       </span>
                     </div>
-                    <fieldset
-                      className={styles.fieldset}
-                      disabled={busy || recording}
+                    <div
+                      className={styles.activeAssistant}
+                      data-speaking={speaking}
                     >
-                      <legend className={styles.label}>
-                        Choose your voice
-                      </legend>
-                      <div className={styles.voiceOptions}>
-                        {(["sarah", "brian"] as const).map((item) => (
-                          <div
-                            className={styles.voiceOption}
-                            data-selected={voice === item}
-                            key={item}
-                          >
-                            <label className={styles.voiceChoice}>
-                              <input
-                                type="radio"
-                                name="voice"
-                                checked={voice === item}
-                                onChange={() => {
-                                  stopSpeech();
-                                  setVoice(item);
-                                }}
-                              />
-                              {item === "sarah" ? "Sarah" : "Brian"}
-                            </label>
-                            <button
-                              type="button"
-                              className={styles.previewButton}
-                              onClick={() =>
-                                void play(
-                                  {
-                                    text:
-                                      item === "sarah"
-                                        ? "Preview Sarah"
-                                        : "Preview Brian",
-                                    clip: "preview",
-                                  },
-                                  item,
-                                )
-                              }
-                            >
-                              <Icon name="play" />
-                              Preview
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </fieldset>
-                    <label className={styles.language}>
-                      Language
-                      <select
-                        value={language}
-                        disabled={busy || recording}
-                        onChange={(event) => {
-                          stopSpeech();
-                          setLanguage(event.target.value as Language);
-                        }}
-                      >
-                        <option value="en">English</option>
-                        <option value="hi">Hindi / Hinglish</option>
-                      </select>
-                    </label>
+                      <Image
+                        className={styles.assistantOrb}
+                        src="/icons/meera.svg"
+                        width={64}
+                        height={64}
+                        alt=""
+                      />
+                      <p className={styles.label} aria-live="polite">
+                        {speaking
+                          ? "Meera is speaking"
+                          : recording
+                            ? "Meera is listening"
+                            : "Your voice guide is here"}
+                      </p>
+                    </div>
+                    <VoicePreferences
+                      voice={voice}
+                      language={language}
+                      disabled={busy || recording}
+                      onVoice={(item) => {
+                        stopSpeech();
+                        setVoice(item);
+                      }}
+                      onLanguage={(item) => {
+                        stopSpeech();
+                        setLanguage(item);
+                      }}
+                      onPreview={previewVoice}
+                    />
                     <div className={styles.prompt}>
                       <div className={styles.promptLabel}>
                         <span className={styles.dot} aria-hidden="true" />
@@ -603,6 +661,13 @@ export default function Onboarding() {
                         {status}
                       </p>
                     </div>
+                    {!loaded && !busy && error && (
+                      <p className={styles.message}>
+                        Your voice conversation cannot start until your account
+                        connection is ready. Voice previews above are available
+                        now.
+                      </p>
+                    )}
                     {!ready && loaded && (
                       <p className={styles.message}>
                         Voice is not configured yet. You can still edit and save
@@ -640,7 +705,9 @@ export default function Onboarding() {
                         <button
                           className={styles.primaryButton}
                           disabled={!loaded || !ready || !canRecord || busy}
-                          onClick={() => void record()}
+                          onClick={() =>
+                            consented.current ? void record() : startVoice()
+                          }
                           aria-label={
                             consented.current
                               ? "Record an answer"
@@ -891,5 +958,67 @@ function GoogleMark() {
         d="M12 5.95c1.47 0 2.79.5 3.83 1.51l2.87-2.87A9.6 9.6 0 0 0 12 2a10 10 0 0 0-8.93 5.48l3.33 2.59A6 6 0 0 1 12 5.95Z"
       />
     </svg>
+  );
+}
+
+function VoicePreferences({
+  voice,
+  language,
+  disabled,
+  onVoice,
+  onLanguage,
+  onPreview,
+}: {
+  voice: Voice;
+  language: Language;
+  disabled: boolean;
+  onVoice: (voice: Voice) => void;
+  onLanguage: (language: Language) => void;
+  onPreview: (voice: Voice) => void;
+}) {
+  return (
+    <>
+      <fieldset className={styles.fieldset} disabled={disabled}>
+        <legend className={styles.label}>Choose your voice</legend>
+        <div className={styles.voiceOptions}>
+          {(["sarah", "brian"] as const).map((item) => (
+            <div
+              className={styles.voiceOption}
+              data-selected={voice === item}
+              key={item}
+            >
+              <label className={styles.voiceChoice}>
+                <input
+                  type="radio"
+                  name="voice"
+                  checked={voice === item}
+                  onChange={() => onVoice(item)}
+                />
+                {item === "sarah" ? "Sarah" : "Brian"}
+              </label>
+              <button
+                type="button"
+                className={styles.previewButton}
+                onClick={() => onPreview(item)}
+              >
+                <Icon name="play" />
+                Preview
+              </button>
+            </div>
+          ))}
+        </div>
+      </fieldset>
+      <label className={styles.language}>
+        Language
+        <select
+          value={language}
+          disabled={disabled}
+          onChange={(event) => onLanguage(event.target.value as Language)}
+        >
+          <option value="en">English</option>
+          <option value="hi">Hindi / Hinglish</option>
+        </select>
+      </label>
+    </>
   );
 }
