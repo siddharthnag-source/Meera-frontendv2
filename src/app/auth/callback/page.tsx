@@ -63,8 +63,9 @@ export default function AuthCallbackPage() {
           logAuthRedirectEvent('auth_callback_session_restored', {
             pathname: window.location.pathname,
           });
+          const onboardingTarget = searchParams.get('onboarding') === '1' ? '/onboarding' : null;
           const purchaseTarget = consumePurchaseIntent();
-          router.replace(returnTo || purchaseTarget || (searchParams.get('onboarding') === '1' ? '/onboarding' : '/'));
+          router.replace(returnTo || onboardingTarget || purchaseTarget || '/');
           return;
         }
 

@@ -70,3 +70,18 @@ Current local checks: 17 onboarding API tests, five OAuth lifecycle/return tests
 Protected preview: https://meera-onboarding-staging.vercel.app/onboarding . Changes are on `codex/arya-independent-staging`, in existing PR #3. Deployments use an isolated source upload with minimal pinned dependency packaging and the supplied public audio/orb assets; no environment files, service-role credentials or commerce code are uploaded. Vercel Authentication remains enabled. Production release is outside this staging change.
 
 Live acceptance still requires the clean staging migrations and OAuth allowlist, actual Google sign-in, both real voices/languages, profile save/readback and account isolation in the real database, plus a real shared-quota 429. Human completion time, Safari autoplay/permissions and live provider quality are not claimed by the simulated tests.
+
+## Google login unexpectedly reaches growth-staging payment
+
+The dedicated onboarding callback returns only to `/onboarding`; it has no checkout redirect. The growth-staging/main home route, however, sends accounts with `requires_payment_for_chat=true` to `/payment`. An immediate cross-site return from the onboarding preview to `meera-growth-staging.vercel.app/payment` therefore points to Supabase falling back to the shared site's configured URL instead of accepting the requested onboarding callback. The live Supabase allowlist is not readable from the connected tools, so this configuration diagnosis still needs dashboard confirmation.
+
+In the existing clean staging project `wyitdnwftdxlibdnldfe`, open Authentication → URL Configuration → Redirect URLs and add the onboarding callbacks as additional allowed URLs:
+
+```text
+https://meera-onboarding-staging.vercel.app/auth/callback
+https://meera-onboarding-staging.vercel.app/auth/callback?onboarding=1
+```
+
+Keep the existing growth-staging Site URL and its allowed callbacks, since the project is shared. Retry from the stable onboarding preview URL. These are Supabase Auth settings, not OpenRouter or Google Cloud OAuth credential changes. No Supabase administrative connection is available in this task, so the allowlist change has not been made or verified.
+
+A separate main-app callback defect is corrected in source: an explicit `onboarding=1` return now takes precedence over a previously saved checkout intent. Active connector returns still take priority, and normal checkout flows without the onboarding flag retain their existing behavior. OAuth lifecycle and purchase-intent regression tests pass. This main-app source change does not replace the dashboard allowlist fix or bypass the existing paid-chat access checks.

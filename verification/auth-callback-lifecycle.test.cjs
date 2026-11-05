@@ -60,9 +60,9 @@ test('the active callback still preserves the explicit US offer on success and a
 });
 
 
-test('onboarding callback returns to onboarding after successful Google sign-in', async () => {
-  const f = fixture({ skipPurchase: true }); f.location.search = '?onboarding=1'; f.mount();
-  f.pending[0](f.session); await settle(); assert.deepEqual(f.navigations, ['/onboarding']);
+test('explicit onboarding callback takes priority over a previously saved purchase intent', async () => {
+  const f = fixture(); f.location.search = '?onboarding=1'; f.mount();
+  f.pending[0](f.session); await settle(); assert.deepEqual(f.navigations, ['/onboarding']); assert.equal(f.consumes(), 1);
 });
 test('connector return still takes priority over onboarding', async () => {
   const f = fixture({ skipPurchase: true, connector: '/connectors?connected=google' }); f.location.search = '?onboarding=1'; f.mount();
