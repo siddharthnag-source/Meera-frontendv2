@@ -70,3 +70,12 @@ Verified locally: 14 onboarding API tests, five OAuth return/lifecycle tests, ro
 After the clean staging migration and callback allowlist are ready, rebuild the protected preview using its existing Preview settings. Exercise actual Google sign-in, English/Hindi speech and both voices, correction, save and matching values after reload, two-account isolation, denied microphone, provider failure, duplicate save and a real shared-database HTTP 429. Check human completion time and speech quality. No real-provider demo or real database verification is claimed by the mocked checks.
 
 Production release and migrations are not performed by this staging change.
+
+## Deployment checkpoint — 5 November 2026
+
+- Protected preview: https://meera-onboarding-staging.vercel.app/onboarding
+- Deployment `dpl_DJ5axULYzK46vcXwoyqZ7Sz1qgRs` is READY, Preview (Vercel API target `staging`). It uses the existing project's Preview settings and retains Vercel Authentication.
+- Runtime source commit: `146fa9345442da40bca8cdf1d93b2ca7b8a66afb` on `codex/arya-independent-staging`, included in existing PR #3. The isolated source upload contains no environment files, service-role keys, commerce code or Google inference SDK, and bundles the existing 28 audio clips. Only the minimal dependency manifest is pinned separately for source-upload packaging.
+- Authenticated hosted GET `/onboarding` returned HTTP 200 and the Google sign-in UI. The hosted CSP contains no Gemini or Cloudflare endpoints. A hosted session-API probe returned a Vercel protection/authentication error; that response is not claimed as proof of application authentication, database access, or a working OAuth session.
+- The code passes 14 API tests, five OAuth lifecycle/return tests, TypeScript/lint/build checks and 12 simulated mobile browser checks. Provider, session and database results in those tests are mocked; local microphone tests use synthetic input. The browser checks explicitly cover late-response isolation after sign-out.
+- The clean staging database migration and Supabase OAuth redirect allowlist have not been applied or verified in this task because no Supabase administrative connection is available. Those setup steps and actual provider/database acceptance remain necessary. Paid requests fail closed if storage or shared quotas are unavailable.
