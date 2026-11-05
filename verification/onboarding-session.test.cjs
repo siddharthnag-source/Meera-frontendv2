@@ -1,34 +1,116 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
-const { NextRequest, NextResponse } = require("next/server");
-const source = fs.readFileSync(
-  "src/app/api/onboarding/session/route.ts",
-  "utf8",
-);
+const { NextRequest } = require("next/server");
 function harness(options = {}) {
-  const calls = [];
+  const calls = [],
+    cache = new Map();
+  const draft = { profile: { name: "Arya" }, revision: 0, complete: false };
+  const user = {
+    id: "verified-user",
+    email_confirmed_at: "2026-11-04",
+    identities: [{ provider: "google" }],
+    user_metadata: { full_name: "Arya" },
+    ...options.user,
+  };
+  const db = {
+    auth: {
+      getUser: async (token) => {
+        calls.push(["identity", token]);
+        return { data: { user: options.noUser ? null : user }, error: null };
+      },
+    },
+    rpc: async (name, args) => {
+      calls.push(["rpc", name, args]);
+      if (options.storageMissing)
+        return { data: null, error: { message: "function missing" } };
+      if (name === "onboarding_claim_quota")
+        return { data: !options.quotaDenied, error: null };
+      if (name === "onboarding_read_draft")
+        return {
+          data: { ...draft, profile: { ...draft.profile } },
+          error: null,
+        };
+      if (name === "onboarding_write_draft") {
+        if (draft.complete && args.p_complete && draft.key === args.p_save_key)
+          return { data: draft, error: null };
+        if (draft.revision !== args.p_revision || draft.complete)
+          return { data: null, error: { message: "STALE_DRAFT" } };
+        draft.profile = args.p_profile;
+        draft.revision++;
+        draft.complete = args.p_complete;
+        draft.key = args.p_save_key;
+        return { data: { ...draft }, error: null };
+      }
+      throw Error(name);
+    },
+  };
   const env = {
+    NEXT_PUBLIC_SUPABASE_URL: "https://staging.supabase.co",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "public-anon-fixture",
     ONBOARDING_ALLOWED_ORIGIN: "https://onboarding.example",
-    GEMINI_API_KEY: "staging-fixture",
-    TURNSTILE_SECRET_KEY: "challenge-fixture",
-    GEMINI_ONBOARDING_MODEL: "test-native-audio",
+    OPENROUTER_API_KEY: "private-key-fixture",
+    ONBOARDING_STT_MODEL: "openai/gpt-4o-mini-transcribe",
+    ONBOARDING_LLM_MODEL: "openai/gpt-4.1-mini",
+    ONBOARDING_TTS_MODEL: "elevenlabs/eleven-flash-v2.5",
     ...options.env,
   };
-  const config = { systemInstruction: "locked onboarding prompt" };
-  const module = { exports: {} };
-  vm.runInNewContext(
-    ts.transpileModule(source, {
+  const fetcher = async (url, init) => {
+    calls.push(["fetch", url, JSON.parse(init.body)]);
+    if (options.providerError)
+      return { ok: false, status: options.providerError };
+    if (url.endsWith("audio/transcriptions"))
+      return {
+        ok: true,
+        json: async () => ({
+          text: "I am a designer. My birthday is 4 June 1998.",
+        }),
+      };
+    if (url.endsWith("audio/speech"))
+      return { ok: true, arrayBuffer: async () => new ArrayBuffer(20) };
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: options.badJSON
+                ? "invalid"
+                : JSON.stringify({
+                    updates: {
+                      name: null,
+                      job_details: "Designer",
+                      dob: "1998-06-04",
+                      caste: null,
+                    },
+                    skipped: [],
+                    clarification: null,
+                    ...options.extraction,
+                  }),
+            },
+          },
+        ],
+      }),
+    };
+  };
+  function load(file) {
+    file = path.resolve(file);
+    if (cache.has(file)) return cache.get(file).exports;
+    const mod = { exports: {} };
+    cache.set(file, mod);
+    const code = ts.transpileModule(fs.readFileSync(file, "utf8"), {
       compilerOptions: {
         module: ts.ModuleKind.CommonJS,
         target: ts.ScriptTarget.ES2022,
+        esModuleInterop: true,
       },
-    }).outputText,
-    {
-      exports: module.exports,
-      module,
+    }).outputText;
+    vm.runInNewContext(code, {
+      module: mod,
+      exports: mod.exports,
       process: { env },
       URL,
       URLSearchParams,
@@ -36,142 +118,281 @@ function harness(options = {}) {
       Date,
       TextDecoder,
       Uint8Array,
+      fetch: fetcher,
       require(name) {
-        if (name === "next/server") return { NextResponse };
-        if (name === "@/lib/onboarding-agent")
-          return { onboardingConfig: () => config };
-        if (name === "@google/genai")
+        if (name === "@supabase/supabase-js")
           return {
-            GoogleGenAI: class {
-              constructor(settings) {
-                calls.push(["client", settings]);
-              }
-              authTokens = {
-                create: async (request) => {
-                  calls.push(["token", request]);
-                  if (options.tokenError)
-                    throw Error("private provider detail");
-                  return options.noToken ? {} : { name: "auth_tokens/test" };
-                },
-              };
+            createClient: (...args) => {
+              calls.push(["client", args]);
+              return db;
             },
           };
-        throw Error(`Unexpected import ${name}`);
+        if (name.startsWith("@/")) return load("src/" + name.slice(2) + ".ts");
+        if (name.startsWith("."))
+          return load(path.resolve(path.dirname(file), name) + ".ts");
+        return require(name);
       },
-      fetch: async (url, init) => {
-        calls.push(["verification", url, init]);
-        if (options.fetchError) throw Error("secret network detail");
-        return {
-          ok: true,
-          json: async () => ({
-            success: true,
-            hostname: "onboarding.example",
-            action: "onboarding",
-            ...options.verification,
-          }),
-        };
+    });
+    return mod.exports;
+  }
+  async function request(route, data, headers = {}, method = "POST") {
+    const request = new NextRequest(
+      "https://onboarding.example/api/onboarding/" + route,
+      {
+        method,
+        headers: {
+          origin: "https://onboarding.example",
+          authorization: "Bearer verified-token",
+          "content-type": "application/json",
+          ...headers,
+        },
+        ...(method === "POST"
+          ? {
+              body:
+                typeof data === "string" ? data : JSON.stringify(data || {}),
+            }
+          : {}),
       },
-    },
-  );
-  async function request(
-    body = { challenge: "one-use-challenge" },
-    origin = "https://onboarding.example",
-    headers = {},
-  ) {
-    return module.exports.POST(
-      new NextRequest("https://onboarding.example/api/onboarding/session", {
-        method: "POST",
-        headers: { origin, "content-type": "application/json", ...headers },
-        body: typeof body === "string" ? body : JSON.stringify(body),
-      }),
+    );
+    return load("src/app/api/onboarding/" + route + "/route.ts")[method](
+      request,
     );
   }
-  return { request, calls, config };
+  return { request, calls, draft, load };
 }
-test("rejects foreign and missing origins without upstream requests", async () => {
+const saveKey = "12345678-1234-4123-8123-123456789abc";
+test("rejects a foreign origin before authentication or any paid call", async () => {
   const h = harness();
-  assert.equal((await h.request({}, "https://attacker.example")).status, 403);
-  assert.equal((await h.request({}, "")).status, 403);
+  assert.equal(
+    (await h.request("answer", {}, { origin: "https://attacker.example" }))
+      .status,
+    403,
+  );
   assert.equal(h.calls.length, 0);
 });
-test("missing credentials fail closed, with no upstream request", async () => {
-  for (const key of [
-    "GEMINI_API_KEY",
-    "TURNSTILE_SECRET_KEY",
-    "GEMINI_ONBOARDING_MODEL",
+test("rejects missing bearer tokens and anonymous/unverified/non-Google identities", async () => {
+  assert.equal(
+    (await harness().request("answer", {}, { authorization: "" })).status,
+    401,
+  );
+  for (const user of [
+    { is_anonymous: true },
+    { email_confirmed_at: null },
+    { identities: [{ provider: "email" }] },
   ]) {
-    const h = harness({ env: { [key]: "" } });
-    const response = await h.request();
-    assert.equal(response.status, 503);
-    assert.equal(response.headers.get("cache-control"), "no-store");
-    assert.equal(h.calls.length, 0);
+    const h = harness({ user });
+    assert.equal((await h.request("answer")).status, 401);
+    assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 0);
   }
 });
-test("invalid JSON, null, and absent or invalid challenge are rejected", async () => {
-  for (const body of [
-    "{",
-    "null",
-    {},
-    { challenge: "" },
-    { challenge: 12 },
-    { challenge: "a".repeat(2049) },
-  ]) {
-    const h = harness();
-    assert.equal((await h.request(body)).status, 400);
-    assert.equal(h.calls.length, 0);
-  }
+test("missing Supabase or OpenRouter settings fail closed", async () => {
+  const h = harness({ env: { NEXT_PUBLIC_SUPABASE_ANON_KEY: "" } });
+  assert.equal((await h.request("session")).status, 503);
+  const p = harness({ env: { OPENROUTER_API_KEY: "" } });
+  assert.equal(
+    (
+      await p.request("answer", {
+        text: "Designer",
+        language: "en",
+        revision: 0,
+      })
+    ).status,
+    503,
+  );
+  assert.equal(p.calls.filter((c) => c[0] === "fetch").length, 0);
 });
-test("rejects oversized payloads with and without a content-length header", async () => {
-  for (const headers of [{}, { "content-length": "5000" }]) {
-    const h = harness();
-    assert.equal(
-      (await h.request({ challenge: "a".repeat(5000) }, undefined, headers))
-        .status,
-      413,
-    );
-    assert.equal(h.calls.length, 0);
-  }
+test("missing migration blocks provider access", async () => {
+  const h = harness({ storageMissing: true });
+  assert.equal(
+    (
+      await h.request("answer", {
+        text: "Designer",
+        language: "en",
+        revision: 0,
+      })
+    ).status,
+    503,
+  );
+  assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 0);
 });
-for (const [label, verification] of [
-  ["expired challenge", { success: false }],
-  ["wrong host", { hostname: "attacker.example" }],
-  ["wrong action", { action: "login" }],
-]) {
-  test(`rejects ${label} before minting a token`, async () => {
-    const h = harness({ verification });
-    assert.equal((await h.request()).status, 403);
-    assert.equal(h.calls.length, 1);
-  });
-}
-test("mints only a single-use constrained five-minute ephemeral token", async () => {
+test("shared quota denial returns actual 429 before any provider request", async () => {
+  const h = harness({ quotaDenied: true });
+  assert.equal(
+    (
+      await h.request("answer", {
+        text: "Designer",
+        language: "en",
+        revision: 0,
+      })
+    ).status,
+    429,
+  );
+  assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 0);
+});
+test("one text answer extracts multiple facts without changing name or saving unconfirmed output", async () => {
   const h = harness();
-  const before = Date.now();
-  const response = await h.request();
+  const response = await h.request("answer", {
+    text: "Designer, born 4 June 1998",
+    language: "en",
+    revision: 0,
+  });
+  const result = await response.json();
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {
-    token: "auth_tokens/test",
-    model: "test-native-audio",
-  });
-  const config = h.calls.find((call) => call[0] === "token")[1].config;
-  assert.equal(config.uses, 1);
-  assert.equal(config.liveConnectConstraints.config, h.config);
-  assert.equal(config.liveConnectConstraints.model, "test-native-audio");
-  assert.ok(Date.parse(config.expireTime) - before <= 300100);
-  assert.ok(Date.parse(config.newSessionExpireTime) - before <= 60100);
-  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(result.proposal.profile.name, "Arya");
+  assert.equal(result.proposal.profile.dob, "1998-06-04");
+  assert.equal(result.proposal.profile.job_details, "Designer");
+  assert.equal(h.draft.revision, 0);
+  assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 1);
+  assert.equal(
+    h.calls.filter((c) => c[0] === "rpc" && c[1] === "onboarding_write_draft")
+      .length,
+    0,
+  );
 });
-for (const options of [
-  { fetchError: true },
-  { tokenError: true },
-  { noToken: true },
-]) {
-  test(`provider failure is safe: ${JSON.stringify(options)}`, async () => {
-    const h = harness(options);
-    const response = await h.request();
-    assert.equal(response.status, 502);
-    assert.doesNotMatch(
-      await response.text(),
-      /private provider detail|secret network detail|staging-fixture/,
-    );
+test("audio invokes only OpenRouter STT and extraction with quota before EACH paid request", async () => {
+  const h = harness();
+  const response = await h.request("answer", {
+    audio: "YWJj",
+    format: "webm",
+    language: "hi",
+    revision: 0,
   });
-}
+  assert.equal(response.status, 200);
+  const boundaries = h.calls.filter(
+    (c) =>
+      c[0] === "fetch" || (c[0] === "rpc" && c[1] === "onboarding_claim_quota"),
+  );
+  assert.deepEqual(
+    boundaries.map((c) => c[0]),
+    ["rpc", "fetch", "rpc", "fetch"],
+  );
+  assert.ok(
+    boundaries
+      .filter((c) => c[0] === "fetch")
+      .every((c) => c[1].startsWith("https://openrouter.ai/")),
+  );
+});
+test("stale revisions and oversized or malformed recordings are rejected before paid calls", async () => {
+  for (const data of [
+    { text: "test", language: "en", revision: 5 },
+    { audio: "not base64!", format: "webm", language: "en", revision: 0 },
+    { audio: "YWJj", format: "exe", language: "en", revision: 0 },
+  ]) {
+    const h = harness();
+    assert.ok([400, 409].includes((await h.request("answer", data)).status));
+    assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 0);
+  }
+  assert.equal(
+    (await harness().request("profile", "a".repeat(9000))).status,
+    413,
+  );
+});
+test("malformed model output and invalid dates leave the existing profile unchanged", async () => {
+  for (const options of [
+    { badJSON: true },
+    { extraction: { updates: { dob: "2024-02-30" } } },
+  ]) {
+    const h = harness(options);
+    assert.equal(
+      (
+        await h.request("answer", {
+          text: "something",
+          language: "en",
+          revision: 0,
+        })
+      ).status,
+      422,
+    );
+    assert.deepEqual(h.draft.profile, { name: "Arya" });
+  }
+});
+test("explicit skip is preserved and community is not inferred or asked", async () => {
+  const h = harness({
+    extraction: {
+      updates: { name: null, job_details: null, dob: null, caste: null },
+      skipped: ["dob", "job_details"],
+    },
+  });
+  const result = await (
+    await h.request("answer", {
+      text: "Skip birthday and work",
+      language: "hi",
+      revision: 0,
+    })
+  ).json();
+  assert.equal(result.proposal.profile.dob, null);
+  assert.equal(result.prompt.clip, "review");
+  assert.equal(result.proposal.profile.caste, undefined);
+});
+test("speech allowlists voices and retains selected Brian", async () => {
+  const h = harness();
+  assert.equal(
+    (await h.request("speech", { voice: "other", text: "hello" })).status,
+    400,
+  );
+  assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 0);
+  assert.equal(
+    (await h.request("speech", { voice: "brian", text: "Hello" })).status,
+    200,
+  );
+  assert.equal(h.calls.find((c) => c[0] === "fetch")[2].voice, "brian");
+});
+test("provider errors are sanitized and 429 is preserved", async () => {
+  for (const code of [429, 500]) {
+    const h = harness({ providerError: code });
+    const response = await h.request("answer", {
+      text: "Designer",
+      language: "en",
+      revision: 0,
+    });
+    assert.equal(response.status, code === 429 ? 429 : 502);
+    assert.doesNotMatch(await response.text(), /private-key-fixture/);
+  }
+});
+test("profile saves are owned by verified identity, idempotent, and readable after reload", async () => {
+  const h = harness();
+  const payload = {
+    profile: { name: "Arya", job_details: "Designer", dob: null, caste: null },
+    revision: 0,
+    complete: true,
+    saveKey,
+  };
+  assert.equal((await h.request("profile", payload)).status, 200);
+  assert.equal((await h.request("profile", payload)).status, 200);
+  assert.equal(h.draft.revision, 1);
+  const result = await (
+    await h.request("session", undefined, {}, "GET")
+  ).json();
+  assert.equal(result.draft.complete, true);
+  assert.equal(result.draft.profile.job_details, "Designer");
+  const writes = h.calls.filter(
+    (c) => c[0] === "rpc" && c[1] === "onboarding_write_draft",
+  );
+  assert.ok(writes.every((c) => !("user_id" in c[2])));
+});
+test("manual typed profile saves require no OpenRouter key and reject unknown fields", async () => {
+  const h = harness({ env: { OPENROUTER_API_KEY: "" } });
+  assert.equal(
+    (
+      await h.request("profile", {
+        profile: { name: "Arya", job_details: null, dob: null },
+        revision: 0,
+        complete: true,
+        saveKey,
+      })
+    ).status,
+    200,
+  );
+  assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 0);
+  assert.equal(
+    (
+      await harness().request("profile", {
+        profile: { name: "Arya", user_id: "victim" },
+        revision: 0,
+        complete: false,
+        saveKey,
+      })
+    ).status,
+    400,
+  );
+});

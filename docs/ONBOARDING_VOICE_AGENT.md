@@ -1,50 +1,72 @@
-# Meera onboarding voice agent
+# Meera voice onboarding — OpenRouter
 
-Open `/onboarding`. The agent uses Gemini Live audio and the supplied onboarding flow, with one question at a time, transcripts, mute/end controls, interruption handling and one gentle reminder after five seconds of silence. Sessions end after five minutes. No new dependencies.
+Onboarding uses **OpenRouter**, the existing **Google sign-in through Supabase**, and the existing **Meera/Supabase database**. It does not use Gemini Live, Turnstile, Cloudflare, or another service. Google authentication is unchanged; the main Meera voice/chat implementation outside onboarding is outside this migration.
 
-The current registration provider is Google OAuth at `/sign-in`. Meera guides that flow; it cannot send verification emails, create accounts itself, or persist preferences. It never claims these actions succeeded. Name/email collection is skipped when Google supplies them. Transcripts are held in page memory, not written to the database by this feature; audio and transcript processing occurs at Google.
+## User flow
 
-## Explicit staging setup
+Open `/onboarding` and continue with Google. A verified, non-anonymous Google/Supabase user is required before any paid provider call or profile write. The verified Google name is reused and remains editable. Choose Sarah (default) or Brian and English or Hindi/Hinglish; fixed prompts/previews use the 28 existing MP3 assets. Recording is explicit and bounded to 30 seconds per answer; recording pauses playback, Stop/interrupt cancels pending responses, and typing/manual editing remain available.
 
-Keep the independent staging launcher's AI-disabled defaults. Do not copy production credentials, change its credential allowlist, or enable live payments. To exercise this optional feature, configure a separately approved staging runtime with these dedicated settings:
+OpenRouter transcribes recordings and extracts all explicitly stated details in a single bounded extraction call per answer. Proposed corrections are validated before saving as an owned draft. The user reviews one editable profile card and chooses **Save and begin**. The save is idempotent, reads back the persisted values, and shows the Open Meera handoff. Completed accounts see their saved status rather than setup questions. Community/caste is optional, never inferred, never solicited by voice, and may be left blank. Birthday is optional; age is derived from a validated full date.
 
-- `GEMINI_API_KEY`: server-only key from a staging Google project with billing limits.
-- `GEMINI_ONBOARDING_MODEL`: a Gemini Live native audio model currently enabled for that project. No hardcoded retired preview fallback.
-- `NEXT_PUBLIC_TURNSTILE_SITE_KEY`: Cloudflare Turnstile widget site key, restricted to staging hostnames.
-- `TURNSTILE_SECRET_KEY`: corresponding server-only secret.
-- `ONBOARDING_ALLOWED_ORIGIN`: exact staging origin, including scheme and port. Defaults to the request origin when unset; set it explicitly on a hosted deployment.
+A 90-second prompt offers more time; it does not discard data. Persisted drafts resume after reload. Manual edits must be saved with Save draft or Save and begin; leaving with unsaved edits triggers the browser's warning. Audio is transient; this feature does not persist recordings or transcripts. Confirmed profile fields and explicitly saved drafts are stored under the authenticated account.
 
-Rebuild after setting the public site key. The session endpoint fails closed when server settings are absent. Turnstile tokens are single-use and must match the expected hostname and `onboarding` action. Gemini credentials remain server-side; browser tokens allow one new session within sixty seconds and expire within five minutes. Model and instructions are locked into the token.
+## Required staging database migration
 
-Before publishing, configure platform rate limits for `POST /api/onboarding/session` and a Google project budget. Turnstile is bot protection, not a per-person spend quota. Verify CSP permits Cloudflare scripts/frames and Google Live WebSocket connections.
+Apply `supabase/migrations/20261104140000_openrouter_onboarding.sql` to the existing **clean staging** Supabase project, not production. The runtime uses only the public Supabase URL/anon key and the user's verified bearer token. It needs no service-role key.
 
-## Verification
+The migration creates:
 
-Run `npx tsc --noEmit --incremental false` and ESLint on the three added TypeScript files. Live check with staging keys: complete verification, start voice, grant microphone access, hear the greeting, answer, interrupt playback, pause for the reminder, mute/unmute, end the call, and confirm the microphone indicator turns off. Test permission denial, expired challenge, network disconnect, cancellation during connection, and restarting. Follow the sign-up link and confirm the existing Google callback opens the workspace. Without credentials, confirm voice cannot start and sign-up stays available.
+- `meera_onboarding_drafts`, with owner-only RLS reads and RPC-only writes.
+- `onboarding_read_draft` and `onboarding_write_draft`, deriving ownership from `auth.uid()`, checking revision numbers to reject stale writes, and supporting idempotent completed saves with the same UUID.
+- A private quota table and `onboarding_claim_quota`, atomically checking/incrementing shared counters before **each** paid request: 12 calls per user/minute, 60 per user/day, and 600 project-wide/day. The global daily counter is a request cap, not a currency budget. Failed provider requests still consume quota; there is no automatic retry loop.
 
-Do not claim a live voice session has been tested until these checks have run with the staging provider configuration.
+An unapplied/missing migration returns HTTP 503 before provider access. Quota denial returns HTTP 429 and leaves the editable form available. Neither in-memory counters nor an optional paid Vercel WAF plan are needed. Database transactions/RLS need live acceptance in staging after the migration; mocked tests do not establish real database isolation or concurrency.
 
-## Separate onboarding staging deployment
+## Preview environment variables
 
-The dedicated Vercel project is `marketing-1785/meera-onboarding-staging` (`prj_h2wZ6OUirvZULBfLmVXeGxNmS5I9`), with Node 22, project root `onboarding-staging`, and Vercel Authentication on all deployments. It imports the shared onboarding page, prompt, API and dedicated browser audio code, without loading the main app's authentication/database/payment providers. The existing Arya launcher and growth staging project are unchanged.
+Dedicated Vercel project: `marketing-1785/meera-onboarding-staging` (`prj_h2wZ6OUirvZULBfLmVXeGxNmS5I9`). Use **Preview**, with no Git-branch filter if the project has no Git connection.
 
-Install from the repository root with `npm ci`; build with `npx next build onboarding-staging`. Local development: `ONBOARDING_ALLOWED_ORIGIN=http://127.0.0.1:3221 npx next dev onboarding-staging --hostname 127.0.0.1 --port 3221`. The standalone app requires no database or payment credentials. It adds no new runtime packages beyond those already in the repository.
+| Variable                        | Purpose                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `OPENROUTER_API_KEY`            | Server-only, capped staging key; never a public variable                                                     |
+| `ONBOARDING_STT_MODEL`          | `openai/gpt-4o-mini-transcribe`                                                                              |
+| `ONBOARDING_LLM_MODEL`          | `openai/gpt-4.1-mini`                                                                                        |
+| `ONBOARDING_TTS_MODEL`          | `elevenlabs/eleven-flash-v2.5`                                                                               |
+| `ONBOARDING_ALLOWED_VOICES`     | `sarah,brian`                                                                                                |
+| `NEXT_PUBLIC_SUPABASE_URL`      | Existing clean staging database URL                                                                          |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Existing clean staging public anon key                                                                       |
+| `ONBOARDING_ALLOWED_ORIGIN`     | Exact protected staging origin, normally `https://meera-onboarding-staging.vercel.app`                       |
+| `ONBOARDING_WORKSPACE_URL`      | Optional existing Meera workspace URL; otherwise the existing `ONBOARDING_SIGN_IN_URL` origin or `/` is used |
 
-Preview settings already configured: `ONBOARDING_ALLOWED_ORIGIN=https://meera-onboarding-staging.vercel.app` and `ONBOARDING_SIGN_IN_URL=https://meera-growth-staging.vercel.app/sign-in`. The sign-in handoff uses the existing separate account staging app, not production. Keep the deployment alias aligned with the allowed origin. Add the Gemini/model and Turnstile settings listed above in **Preview**, then rebuild. Use a Turnstile widget restricted to `meera-onboarding-staging.vercel.app`. Do not put server secrets in any `NEXT_PUBLIC_` variable.
+No `GEMINI_*` or `TURNSTILE_*` settings are read by onboarding. Existing unrelated Meera features may still use Google SDK dependencies. Old Gemini variables in the dedicated staging project are unused by this implementation; no credential values are copied or exposed.
 
-A logging-only firewall rate rule was accepted for POST `/api/onboarding/session`, observing a threshold of 30 requests/IP/minute. An enforcing preview rule (10/IP/minute) was rejected by Vercel with HTTP 402, `Rate limiting is not available for this plan`. Logging is not protection. Review/resolve the plan requirement and verify an enforcing rule before allowing public, paid voice usage. Vercel Authentication remains enabled. The Google project budget and its alerts must be configured in the staging Google Cloud project; no Google Cloud billing connection is available in this task.
+The provided brief states that the installed OpenRouter key has a $10 total cap with no reset and expires on 11 November 2026. That billing setting has not been independently verified by this implementation. The account owner should confirm the limit/expiry before live use.
 
-Verification on 3 November 2026: standalone production build, TypeScript and targeted ESLint passed; 11 API tests passed with mocked upstream services. Chromium checks with synthetic microphone input and simulated Gemini/Turnstile responses passed: SDK setup and PCM/transcript rendering, interruption, mute/unmute, one five-second silence reminder without repetition, five-minute timeout, restart, disconnect, expired challenge, cancellation, microphone denial and released microphone tracks. These checks do not prove live provider credentials, actual speech recognition/quality, or a completed OAuth login.
+## Google sign-in and return paths
 
-Re-run server tests with `node verification/onboarding-session.test.cjs`. Browser checks require Playwright and Chromium available in the test environment, a locally running app with a public test site key, and `node verification/onboarding-browser.cjs`; set `MEERA_PLAYWRIGHT_MODULE` if Playwright is installed outside this repository. The test intercepts provider network traffic and never submits real signup details. Keep test site keys and simulated provider tokens out of hosted environment settings.
+The standalone app now performs the existing Supabase Google OAuth flow itself, with callback `/auth/callback?onboarding=1`, so the verified session belongs to the onboarding origin. Add the exact staging callback to the existing clean Supabase Auth redirect allowlist if it is not already permitted. Do not replace the provider configuration, Google credentials, production callback URLs, or existing redirects.
 
-### Hosted checkpoint — 3 November 2026
+The main Meera callback recognizes `onboarding=1` only after handling existing connector and purchase returns. Those returns retain priority. Onboarding does not collect a password or claim to send verification emails or create accounts by itself.
 
-- Protected preview: https://meera-onboarding-staging.vercel.app/onboarding
-- Vercel deployment: `dpl_uH93mTnLteMWCwGV8A5mtB2Sftye`, READY, Preview (API target `staging`).
-- Source commit: `eb93221838be0e2bd98e15906a9bf1b25984827b` on `codex/arya-independent-staging`.
-- Git-based deployments returned `git_info_fail`. The successful deployment uploads only the 15 files needed by the isolated onboarding app, with a minimal root dependency manifest pinned to the versions used in local verification. It uses `cd .. && npm install --ignore-scripts --no-audit --no-fund` for this snapshot; no environment files, account database code or commerce code were uploaded. Automatic Git deployments have not been configured.
-- Authenticated hosted GET `/onboarding` and `/sign-in` both returned HTTP 200. Voice is visibly disabled and the existing staging sign-up handoff renders. Hosted response headers contain the Cloudflare script/frame and Gemini WebSocket CSP permissions, microphone-only permissions, and `noindex` metadata. Local Chromium also confirmed the no-configuration page keeps sign-up available while voice is disabled.
-- The final environment inspection found only `ONBOARDING_ALLOWED_ORIGIN` and `ONBOARDING_SIGN_IN_URL`, both Preview-scoped. The four provider settings are still absent. No live Gemini request, spoken speech-quality test, completed Google OAuth callback, or Google billing-budget verification has been claimed.
+## Build and verification
 
-Remaining owner actions: configure the four staging provider settings directly in this project's Preview environment settings, configure and confirm the staging Google project's budget/alerts, and resolve Vercel's HTTP 402 rate-limit plan restriction (or approve a separately configured shared rate limiter). After that, rebuild the preview and run the real-provider checks above. Keep Vercel Authentication enabled until those checks and the enforcing rate limit are verified.
+From the repository root:
+
+```sh
+node verification/onboarding-session.test.cjs
+node verification/auth-callback-lifecycle.test.cjs
+npx tsc --noEmit --incremental false
+npx next build onboarding-staging
+```
+
+The standalone project imports shared onboarding code but has no Meera database-admin or payment providers. Its package replaces the Gemini/event-emitter dependencies with the already-used Supabase client. CSP permits the existing Supabase authentication connection and same-origin onboarding routes; the browser does not connect directly to OpenRouter. Fixed audio files are explicitly traced into the Next.js server output.
+
+For simulated browser checks, run the standalone app with dummy public Supabase settings and `ONBOARDING_ALLOWED_ORIGIN=http://127.0.0.1:3223`. Run `verification/onboarding-browser.cjs` with Playwright and Chromium available in the testing environment; `MEERA_PLAYWRIGHT_MODULE` and `CHROMIUM_EXECUTABLE_PATH` may select existing installations. The harness intercepts identity and API responses; it does not perform a real OAuth login, paid model call, or database write.
+
+Verified locally: 14 onboarding API tests, five OAuth return/lifecycle tests, root/standalone TypeScript checks, targeted ESLint, standalone build, and mobile simulated browser checks. Coverage includes multi-fact extraction, corrections, skipped fields, invalid dates, missing storage, fail-closed configuration, quota/provider errors, duplicate saves/readback, microphone denial, mute/interrupt/cleanup, and late-response isolation after sign-out.
+
+## Live acceptance still required
+
+After the clean staging migration and callback allowlist are ready, rebuild the protected preview using its existing Preview settings. Exercise actual Google sign-in, English/Hindi speech and both voices, correction, save and matching values after reload, two-account isolation, denied microphone, provider failure, duplicate save and a real shared-database HTTP 429. Check human completion time and speech quality. No real-provider demo or real database verification is claimed by the mocked checks.
+
+Production release and migrations are not performed by this staging change.

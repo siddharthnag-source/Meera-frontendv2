@@ -64,7 +64,7 @@ export default function AuthCallbackPage() {
             pathname: window.location.pathname,
           });
           const purchaseTarget = consumePurchaseIntent();
-          router.replace(returnTo || purchaseTarget || '/');
+          router.replace(returnTo || purchaseTarget || (searchParams.get('onboarding') === '1' ? '/onboarding' : '/'));
           return;
         }
 

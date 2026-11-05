@@ -1,201 +1,305 @@
-// Simulated provider verification; never represents a live Gemini or OAuth test.
+// Browser verification with simulated Supabase identity and onboarding API responses.
 const { chromium } = require(
-  process.env.MEERA_PLAYWRIGHT_MODULE || "playwright",
+  process.env.MEERA_PLAYWRIGHT_MODULE ||
+    "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright",
 );
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3222";
+const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
 (async () => {
   const browser = await chromium.launch({
-    executablePath: "/usr/bin/chromium",
+    executablePath: process.env.CHROMIUM_EXECUTABLE_PATH || "/usr/bin/chromium",
     headless: true,
-    args: [
-      "--no-sandbox",
-      "--use-fake-device-for-media-stream",
-      "--use-fake-ui-for-media-stream",
-    ],
+    args: ["--no-sandbox"],
   });
-  const results = [];
-  const context = await browser.newContext();
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
   const page = await context.newPage();
-  await page.addInitScript(() => {
-    window.__tracks = [];
-    navigator.mediaDevices.getUserMedia = async () => {
-      const audio = new AudioContext();
-      const stream = audio.createMediaStreamDestination().stream;
-      window.__tracks.push(...stream.getTracks());
-      return stream;
-    };
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const forbidden = [];
+  page.on("request", (r) => {
+    if (/cloudflare|generativelanguage/.test(r.url())) forbidden.push(r.url());
   });
-  await page.route(
-    "https://challenges.cloudflare.com/turnstile/v0/api.js**",
-    (route) =>
-      route.fulfill({
-        contentType: "application/javascript",
-        body: `window.turnstile={render:(el,options)=>{window.__challenge=options;setTimeout(()=>options.callback('test-challenge'),10);return 'test-widget'},reset:()=>{setTimeout(()=>window.__challenge.callback('test-challenge'),10)},remove:()=>{}};`,
+  const user = {
+    id: "12345678-1234-4123-8123-123456789abc",
+    aud: "authenticated",
+    role: "authenticated",
+    email: "arya@example.test",
+    app_metadata: { provider: "google", providers: ["google"] },
+    user_metadata: { full_name: "Arya" },
+    identities: [{ provider: "google" }],
+    created_at: new Date().toISOString(),
+  };
+  const jwt = [
+    Buffer.from("{}").toString("base64url"),
+    Buffer.from(
+      JSON.stringify({
+        sub: user.id,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        role: "authenticated",
       }),
+    ).toString("base64url"),
+    "mock-signature",
+  ].join(".");
+  await page.addInitScript(
+    ({ user, jwt }) => {
+      localStorage.setItem(
+        "sb-staging-auth-token",
+        JSON.stringify({
+          access_token: jwt,
+          refresh_token: "mock-refresh",
+          token_type: "bearer",
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          expires_in: 3600,
+          user,
+        }),
+      );
+      window.__tracks = [];
+      navigator.mediaDevices.getUserMedia = async () => {
+        const audio = new AudioContext();
+        const stream = audio.createMediaStreamDestination().stream;
+        window.__tracks.push(...stream.getTracks());
+        return stream;
+      };
+    },
+    { user, jwt },
   );
-  let failToken = false,
-    delayToken = false,
-    tokenResolve;
+  await page.route("https://staging.supabase.co/**", (route) =>
+    route.fulfill({ json: user }),
+  );
+  let stored = { profile: {}, revision: 0, complete: false },
+    key,
+    deny = false,
+    fail = false,
+    delayed = false,
+    release;
+  let delaySession = false,
+    sessionRelease;
+  const requests = [];
   await page.route("**/api/onboarding/session", async (route) => {
-    if (delayToken)
+    if (delaySession)
       await new Promise((resolve) => {
-        tokenResolve = resolve;
+        sessionRelease = resolve;
       });
-    await route.fulfill({
-      status: failToken ? 403 : 200,
-      json: failToken
-        ? { error: "Verification expired. Please try again." }
-        : { token: "auth_tokens/test-browser", model: "test-native-audio" },
+    return route.fulfill({
+      json: {
+        draft: stored,
+        googleName: "Arya",
+        workspace: base + "/workspace-test",
+        voiceConfigured: true,
+      },
     });
   });
-  const sockets = [],
-    messages = [];
-  const audio = Buffer.alloc(9600).toString("base64");
-  const respond = (socket, text) =>
-    socket.send(
-      JSON.stringify({
-        serverContent: {
-          outputTranscription: { text },
-          modelTurn: {
-            role: "model",
-            parts: [
-              { inlineData: { data: audio, mimeType: "audio/pcm;rate=24000" } },
-            ],
-          },
-          turnComplete: true,
-        },
-      }),
-    );
-  await page.routeWebSocket(
-    "wss://generativelanguage.googleapis.com/**",
-    (socket) => {
-      sockets.push(socket);
-      socket.onMessage((raw) => {
-        const data = JSON.parse(raw.toString());
-        messages.push(data);
-        if (data.setup) socket.send(JSON.stringify({ setupComplete: {} }));
-        if (data.clientContent)
-          respond(
-            socket,
-            data.clientContent.turns?.[0]?.parts?.[0]?.text?.includes("silence")
-              ? "Take your time! Let me know whenever you are ready for the next step."
-              : "Hi! Welcome to Himeera. Ready to get started?",
-          );
+  await page.route("**/api/onboarding/profile", async (route) => {
+    const data = route.request().postDataJSON();
+    requests.push(data);
+    if (stored.complete && data.complete && key === data.saveKey)
+      return route.fulfill({ json: { draft: stored } });
+    if (data.revision !== stored.revision)
+      return route.fulfill({
+        status: 409,
+        json: { error: "Stale profile. Please reload." },
       });
-    },
-  );
-  const tracksStopped = () =>
-    page.waitForFunction(() =>
-      window.__tracks.every((track) => track.readyState === "ended"),
-    );
-  await page.clock.install();
+    stored = {
+      profile: data.profile,
+      revision: stored.revision + 1,
+      complete: data.complete,
+    };
+    key = data.saveKey;
+    return route.fulfill({ json: { draft: stored } });
+  });
+  await page.route("**/api/onboarding/answer", async (route) => {
+    const data = route.request().postDataJSON();
+    requests.push(data);
+    if (delayed)
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+    if (deny)
+      return route.fulfill({
+        status: 429,
+        json: {
+          error: "Voice allowance reached. Please use the editable profile.",
+        },
+      });
+    if (fail)
+      return route.fulfill({
+        status: 502,
+        json: {
+          error: "Voice is temporarily unavailable. You can type instead.",
+        },
+      });
+    return route.fulfill({
+      json: {
+        proposal: {
+          revision: stored.revision,
+          profile: {
+            ...stored.profile,
+            job_details: data.text?.includes("teacher")
+              ? "Teacher"
+              : "Designer",
+            dob: "1998-06-04",
+          },
+        },
+        transcript: data.text || "I am a designer, born 4 June 1998.",
+        prompt: { text: "Please review your profile.", clip: "review" },
+      },
+    });
+  });
   await page.goto(base + "/onboarding");
-  await page.getByRole("button", { name: "Talk to Meera" }).click();
-  await page.getByText("Meera is listening", { exact: true }).waitFor();
-  await page
-    .getByText("Hi! Welcome to Himeera. Ready to get started?", {
-      exact: false,
-    })
-    .waitFor();
-  results.push(
-    "start, token response, SDK setup, streamed PCM and transcript render (simulated)",
+  await page.getByText("Signed in as arya@example.test").waitFor();
+  await page.getByRole("textbox", { name: "Name", exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("textbox", { name: "Name", exact: true }).inputValue(),
+    "Arya",
   );
+  assert.equal(
+    await page.locator("input[name=voice]:checked").inputValue(),
+    "on",
+  );
+  await page.getByLabel("Brian", { exact: false }).check();
+  await page.getByLabel("Language").selectOption("hi");
+  const clip = page.waitForResponse((r) =>
+    r.url().includes("brian-hi-preview.mp3"),
+  );
+  await page.getByRole("button", { name: "Preview" }).nth(1).click();
+  assert.equal((await clip).status(), 200);
+  await page
+    .getByLabel("Your answer or correction")
+    .fill("I am a designer, born 4 June 1998.");
+  await page.getByRole("button", { name: "Send answer", exact: true }).click();
+  await page.getByRole("textbox", { name: "Work or study" }).fill("Teacher");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await page
+    .getByText("Draft saved. Come back whenever you are ready.")
+    .waitFor();
+  assert.equal(stored.profile.job_details, "Teacher");
+  await page.reload();
+  await page.getByRole("textbox", { name: "Work or study" }).waitFor();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("input")].some(
+      (input) => input.value === "Teacher",
+    ),
+  );
+  assert.equal(
+    await page.getByRole("textbox", { name: "Work or study" }).inputValue(),
+    "Teacher",
+  );
+  deny = true;
+  await page
+    .getByLabel("Your answer or correction")
+    .fill("Please update my job.");
+  await page.getByRole("button", { name: "Send answer", exact: true }).click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "allowance reached" })
+    .waitFor();
+  deny = false;
+  fail = true;
+  await page.getByRole("button", { name: "Send answer", exact: true }).click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "temporarily unavailable" })
+    .waitFor();
+  fail = false;
+  // Real MediaRecorder over a silent synthetic MediaStream: no live provider is contacted.
+  await page
+    .getByRole("button", { name: "Start voice — allow microphone" })
+    .click();
   await page
     .getByRole("button", { name: "Mute microphone", exact: true })
     .click();
-  assert.equal(
-    await page
-      .getByRole("button", { name: "Unmute microphone" })
-      .getAttribute("aria-pressed"),
-    "true",
-  );
-  await page.getByRole("button", { name: "Unmute microphone" }).click();
-  results.push("mute and unmute");
-  sockets
-    .at(-1)
-    .send(
-      JSON.stringify({
-        serverContent: {
-          inputTranscription: { text: "Yes, please." },
-          interrupted: true,
-        },
-      }),
-    );
-  await page.getByText("Yes, please.", { exact: false }).waitFor();
-  results.push("interruption message and user transcript");
-  // Advance page time so the reminder and hard session deadline can be checked without waiting five minutes.
-  respond(sockets.at(-1), "Let us continue.");
-  await page.waitForTimeout(600);
-  await page.clock.fastForward(5100);
-  await page.waitForTimeout(100);
-  const reminderCount = messages.filter((message) =>
-    JSON.stringify(message.clientContent || {}).includes("silence reminder"),
-  ).length;
-  assert.equal(reminderCount, 1, "one reminder after five seconds of silence");
-  await page.clock.fastForward(20000);
-  await page.waitForTimeout(100);
-  assert.equal(
-    messages.filter((message) =>
-      JSON.stringify(message.clientContent || {}).includes("silence reminder"),
-    ).length,
-    1,
-  );
-  results.push("one silence reminder after five seconds, no repeated reminder");
-  await page.getByRole("button", { name: "End conversation" }).click();
-  await tracksStopped();
-  results.push("end conversation stops microphone tracks");
-  await page.getByRole("button", { name: "Talk to Meera" }).click();
-  await page.getByText("Meera is listening", { exact: true }).waitFor();
-  await page.clock.fastForward(300100);
-  await page.getByText("Session ended", { exact: true }).waitFor();
-  await tracksStopped();
-  results.push("five-minute session deadline stops microphone");
-  await page.getByRole("button", { name: "Talk to Meera" }).click();
-  await page.getByText("Meera is listening", { exact: true }).waitFor();
-  sockets.at(-1).close({ code: 1001, reason: "simulated network disconnect" });
-  await page.getByText("Session ended", { exact: true }).waitFor();
-  await tracksStopped();
-  results.push("restart and network disconnect stop microphone tracks");
-  failToken = true;
-  await page.getByRole("button", { name: "Talk to Meera" }).click();
   await page
-    .getByRole("alert")
-    .filter({ hasText: "Verification expired" })
-    .waitFor();
-  await tracksStopped();
-  results.push("expired challenge reports error and releases microphone");
-  failToken = false;
-  delayToken = true;
-  await page.getByRole("button", { name: "Talk to Meera" }).click();
+    .getByRole("button", { name: "Unmute microphone", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Stop / interrupt", exact: true })
+    .click();
   await page.waitForFunction(() =>
-    window.__tracks.some((track) => track.readyState === "live"),
+    window.__tracks.every((t) => t.readyState === "ended"),
   );
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await tracksStopped();
-  if (tokenResolve) tokenResolve();
-  delayToken = false;
-  results.push("cancel while connecting releases microphone");
   await page.evaluate(() => {
     navigator.mediaDevices.getUserMedia = async () => {
-      throw new DOMException("Permission denied", "NotAllowedError");
+      throw new DOMException("Denied", "NotAllowedError");
     };
   });
-  await page.getByRole("button", { name: "Talk to Meera" }).click();
+  await page
+    .getByRole("button", { name: "Record an answer", exact: true })
+    .click();
   await page
     .getByRole("alert")
-    .filter({ hasText: "Permission denied" })
+    .filter({ hasText: "Microphone access is unavailable" })
     .waitFor();
-  results.push("microphone permission denial shown");
-  await page.getByRole("link", { name: "Continue to Google sign-up" }).click();
+  // Delayed answer can be interrupted without applying a late proposal.
+  delayed = true;
   await page
-    .getByRole("heading", { name: "Continue to your account" })
-    .waitFor();
-  results.push("sign-up handoff page renders; external OAuth not tested");
+    .getByLabel("Your answer or correction")
+    .fill("Correction to teacher");
+  await page.getByRole("button", { name: "Send answer", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Stop / interrupt", exact: true })
+    .click();
+  if (release) release();
+  delayed = false;
+  await page
+    .getByRole("textbox", { name: "Caste or community (optional)" })
+    .fill("");
+  await page
+    .getByRole("button", { name: "Save and begin", exact: true })
+    .click();
+  await page.getByText("Your saved profile has been restored.").waitFor();
+  assert.equal(stored.complete, true);
+  assert.equal(stored.profile.caste, null);
+  await page.reload();
+  await page.getByText("Your saved profile has been restored.").waitFor();
+  assert.equal(
+    await page.getByRole("button", { name: "Save and begin" }).count(),
+    0,
+  );
+  // A late profile response must not restore the prior account's personal data after sign-out.
+  delaySession = true;
+  const pendingReload = page.waitForRequest((request) =>
+    request.url().endsWith("/api/onboarding/session"),
+  );
+  await page.getByRole("button", { name: "Reload saved profile" }).click();
+  await pendingReload;
+  await page.evaluate(() => {
+    const channel = new BroadcastChannel("sb-staging-auth-token");
+    channel.postMessage({ event: "SIGNED_OUT", session: null });
+    setTimeout(() => channel.close(), 100);
+  });
+  await page.getByRole("button", { name: "Continue with Google" }).waitFor();
+  if (sessionRelease) sessionRelease();
+  await page.waitForTimeout(150);
+  assert.equal(
+    await page.getByText("Your saved profile has been restored.").count(),
+    0,
+  );
+  assert.equal(forbidden.length, 0);
+  assert.deepEqual(errors, []);
+  const results = [
+    "mobile form renders and reuses Google name",
+    "Brian/Hindi static audio preview returns 200",
+    "multi-fact text answer and editable correction",
+    "owned draft reload",
+    "HTTP 429 and provider failure preserve form",
+    "record/mute/unmute/interrupt release microphone tracks",
+    "denied microphone retains typing",
+    "cancelled response not applied",
+    "optional community skipped",
+    "save and readback; completed user bypasses setup",
+    "no Cloudflare or Gemini network requests",
+    "late profile response cannot restore prior-account data after sign-out",
+  ];
   fs.writeFileSync(
-    "work/onboarding/browser-results.json",
-    JSON.stringify({ mode: "simulated providers", results }, null, 2),
+    "work/openrouter/browser-results.json",
+    JSON.stringify(
+      { mode: "simulated identity and providers", results },
+      null,
+      2,
+    ),
   );
   console.log(JSON.stringify(results, null, 2));
   await browser.close();

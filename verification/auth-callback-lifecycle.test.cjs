@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
 
-function fixture() {
+function fixture(options = {}) {
   const pending = [], cleanups = [], navigations = [];
   const location = { pathname: '/auth/callback', search: '', hash: '' };
   let consumes = 0;
@@ -14,11 +14,11 @@ function fixture() {
     'react/jsx-runtime': { jsx: () => null, jsxs: () => null },
     'next/navigation': { useRouter: () => ({ replace: (target) => navigations.push(target) }) },
     '@/lib/supabaseClient': { supabase: { auth: { getSession: () => new Promise(resolve => pending.push(resolve)) } } },
-    '@/lib/auth/startGoogleAgentConnection': { finishGoogleAgentConnection: async () => null },
+    '@/lib/auth/startGoogleAgentConnection': { finishGoogleAgentConnection: async () => options.connector || null },
     '@/lib/authRedirect': { clearAuthRedirectTrace() {}, clearGuestTokenState() {}, logAuthRedirectEvent() {} },
     '@/lib/marketingEvents': { queueMarketingEvent() {} },
     '@/lib/captureMarketingTouch': { captureMarketingTouch: async () => {} },
-    '@/lib/purchaseIntent': { consumePurchaseIntent: () => ++consumes === 1 ? '/payment?offer=us-lifetime' : null, US_SIGN_IN_PATH: '/sign-in?offer=us-lifetime' },
+    '@/lib/purchaseIntent': { consumePurchaseIntent: () => ++consumes === 1 && !options.skipPurchase ? '/payment?offer=us-lifetime' : null, US_SIGN_IN_PATH: '/sign-in?offer=us-lifetime' },
   };
   const source = ts.transpileModule(fs.readFileSync('src/app/auth/callback/page.tsx', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
@@ -57,4 +57,14 @@ test('the active callback still preserves the explicit US offer on success and a
     await settle();
     assert.deepEqual(f.navigations, [authenticated ? '/payment?offer=us-lifetime' : '/sign-in?offer=us-lifetime&auth_error=google']);
   }
+});
+
+
+test('onboarding callback returns to onboarding after successful Google sign-in', async () => {
+  const f = fixture({ skipPurchase: true }); f.location.search = '?onboarding=1'; f.mount();
+  f.pending[0](f.session); await settle(); assert.deepEqual(f.navigations, ['/onboarding']);
+});
+test('connector return still takes priority over onboarding', async () => {
+  const f = fixture({ skipPurchase: true, connector: '/connectors?connected=google' }); f.location.search = '?onboarding=1'; f.mount();
+  f.pending[0](f.session); await settle(); assert.deepEqual(f.navigations, ['/connectors?connected=google']);
 });
