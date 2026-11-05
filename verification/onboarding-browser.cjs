@@ -5,6 +5,23 @@ const { chromium } = require(
 );
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+function audioFixture() {
+  const size = 16000;
+  const buffer = Buffer.alloc(44 + size);
+  buffer.write("RIFF");
+  buffer.writeUInt32LE(36 + size, 4);
+  buffer.write("WAVEfmt ", 8);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(16000, 24);
+  buffer.writeUInt32LE(32000, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(size, 40);
+  return buffer;
+}
 const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
 (async () => {
   const browser = await chromium.launch({
@@ -56,6 +73,14 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     path: "work/prototype/landing-mobile.png",
     fullPage: true,
   });
+  const plays = await guest.evaluate(() => window.__plays);
+  await guest
+    .getByRole("button", { name: "Replay welcome", exact: true })
+    .click();
+  await guest.waitForFunction((n) => window.__plays > n, plays);
+  assert.equal(await guest.evaluate(() => window.__mics), 0);
+  assert.equal(paid.length, 0);
+  await guest.getByRole("button", { name: "Tap to interrupt Meera" }).click();
   await guest.setViewportSize({ width: 1440, height: 900 });
   await guest.screenshot({
     path: "work/prototype/landing-desktop.png",
@@ -215,6 +240,9 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     saveKey = data.saveKey;
     return route.fulfill({ json: { draft: stored } });
   });
+  await page.route("**/api/onboarding/speech", (route) =>
+    route.fulfill({ contentType: "audio/wav", body: audioFixture() }),
+  );
   await page.route("**/api/onboarding/answer", async (route) => {
     const data = route.request().postDataJSON();
     if (delayed) await new Promise((r) => (release = r));
@@ -310,8 +338,8 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     .waitFor();
   fail = false;
   await page.getByRole("button", { name: "Close panel" }).click();
-  const question = page.waitForResponse(
-    (r) => r.url().includes("/clips/") && r.url().endsWith("-review.mp3"),
+  const question = page.waitForResponse((r) =>
+    r.url().endsWith("/api/onboarding/speech"),
   );
   await page
     .getByRole("button", { name: "Start voice — allow microphone" })
@@ -413,6 +441,132 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
   results.push(
     "late responses cannot restore prior-account profile data after sign-out",
   );
+  const guidedContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const guide = await guidedContext.newPage();
+  await seed(guide);
+  await guide.addInitScript(() => {
+    window.__captures = 0;
+    navigator.mediaDevices.getUserMedia = async () => {
+      window.__captures++;
+      const ctx = new AudioContext();
+      await ctx.resume();
+      const tone = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const destination = ctx.createMediaStreamDestination();
+      tone.connect(gain);
+      gain.connect(destination);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.setValueAtTime(0, ctx.currentTime + 0.6);
+      tone.start();
+      const stream = destination.stream;
+      window.__tracks.push(...stream.getTracks());
+      stream.getTracks()[0].addEventListener("ended", () => ctx.close());
+      setTimeout(() => {
+        if (stream.getTracks()[0].readyState === "ended") void ctx.close();
+      }, 4000);
+      return stream;
+    };
+  });
+  let guidanceDraft = {
+    profile: { name: "Arya" },
+    revision: 0,
+    complete: false,
+  };
+  let answers = 0,
+    speeches = 0;
+  const answerBodies = [];
+  await guide.route("**/api/onboarding/session", (route) =>
+    route.fulfill({
+      json: {
+        draft: guidanceDraft,
+        profileReady: true,
+        voiceConfigured: true,
+        googleName: "Arya",
+        workspace: "/workspace-test",
+      },
+    }),
+  );
+  await guide.route("**/api/onboarding/profile", (route) => {
+    const data = route.request().postDataJSON();
+    guidanceDraft = {
+      profile: data.profile,
+      revision: guidanceDraft.revision + 1,
+      complete: data.complete,
+    };
+    return route.fulfill({ json: { draft: guidanceDraft } });
+  });
+  await guide.route("**/api/onboarding/speech", (route) => {
+    speeches++;
+    return route.fulfill({ contentType: "audio/wav", body: audioFixture() });
+  });
+  await guide.route("**/api/onboarding/answer", (route) => {
+    answers++;
+    answerBodies.push(route.request().postDataJSON());
+    const profile = {
+      ...guidanceDraft.profile,
+      ...(answers === 1 ? { job_details: "Designer" } : { dob: "1998-06-04" }),
+    };
+    return route.fulfill({
+      json: {
+        proposal: { profile, revision: guidanceDraft.revision },
+        transcript:
+          answers === 1 ? "I am a designer." : "My birthday is 4 June 1998.",
+        updatedFields: [answers === 1 ? "job_details" : "dob"],
+        prompt: {
+          text:
+            answers === 1
+              ? "Thanks. What is your birthday? You can skip this."
+              : "Your details are ready to review.",
+          clip: null,
+          review: answers > 1,
+        },
+      },
+    });
+  });
+  await guide.goto(base + "/onboarding");
+  await guide
+    .getByRole("button", { name: "Start voice — allow microphone" })
+    .click();
+  await guide
+    .getByRole("heading", { name: "A little about you", exact: true })
+    .waitFor({ timeout: 45000 });
+  assert.equal(answers, 2);
+  assert.equal(await guide.evaluate(() => window.__captures), 2);
+  assert.ok(answerBodies.every((body) => body.audio && body.question));
+  assert.ok(answerBodies[1].question.includes("birthday"));
+  assert.equal(guidanceDraft.profile.job_details, "Designer");
+  assert.equal(guidanceDraft.profile.dob, "1998-06-04");
+  assert.equal(
+    await guide.evaluate(() =>
+      window.__tracks.every((t) => t.readyState === "ended"),
+    ),
+    true,
+  );
+  await guide.getByRole("button", { name: "Close panel" }).click();
+  const priorSpeeches = speeches;
+  await guide.getByRole("button", { name: "Repeat last response" }).click();
+  await guide.getByText("Meera is speaking", { exact: true }).waitFor();
+  assert.equal(speeches, priorSpeeches);
+  await guide.waitForTimeout(800);
+  assert.equal(await guide.evaluate(() => window.__captures), 2);
+  await guide.screenshot({
+    path: "work/guided-voice/feedback-mobile.png",
+    fullPage: true,
+  });
+  assert.equal(
+    await guide.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  results.push(
+    "replay welcome without microphone or paid calls; repeat response uses in-memory audio cache",
+    "two successive speech/silence turns auto-submit, speak, listen again and pause for review",
+    "visible transcript and optional draft values follow spoken answers; microphone released on review",
+  );
+  await guidedContext.close();
   // Missing optional storage never traps a verified account in onboarding.
   const skipContext = await browser.newContext();
   const skip = await skipContext.newPage();

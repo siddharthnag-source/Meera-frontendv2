@@ -454,3 +454,44 @@ test("optional storage cannot block verified sign-in or expose anonymous paid ac
     401,
   );
 });
+
+test("spoken help answers a question without changing optional details", async () => {
+  const h = harness({
+    extraction: {
+      updates: { name: null, job_details: null, dob: null, caste: null },
+      skipped: [],
+      clarification: null,
+      reply:
+        "Only Google sign-in is required. Every profile detail is optional.",
+    },
+  });
+  const response = await h.request("answer", {
+    text: "Do I have to give my birthday?",
+    question: "What is your birthday?",
+    language: "en",
+    revision: 0,
+  });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.proposal.profile.name, "Arya");
+  assert.equal(result.prompt.review, false);
+  assert.match(result.prompt.text, /optional/);
+  const request = h.calls.find(
+    (c) => c[0] === "fetch" && c[1].endsWith("chat/completions"),
+  );
+  assert.equal(
+    JSON.parse(request[2].messages[1].content).previousQuestion,
+    "What is your birthday?",
+  );
+});
+test("invalid question context is rejected before paid provider calls", async () => {
+  const h = harness();
+  const response = await h.request("answer", {
+    text: "Hello",
+    question: "x".repeat(301),
+    language: "en",
+    revision: 0,
+  });
+  assert.equal(response.status, 400);
+  assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 0);
+});

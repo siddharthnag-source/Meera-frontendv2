@@ -1,5 +1,6 @@
 "use client";
 import Image from "next/image";
+import { watchSpeech, type SpeechMonitor } from "@/lib/onboarding-listening";
 import styles from "@/components/onboarding/Onboarding.module.css";
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
@@ -13,7 +14,7 @@ import {
 } from "@/lib/onboarding-profile";
 
 type Draft = { profile: Profile; revision: number; complete: boolean };
-type Prompt = { text: string; clip: string | null };
+type Prompt = { text: string; clip: string | null; review?: boolean };
 const empty: Draft = { profile: {}, revision: 0, complete: false };
 export default function Onboarding() {
   const [session, setSession] = useState<Session | null>(null);
@@ -43,6 +44,13 @@ export default function Onboarding() {
   const [recording, setRecording] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const playback = useRef(0);
+  const guided = useRef(false);
+  const mutedRef = useRef(false);
+  const monitor = useRef<SpeechMonitor | null>(null);
+  const orb = useRef<HTMLButtonElement | null>(null);
+  const lastPrompt = useRef<Prompt | null>(null);
+  const cachedAudio = useRef<{ key: string; blob: Blob } | null>(null);
+  const [updatedFields, setUpdatedFields] = useState<string[]>([]);
   const [started, setStarted] = useState(false);
   const [text, setText] = useState("");
   const [transcript, setTranscript] = useState("");
@@ -79,6 +87,9 @@ export default function Onboarding() {
     audioUrl.current = null;
   }
   function stopMic(discard = true) {
+    monitor.current?.stop();
+    monitor.current = null;
+    mutedRef.current = false;
     if (recordLimit.current) clearTimeout(recordLimit.current);
     if (recorder.current && recorder.current.state !== "inactive") {
       if (discard) recorder.current.onstop = null;
@@ -90,16 +101,37 @@ export default function Onboarding() {
     setRecording(false);
     setMuted(false);
   }
-  function interrupt() {
+  function cancelTurn() {
     generation.current++;
     controller.current?.abort();
     stopSpeech();
     stopMic();
     setBusy(false);
   }
+  function interrupt() {
+    guided.current = false;
+    cancelTurn();
+  }
   const cleanup = useRef(interrupt);
   cleanup.current = interrupt;
-  useEffect(() => () => cleanup.current(), []);
+  useEffect(
+    () => () => {
+      cleanup.current();
+      cachedAudio.current = null;
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!callActive) return;
+    const limit = setTimeout(() => {
+      cleanup.current();
+      setCallActive(false);
+      setStatus(
+        "This call has ended after five minutes. You can start another call or continue by typing.",
+      );
+    }, 300_000);
+    return () => clearTimeout(limit);
+  }, [callActive]);
   useEffect(() => {
     if (!started) return;
     const timer = setTimeout(() => setElapsed(true), 90_000);
@@ -136,6 +168,9 @@ export default function Onboarding() {
       setCallActive(false);
       setPanel(null);
       setConversation([]);
+      cachedAudio.current = null;
+      lastPrompt.current = null;
+      setUpdatedFields([]);
       setTranscript("");
       setText("");
       dirty.current = false;
@@ -266,18 +301,24 @@ export default function Onboarding() {
         ? previous
         : [...previous.slice(-39), { role: "Meera", text: prompt.text }],
     );
-    if (muted) return;
+    lastPrompt.current = prompt;
     const attempt = generation.current;
     const playId = playback.current;
     try {
-      const response = prompt.clip
-        ? await fetch(
-            `/api/onboarding/clips/${selectedVoice}${selectedLanguage === "hi" ? "-hi" : ""}-${prompt.clip}.mp3`,
-          )
-        : await api("speech", { text: prompt.text, voice: selectedVoice });
-      if (!response.ok) throw new Error();
-      const blob = await response.blob();
+      const key = JSON.stringify([prompt, selectedVoice, selectedLanguage]);
+      let blob =
+        cachedAudio.current?.key === key ? cachedAudio.current.blob : null;
+      if (!blob) {
+        const response = prompt.clip
+          ? await fetch(
+              `/api/onboarding/clips/${selectedVoice}${selectedLanguage === "hi" ? "-hi" : ""}-${prompt.clip}.mp3`,
+            )
+          : await api("speech", { text: prompt.text, voice: selectedVoice });
+        if (!response.ok) throw new Error();
+        blob = await response.blob();
+      }
       if (generation.current !== attempt || playback.current !== playId) return;
+      cachedAudio.current = { key, blob };
       audioUrl.current = URL.createObjectURL(blob);
       const player = new Audio(audioUrl.current);
       audio.current = player;
@@ -292,12 +333,17 @@ export default function Onboarding() {
         onDone?.();
       };
       player.onerror = () => {
-        if (playback.current === playId) setSpeaking(false);
+        if (playback.current === playId) {
+          setSpeaking(false);
+          guided.current = false;
+          setError("Audio stopped. Replay the response or continue by typing.");
+        }
       };
       await player.play();
     } catch (reason) {
       if (generation.current !== attempt || playback.current !== playId) return;
       setSpeaking(false);
+      guided.current = false;
       if (
         automatic &&
         reason instanceof DOMException &&
@@ -336,6 +382,7 @@ export default function Onboarding() {
     };
   }, [authResolved, session, profileChecked]);
   useEffect(() => {
+    if (panel === "profile" || panel === "voice") cleanup.current();
     if (panel && !dialog.current?.open) dialog.current?.showModal();
     if (!panel && dialog.current?.open) dialog.current.close();
   }, [panel]);
@@ -346,16 +393,39 @@ export default function Onboarding() {
     setError("");
     setStarted(true);
     setCallActive(true);
-    void play(
-      nextPrompt(draftRef.current.profile, language),
-      voice,
-      language,
-      () => {
-        void record();
-      },
+    guided.current = true;
+    const prompt = nextPrompt(draftRef.current.profile, language);
+    void guide(
+      prompt.clip === "review"
+        ? {
+            text: "Your details are ready to review. What can I help you with before you continue?",
+            clip: null,
+          }
+        : prompt,
     );
   }
+  async function guide(prompt: Prompt) {
+    await play(prompt, voice, language, () => {
+      if (!guided.current) return;
+      if (prompt.review || prompt.clip === "review") {
+        guided.current = false;
+        setPanel("profile");
+      } else void record();
+    });
+  }
+  function replayWelcome() {
+    interrupt();
+    autoplayAttempted.current = true;
+    void play(welcomePrompt(language));
+  }
+  function repeatResponse() {
+    const prompt = lastPrompt.current;
+    if (!prompt) return;
+    interrupt();
+    void play(prompt);
+  }
   function previewVoice(item: Voice) {
+    interrupt();
     autoplayAttempted.current = true;
     void play(
       {
@@ -371,7 +441,7 @@ export default function Onboarding() {
   async function answer(
     value: { text: string } | { audio: string; format: string },
   ) {
-    interrupt();
+    cancelTurn();
     const attempt = generation.current;
     setBusy(true);
     setError("");
@@ -384,12 +454,18 @@ export default function Onboarding() {
       const result = await (
         await api(
           "answer",
-          { ...value, language, revision: draftRef.current.revision },
+          {
+            ...value,
+            language,
+            revision: draftRef.current.revision,
+            question: lastPrompt.current?.text,
+          },
           abort.signal,
         )
       ).json();
       if (attempt !== generation.current) return;
       setTranscript(result.transcript);
+      setUpdatedFields(result.updatedFields || []);
       setConversation((previous) => [
         ...previous.slice(-39),
         { role: "You", text: result.transcript },
@@ -399,21 +475,23 @@ export default function Onboarding() {
       await persist(result.proposal.profile, false);
       if (attempt !== generation.current) return;
       setText("");
-      await play(result.prompt);
+      await guide(result.prompt);
     } catch (reason) {
-      if (attempt === generation.current)
+      if (attempt === generation.current) {
+        guided.current = false;
         setError(
           abort.signal.aborted
             ? "The response timed out. Your draft is still available."
             : (reason as Error).message,
         );
+      }
     } finally {
       clearTimeout(timeout);
       if (attempt === generation.current) setBusy(false);
     }
   }
   async function record() {
-    interrupt();
+    cancelTurn();
     const attempt = generation.current;
     setError("");
     setBusy(true);
@@ -444,6 +522,7 @@ export default function Onboarding() {
         if (event.data.size) chunks.current.push(event.data);
       };
       capture.onerror = () => {
+        guided.current = false;
         stopMic();
         setError("Recording stopped. Please type your answer.");
       };
@@ -473,11 +552,44 @@ export default function Onboarding() {
       setRecording(true);
       setBusy(false);
       setStarted(true);
+      const idle = () => {
+        if (attempt !== generation.current) return;
+        interrupt();
+        setStatus(
+          "Take your time. Start recording whenever you’re ready, or type your answer.",
+        );
+      };
+      monitor.current = watchSpeech(stream, {
+        isMuted: () => mutedRef.current,
+        onLevel: (level) =>
+          orb.current?.style.setProperty("--input-level", String(level)),
+        onFinish: () => {
+          if (attempt === generation.current && capture.state !== "inactive")
+            capture.stop();
+        },
+        onIdle: idle,
+        onWaiting: () => {
+          if (attempt === generation.current)
+            setStatus(
+              "Take your time. Let me know whenever you’re ready for the next step.",
+            );
+        },
+        onUnsupported: () => {
+          if (attempt === generation.current)
+            setStatus("I’m listening. Select Send recording when you finish.");
+        },
+      });
       recordLimit.current = setTimeout(() => {
-        if (capture.state !== "inactive") capture.stop();
+        if (
+          mutedRef.current ||
+          (monitor.current && !monitor.current.heardSpeech())
+        )
+          idle();
+        else if (capture.state !== "inactive") capture.stop();
       }, 30_000);
     } catch {
       if (attempt === generation.current) {
+        guided.current = false;
         stopMic();
         setBusy(false);
         setError(
@@ -521,7 +633,10 @@ export default function Onboarding() {
       update(check.draft);
       setPanel(null);
       setCallActive(false);
-      setStatus("Your profile is saved. You can open Meera.");
+      await play({
+        text: "Your profile is saved. You can open Meera.",
+        clip: "finish",
+      });
     } catch (reason) {
       if (attempt === generation.current) setError((reason as Error).message);
     } finally {
@@ -609,6 +724,7 @@ export default function Onboarding() {
 
       <section className={styles.stage} aria-label="Meera voice assistant">
         <button
+          ref={orb}
           className={styles.orbShell}
           disabled={!speaking && !recording}
           data-speaking={speaking}
@@ -693,6 +809,49 @@ export default function Onboarding() {
             </button>
           </div>
         )}
+        <div className={styles.replayControls}>
+          <button onClick={replayWelcome}>Replay welcome</button>
+          {conversation.length > 0 && (
+            <button onClick={repeatResponse}>Repeat last response</button>
+          )}
+        </div>
+        {session && transcript && (
+          <div className={styles.feedback} aria-live="polite">
+            <p>
+              <strong>You said:</strong> {transcript}
+            </p>
+            <button
+              onClick={() => {
+                interrupt();
+                setText(transcript);
+                setPanel("profile");
+              }}
+            >
+              Correct this
+            </button>
+          </div>
+        )}
+        {session && loaded && (
+          <div
+            className={styles.draftProgress}
+            aria-label="Your optional details"
+          >
+            {(
+              [
+                ["name", "Name"],
+                ["job_details", "Work"],
+                ["dob", "Birthday"],
+              ] as const
+            ).map(([field, label]) => (
+              <span key={field} data-updated={updatedFields.includes(field)}>
+                <strong>{label}</strong>{" "}
+                {draft.profile[field] === null
+                  ? "Skipped"
+                  : draft.profile[field] || "Optional"}
+              </span>
+            ))}
+          </div>
+        )}
         {autoplayBlocked && (
           <div className={styles.soundFallback}>
             <p>Your browser needs a tap to enable sound.</p>
@@ -734,6 +893,7 @@ export default function Onboarding() {
                       aria-pressed={muted}
                       onClick={() => {
                         const next = !muted;
+                        mutedRef.current = next;
                         microphone.current
                           ?.getAudioTracks()
                           .forEach((track) => {
@@ -761,7 +921,10 @@ export default function Onboarding() {
                   <button
                     className={styles.callControl}
                     disabled={busy || !loaded || !ready || !canRecord}
-                    onClick={() => void record()}
+                    onClick={() => {
+                      guided.current = true;
+                      void record();
+                    }}
                   >
                     <span>
                       <Icon name="mic" />

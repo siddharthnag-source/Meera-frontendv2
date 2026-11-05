@@ -640,3 +640,59 @@
     transition: none !important;
   }
 }
+
+.replayControls {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.replayControls button,
+.feedback button {
+  font-size: 0.8rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.feedback {
+  max-width: 32rem;
+  padding: 0.75rem 1rem;
+  margin-top: 0.8rem;
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.draftProgress {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  max-width: 36rem;
+  margin-top: 0.75rem;
+}
+.draftProgress span {
+  max-width: 16rem;
+  overflow-wrap: anywhere;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  font-size: 0.75rem;
+}
+.draftProgress strong {
+  display: block;
+  font-weight: 500;
+}
+.draftProgress [data-updated="true"] {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+.orbShell[data-listening="true"] .orbMiddle {
+  transform: scale(calc(1 + var(--input-level, 0) * 0.08));
+  transition: transform 80ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbShell[data-listening="true"] .orbMiddle {
+    transform: none;
+  }
+}

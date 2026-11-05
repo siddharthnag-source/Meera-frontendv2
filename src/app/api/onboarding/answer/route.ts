@@ -24,6 +24,11 @@ export async function POST(request: NextRequest) {
         409,
         "Reload your current draft before continuing.",
       );
+    if (
+      data.question !== undefined &&
+      (typeof data.question !== "string" || data.question.length > 300)
+    )
+      throw new OnboardingError(400, "Invalid question context.");
     const client = provider(db);
     const transcript =
       data.audio !== undefined
@@ -33,14 +38,30 @@ export async function POST(request: NextRequest) {
       transcript,
       validateProfile(current.profile),
       lang,
+      typeof data.question === "string"
+        ? data.question
+        : nextPrompt(current.profile, lang).text,
     );
     const profile = { ...current.profile, ...result.updates };
+    const next = nextPrompt(profile, lang);
+    const updatedFields = Object.keys(result.updates);
+    let prompt: { text: string; clip: string | null; review: boolean };
+    if (result.clarification)
+      prompt = { text: result.clarification, clip: null, review: false };
+    else if (result.reply && !updatedFields.length)
+      prompt = { text: result.reply, clip: null, review: false };
+    else if (result.reply && !/[?？]/.test(result.reply))
+      prompt = {
+        text: `${result.reply} ${next.text}`,
+        clip: null,
+        review: next.clip === "review",
+      };
+    else prompt = { ...next, review: next.clip === "review" };
     return json({
       proposal: { profile, revision: current.revision },
       transcript,
-      prompt: result.clarification
-        ? { text: result.clarification, clip: null }
-        : nextPrompt(profile, lang),
+      updatedFields,
+      prompt,
     });
   } catch (error) {
     return failure(error);

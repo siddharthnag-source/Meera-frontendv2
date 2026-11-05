@@ -66,7 +66,12 @@ export function provider(db: SupabaseClient) {
         );
       return result.text as string;
     },
-    async extract(text: unknown, profile: Profile, language: string) {
+    async extract(
+      text: unknown,
+      profile: Profile,
+      language: string,
+      previousQuestion?: string,
+    ) {
       if (typeof text !== "string" || !text.trim() || text.length > 2000)
         throw new OnboardingError(400, "Please give a short answer.");
       const result = await (
@@ -81,6 +86,7 @@ export function provider(db: SupabaseClient) {
               content: JSON.stringify({
                 language,
                 existingDraft: profile,
+                previousQuestion,
                 answer: text,
               }),
             },
@@ -113,8 +119,9 @@ export function provider(db: SupabaseClient) {
                     },
                   },
                   clarification: { type: ["string", "null"] },
+                  reply: { type: ["string", "null"] },
                 },
-                required: ["updates", "skipped", "clarification"],
+                required: ["updates", "skipped", "clarification", "reply"],
               },
             },
           },
@@ -131,6 +138,8 @@ export function provider(db: SupabaseClient) {
           )
         )
           throw Error();
+        if (parsed.reply != null && typeof parsed.reply !== "string")
+          throw Error();
         const updates: Record<string, unknown> = {};
         for (const [field, value] of Object.entries(parsed.updates)) {
           if (
@@ -145,6 +154,7 @@ export function provider(db: SupabaseClient) {
         }
         return {
           updates: validateProfile(updates),
+          reply: parsed.reply?.trim().slice(0, 120) as string | undefined,
           clarification: parsed.clarification?.slice(0, 240) as
             | string
             | undefined,
