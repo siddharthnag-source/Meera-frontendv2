@@ -25,7 +25,9 @@ export async function POST(request: NextRequest) {
       .limit(1);
     if (error) throw error;
     if (paid?.length) return NextResponse.json({ error: 'You already have lifetime access.' }, { status: 409 });
-    const origin = process.env.VERCEL_ENV === 'production' ? 'https://www.himeera.com' : request.nextUrl.origin;
+    const origin = process.env.VERCEL_ENV === 'production' && process.env.MEERA_PAYMENT_MODE !== 'sandbox'
+      ? 'https://www.himeera.com'
+      : request.nextUrl.origin;
     const requestKey = request.headers.get('idempotency-key') ?? '';
     if (!/^[a-zA-Z0-9-]{8,80}$/.test(requestKey)) {
       return NextResponse.json({ error: 'Invalid checkout request. Please try again.' }, { status: 400 });

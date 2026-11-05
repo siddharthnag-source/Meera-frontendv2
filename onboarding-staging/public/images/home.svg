@@ -1,0 +1,453 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  xmlns:xlink="http://www.w3.org/1999/xlink"
+  fill="none"
+  height="350"
+  viewBox="0 0 318 350"
+  width="318"
+>
+  <style>
+    .orbit-ring {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: orbit-turn 42s linear infinite;
+    }
+
+    .halo-outer,
+    .halo-inner,
+    .meera-core {
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+
+    .halo-outer { animation: halo-breathe 8s ease-in-out infinite; }
+    .halo-inner { animation: halo-breathe 8s ease-in-out -4s infinite reverse; }
+    .meera-core { animation: core-breathe 5.8s ease-in-out infinite; }
+
+    .message-cluster,
+    .orbit-icon,
+    .meera-label {
+      transform-box: view-box;
+      will-change: transform;
+    }
+
+    .message-kannada { --copy-phase: -1s; animation: planet-left 18s ease-in-out -4s infinite; }
+    .message-cheated { --copy-phase: -3s; animation: planet-top 22s ease-in-out -9s infinite; }
+    .message-christianity { --copy-phase: -6s; animation: planet-bottom 24s ease-in-out -15s infinite; }
+    .message-anxiety { --copy-phase: -9s; animation: planet-right 20s ease-in-out -11s infinite; }
+    .message-hindi { --copy-phase: -12s; animation: planet-upper-left 26s ease-in-out -18s infinite; }
+    .meera-label { animation: label-orbit 12s ease-in-out -4s infinite; }
+
+    .icon-person { animation: satellite-right 16s ease-in-out -7s infinite; }
+    .icon-chat { animation: satellite-left 14s ease-in-out -5s infinite; }
+    .icon-learn { animation: satellite-lower 18s ease-in-out -12s infinite; }
+
+    .rotating-copy {
+      opacity: 0;
+      animation: copy-cycle 15s ease-in-out infinite;
+    }
+
+    .copy-1 { opacity: 1; animation-delay: var(--copy-phase, 0s); }
+    .copy-2 { animation-delay: calc(var(--copy-phase, 0s) + 5s); }
+    .copy-3 { animation-delay: calc(var(--copy-phase, 0s) + 10s); }
+
+    @keyframes orbit-turn {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes halo-breathe {
+      0%, 100% { transform: scale(0.985); }
+      50% { transform: scale(1.025); }
+    }
+
+    @keyframes core-breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.035); }
+    }
+
+    @keyframes planet-left {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(6px, -5px); }
+      50% { transform: translate(12px, 0); }
+      75% { transform: translate(6px, 5px); }
+    }
+
+    @keyframes planet-top {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(-5px, 5px); }
+      50% { transform: translate(0, 10px); }
+      75% { transform: translate(5px, 5px); }
+    }
+
+    @keyframes planet-bottom {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(6px, -4px); }
+      50% { transform: translate(0, -8px); }
+      75% { transform: translate(-6px, -4px); }
+    }
+
+    @keyframes planet-right {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(-6px, 5px); }
+      50% { transform: translate(-12px, 0); }
+      75% { transform: translate(-6px, -5px); }
+    }
+
+    @keyframes planet-upper-left {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(5px, 5px); }
+      50% { transform: translate(10px, 0); }
+      75% { transform: translate(5px, -4px); }
+    }
+
+    @keyframes label-orbit {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(3px, -2px); }
+      50% { transform: translate(5px, 1px); }
+      75% { transform: translate(2px, 3px); }
+    }
+
+    @keyframes satellite-left {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(5px, -5px); }
+      50% { transform: translate(10px, 0); }
+      75% { transform: translate(5px, 5px); }
+    }
+
+    @keyframes satellite-right {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(-5px, -5px); }
+      50% { transform: translate(-9px, 0); }
+      75% { transform: translate(-5px, 5px); }
+    }
+
+    @keyframes satellite-lower {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(5px, -4px); }
+      50% { transform: translate(0, -8px); }
+      75% { transform: translate(-5px, -4px); }
+    }
+
+    @keyframes copy-cycle {
+      0%, 100% { opacity: 0; }
+      5%, 25% { opacity: 1; }
+      30%, 95% { opacity: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .orbit-ring,
+      .halo-outer,
+      .halo-inner,
+      .meera-core,
+      .message-cluster,
+      .orbit-icon,
+      .meera-label,
+      .rotating-copy {
+        animation: none !important;
+      }
+    }
+  </style>
+  <path
+    class="orbit-ring"
+    d="M299.411 148.108C299.8 151.387 300.063 154.701 300.194 158.047L299.199 158.078L299.23 159.078C299.271 160.396 299.292 161.719 299.292 163.047C299.292 164.374 299.271 165.698 299.23 167.016L299.199 168.015L300.194 168.047C300.063 171.392 299.8 174.707 299.411 177.986L298.423 177.861L298.297 178.853C297.964 181.483 297.548 184.091 297.053 186.673L296.864 187.655L297.842 187.843C297.187 191.116 296.404 194.348 295.499 197.534L294.543 197.254L294.263 198.214C293.519 200.753 292.697 203.263 291.799 205.74L291.459 206.68L292.395 207.02C291.236 210.142 289.956 213.212 288.562 216.225L287.661 215.799L287.234 216.704C286.106 219.093 284.905 221.445 283.633 223.759L283.152 224.635L284.025 225.115C282.402 228.016 280.668 230.854 278.83 233.627L278.003 233.07L277.445 233.899C275.97 236.087 274.428 238.233 272.823 240.334L272.216 241.129L273.008 241.734C270.973 244.357 268.839 246.909 266.612 249.385L265.876 248.714L265.202 249.452C263.424 251.4 261.587 253.3 259.694 255.15L258.978 255.848L259.675 256.561C257.286 258.862 254.81 261.084 252.251 263.222L251.618 262.453L250.846 263.089C248.811 264.765 246.726 266.388 244.591 267.956L243.785 268.548L244.375 269.351C241.69 271.295 238.93 273.152 236.099 274.919L235.577 274.07L234.725 274.594C232.481 275.974 230.192 277.297 227.862 278.56L226.983 279.037L227.458 279.913C224.536 281.472 221.55 282.939 218.504 284.31L218.101 283.399L217.186 283.803C214.778 284.867 212.333 285.871 209.853 286.813L208.918 287.168L209.272 288.1C206.17 289.254 203.015 290.311 199.811 291.268L199.532 290.311L198.572 290.591C196.046 291.327 193.489 292 190.904 292.608L189.931 292.837L190.159 293.807C186.938 294.543 183.674 295.178 180.372 295.709L180.22 294.724L179.232 294.876C176.632 295.277 174.009 295.614 171.364 295.883L170.369 295.984L170.47 296.976C167.185 297.29 163.868 297.501 160.522 297.606L160.497 296.61L159.497 296.635C158.176 296.668 156.85 296.685 155.52 296.685C154.19 296.685 152.865 296.668 151.543 296.635L150.544 296.61L150.519 297.606C147.173 297.501 143.855 297.29 140.571 296.976L140.672 295.984L139.677 295.883C137.032 295.614 134.408 295.277 131.808 294.876L130.82 294.724L130.668 295.709C127.366 295.178 124.103 294.543 120.881 293.807L121.11 292.837L120.136 292.608C117.552 292 114.995 291.327 112.468 290.591L111.508 290.311L111.229 291.268C108.026 290.311 104.871 289.254 101.768 288.1L102.122 287.168L101.187 286.813C98.7076 285.871 96.2624 284.867 93.8541 283.803L92.9395 283.399L92.5366 284.31C89.4908 282.939 86.5044 281.472 83.5821 279.913L84.0572 279.037L83.1782 278.56C80.8479 277.297 78.5594 275.974 76.3149 274.594L75.4631 274.07L74.9411 274.919C72.1103 273.152 69.3502 271.295 66.6657 269.351L67.2557 268.548L66.4497 267.956C64.3148 266.388 62.2289 264.765 60.1946 263.088L59.4228 262.453L58.7891 263.222C56.2307 261.084 53.7545 258.862 51.3657 256.561L52.0621 255.848L51.3467 255.15C49.4534 253.3 47.6166 251.4 45.8388 249.452L45.1647 248.714L44.4287 249.385C42.201 246.909 40.0673 244.357 38.0326 241.734L38.8243 241.129L38.2172 240.334C36.6121 238.233 35.0708 236.087 33.5958 233.899L33.0369 233.07L32.2108 233.627C30.3722 230.854 28.6387 228.016 27.0155 225.115L27.8885 224.635L27.4069 223.759C26.1353 221.445 24.9343 219.093 23.8062 216.704L23.3793 215.799L22.4785 216.225C21.0841 213.212 19.8047 210.142 18.6452 207.02L19.5817 206.68L19.2409 205.74C18.343 203.263 17.5211 200.753 16.7778 198.214L16.4969 197.254L15.541 197.534C14.636 194.348 13.8533 191.116 13.198 187.843L14.1762 187.655L13.9877 186.673C13.4922 184.091 13.0765 181.483 12.743 178.853L12.6173 177.861L11.6291 177.986C11.2399 174.707 10.9774 171.392 10.846 168.047L11.8416 168.015L11.8102 167.016C11.7689 165.698 11.748 164.374 11.748 163.047C11.748 161.719 11.7689 160.396 11.8102 159.078L11.8416 158.078L10.846 158.047C10.9774 154.701 11.2399 151.387 11.6291 148.108L12.6173 148.233L12.743 147.241C13.0765 144.61 13.4922 142.003 13.9877 139.421L14.1762 138.439L13.198 138.251C13.8533 134.977 14.636 131.745 15.541 128.56L16.4969 128.84L16.7778 127.88C17.5211 125.34 18.343 122.831 19.2409 120.353L19.5817 119.413L18.6452 119.074C19.8047 115.952 21.0841 112.882 22.4785 109.869L23.3793 110.294L23.8062 109.39C24.9343 107.001 26.1353 104.648 27.4069 102.335L27.8885 101.459L27.0155 100.979C28.6387 98.0779 30.3722 95.239 32.2108 92.4667L33.0369 93.0236L33.5958 92.1943C35.0708 90.0061 36.6121 87.8602 38.2172 85.7593L38.8243 84.9647L38.0326 84.3598C40.0673 81.7368 42.201 79.1847 44.4287 76.7082L45.1647 77.3799L45.8388 76.6413C47.6166 74.6934 49.4534 72.7935 51.3468 70.9439L52.0621 70.2451L51.3658 69.5323C53.7546 67.2317 56.2307 65.0099 58.7891 62.8718L59.4228 63.6408L60.1946 63.005C62.2289 61.3289 64.3148 59.7056 66.4497 58.1373L67.2557 57.5453L66.6657 56.7421C69.3502 54.7986 72.1103 52.9411 74.9411 51.1741L75.4631 52.0231L76.315 51.4994C78.5594 50.1197 80.8479 48.7968 83.1782 47.5332L84.0572 47.0565L83.5821 46.1804C86.5044 44.6212 89.4908 43.1541 92.5366 41.7833L92.9395 42.6949L93.8542 42.2906C96.2624 41.2261 98.7076 40.222 101.187 39.2805L102.122 38.9255L101.768 37.9937C104.871 36.8395 108.026 35.7821 111.229 34.8258L111.508 35.7827L112.468 35.5029C114.995 34.7668 117.552 34.0937 120.136 33.4857L121.11 33.2567L120.881 32.2864C124.103 31.5509 127.366 30.9157 130.668 30.3844L130.82 31.3695L131.808 31.2171C134.408 30.8161 137.032 30.4799 139.677 30.2103L140.672 30.109L140.571 29.1173C143.855 28.8039 147.173 28.5927 150.519 28.487L150.544 29.4836L151.543 29.4583C152.865 29.425 154.19 29.4082 155.52 29.4082C156.85 29.4082 158.176 29.425 159.497 29.4583L160.497 29.4836L160.522 28.487C163.868 28.5927 167.185 28.8039 170.47 29.1173L170.369 30.109L171.364 30.2103C174.009 30.4799 176.632 30.8161 179.232 31.2171L180.22 31.3695L180.372 30.3844C183.674 30.9157 186.938 31.5509 190.159 32.2864L189.931 33.2567L190.904 33.4857C193.489 34.0937 196.046 34.7668 198.572 35.5029L199.532 35.7827L199.811 34.8258C203.015 35.7821 206.17 36.8395 209.272 37.9937L208.918 38.9255L209.853 39.2805C212.333 40.222 214.778 41.2261 217.186 42.2906L218.101 42.6949L218.504 41.7833C221.55 43.1541 224.536 44.6212 227.458 46.1804L226.983 47.0565L227.862 47.5332C230.192 48.7969 232.481 50.1197 234.725 51.4994L235.577 52.0231L236.099 51.1741C238.93 52.9411 241.69 54.7986 244.375 56.7421L243.785 57.5453L244.591 58.1373C246.726 59.7056 248.811 61.3289 250.846 63.005L251.618 63.6409L252.251 62.8718C254.81 65.0099 257.286 67.2317 259.675 69.5323L258.978 70.2451L259.694 70.9439C261.587 72.7935 263.424 74.6935 265.202 76.6413L265.876 77.3799L266.612 76.7082C268.839 79.1847 270.973 81.7368 273.008 84.3598L272.216 84.9647L272.823 85.7593C274.428 87.8602 275.97 90.0061 277.445 92.1943L278.003 93.0236L278.83 92.4667C280.668 95.239 282.402 98.0779 284.025 100.979L283.152 101.459L283.633 102.335C284.905 104.648 286.106 107.001 287.234 109.39L287.661 110.294L288.562 109.869C289.956 112.882 291.236 115.952 292.395 119.074L291.459 119.413L291.799 120.353C292.697 122.831 293.519 125.34 294.263 127.88L294.543 128.84L295.499 128.56C296.404 131.745 297.187 134.977 297.842 138.251L296.864 138.439L297.053 139.421C297.548 142.003 297.964 144.61 298.297 147.241L298.423 148.233L299.411 148.108Z"
+    opacity="0.16"
+    stroke="#0C3C26"
+    stroke-dasharray="8 12"
+    stroke-linecap="square"
+    stroke-width="2"
+  />
+  <g class="orbit-icon icon-person" clip-path="url(#clip0_1168_6278)">
+    <path
+      d="M282.128 91.8514C285.432 91.8514 288.11 89.3077 288.11 86.1698C288.11 83.032 285.432 80.4883 282.128 80.4883C278.825 80.4883 276.146 83.032 276.146 86.1698C276.146 89.3077 278.825 91.8514 282.128 91.8514Z"
+      fill="#0C3C26"
+    />
+    <path
+      d="M282.129 93.7461C277.176 93.7513 273.162 97.5638 273.156 102.268C273.156 102.791 273.603 103.215 274.153 103.215H290.104C290.654 103.215 291.101 102.791 291.101 102.268C291.095 97.5638 287.082 93.7513 282.129 93.7461Z"
+      fill="#0C3C26"
+    />
+  </g>
+  <ellipse class="halo-outer" cx="155.115" cy="162.633" fill="#0C3C26" opacity="0.04" rx="101.281" ry="94.1916" />
+  <ellipse class="halo-inner" cx="155.52" cy="162.187" fill="#0C3C26" fill-opacity="0.12" opacity="0.89" rx="59.8154" ry="56.8156" />
+  <g class="orbit-icon icon-chat" clip-path="url(#clip1_1168_6278)">
+    <path
+      d="M12.96 121.203H4.98462C2.2361 121.203 0 123.327 0 125.938V138.11C0 138.86 0.433661 139.548 1.13051 139.903C1.44753 140.065 1.79546 140.145 2.14239 140.145C2.55711 140.145 2.97083 140.03 3.32972 139.804L7.28053 137.301H12.96C15.7085 137.301 17.9446 135.177 17.9446 132.566V125.938C17.9446 123.327 15.7085 121.203 12.96 121.203ZM23.9262 129.725V141.897C23.9262 142.648 23.4925 143.336 22.7956 143.691C22.4786 143.853 22.1307 143.932 21.7838 143.933C21.369 143.933 20.9553 143.819 20.5974 143.592L16.6456 141.089H10.9662C9.52061 141.089 8.22761 140.491 7.31642 139.555L7.88367 139.195H12.96C16.8071 139.195 19.9385 136.22 19.9385 132.566V125.938C19.9385 125.646 19.9115 125.362 19.8737 125.08C22.1775 125.496 23.9262 127.418 23.9262 129.725Z"
+      fill="#0C3C26"
+    />
+  </g>
+  <g class="orbit-icon icon-learn" clip-path="url(#clip2_1168_6278)">
+    <path
+      d="M248.235 272.223V283.132C248.235 283.383 248.13 283.624 247.943 283.801C247.756 283.979 247.502 284.079 247.238 284.079C246.973 284.079 246.72 283.979 246.533 283.801C246.346 283.624 246.241 283.383 246.241 283.132V275.321L238.864 278.67C238.086 279.106 237.198 279.333 236.295 279.327C235.347 279.328 234.417 279.087 233.603 278.627L226.246 275.301C225.667 275.005 225.183 274.568 224.842 274.035C224.502 273.502 224.317 272.892 224.309 272.268C224.3 271.644 224.468 271.03 224.793 270.488C225.119 269.947 225.592 269.498 226.162 269.188C226.189 269.173 226.218 269.159 226.246 269.146L233.68 265.776C234.482 265.339 235.393 265.112 236.319 265.119C237.244 265.127 238.151 265.368 238.945 265.819L246.298 269.146C246.878 269.451 247.363 269.896 247.703 270.436C248.043 270.977 248.227 271.593 248.235 272.223ZM236.294 281.219C235.018 281.222 233.764 280.904 232.66 280.299L228.296 278.32V280.877C228.297 281.888 228.638 282.872 229.269 283.686C229.9 284.5 230.788 285.101 231.804 285.402C233.256 285.797 234.761 285.99 236.272 285.973C237.782 285.989 239.287 285.795 240.739 285.398C241.755 285.097 242.643 284.496 243.275 283.682C243.906 282.868 244.246 281.884 244.247 280.873V278.325L239.802 280.342C238.735 280.924 237.524 281.228 236.294 281.221V281.219Z"
+      fill="#0C3C26"
+    />
+  </g>
+  <g class="message-cluster message-kannada">
+  <line
+    stroke="#0C3C26"
+    transform="matrix(0.725054 0.688692 -0.725054 0.688692 19.9375 205.482)"
+    x2="39.874"
+    y1="-0.5"
+    y2="-0.5"
+  />
+  <rect fill="#FAF3E9" height="26" rx="13" width="133" x="15.5" y="221.58" />
+  <rect height="25" rx="12.5" stroke="#0C3C26" stroke-opacity="0.08" width="132" x="16" y="222.08" />
+  <text
+    class="rotating-copy copy-1"
+    x="23.5"
+    y="236.98"
+    fill="#0C3C26"
+    font-family="Inter, Arial, sans-serif"
+    font-size="10"
+    font-weight="400"
+  >
+    ತುಂಬಾ ಖಿನ್ನತೆಯ ಭಾವನೆ 🥺
+  </text>
+  <text class="rotating-copy copy-2" x="23.5" y="236.98" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    I don't feel okay today
+  </text>
+  <text class="rotating-copy copy-3" x="23.5" y="236.98" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    Can you listen to me?
+  </text>
+  <ellipse cx="19.6854" cy="205.483" fill="#9BEBCE" rx="19.6854" ry="18.9385" />
+  <ellipse cx="19.6854" cy="205.483" fill="url(#paint0_radial_1168_6278)" rx="19.6854" ry="18.9385" />
+  <ellipse cx="19.6854" cy="205.483" fill="url(#paint1_radial_1168_6278)" rx="19.6854" ry="18.9385" />
+  </g>
+  <g class="message-cluster message-cheated">
+  <path d="M228.647 37.5433L256.707 10.8906" stroke="#0C3C26" />
+  <rect fill="#FAF3E9" height="26" rx="13" width="105" x="195.5" />
+  <rect height="25" rx="12.5" stroke="#0C3C26" stroke-opacity="0.08" width="104" x="196" y="0.5" />
+  <text class="rotating-copy copy-1" x="205.5" y="15.4" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    She cheated on me
+  </text>
+  <text class="rotating-copy copy-2" x="205.5" y="15.4" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    I feel so alone
+  </text>
+  <text class="rotating-copy copy-3" x="205.5" y="15.4" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    What do I do now?
+  </text>
+  <ellipse cx="228.041" cy="37.878" fill="#9BEBCE" rx="19.6854" ry="18.9385" />
+  <ellipse cx="228.041" cy="37.878" fill="url(#paint2_radial_1168_6278)" rx="19.6854" ry="18.9385" />
+  <ellipse cx="228.041" cy="37.878" fill="url(#paint3_radial_1168_6278)" rx="19.6854" ry="18.9385" />
+  </g>
+  <g class="message-cluster message-christianity">
+  <line
+    stroke="#0C3C26"
+    transform="matrix(0.725054 0.688692 -0.725054 0.688692 149.537 296.176)"
+    x2="45"
+    y1="-0.5"
+    y2="-0.5"
+  />
+  <rect fill="#FAF3E9" height="26" rx="13" width="201" x="55" y="316.273" />
+  <rect height="25" rx="12.5" stroke="#0C3C26" stroke-opacity="0.08" width="200" x="55.5" y="316.773" />
+  <text class="rotating-copy copy-1" x="65" y="331.673" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    what's Christianity &amp; snake connection?
+  </text>
+  <text class="rotating-copy copy-2" x="65" y="331.673" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    Teach me something unexpected
+  </text>
+  <text class="rotating-copy copy-3" x="65" y="331.673" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    Why do dreams feel so real?
+  </text>
+  <ellipse cx="149.522" cy="296.175" fill="#89684D" rx="19.9223" ry="18.9385" />
+  <ellipse cx="149.522" cy="296.175" fill="url(#paint4_radial_1168_6278)" rx="19.9223" ry="18.9385" />
+  <ellipse cx="149.522" cy="296.175" fill="url(#paint5_radial_1168_6278)" rx="19.9223" ry="18.9385" />
+  </g>
+  <g class="message-cluster message-anxiety">
+  <line
+    stroke="#0C3C26"
+    transform="matrix(-0.725054 -0.688692 0.725054 -0.688692 285.121 231.051)"
+    x2="48.1238"
+    y1="-0.5"
+    y2="-0.5"
+  />
+  <rect fill="#FAF3E9" height="26" rx="13" width="127" x="173.5" y="186.545" />
+  <rect height="25" rx="12.5" stroke="#0C3C26" stroke-opacity="0.08" width="126" x="174" y="187.045" />
+  <text class="rotating-copy copy-1" x="183.5" y="201.945" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    Anxiety is killing me 💔
+  </text>
+  <text class="rotating-copy copy-2" x="183.5" y="201.945" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    My mind won't slow down
+  </text>
+  <text class="rotating-copy copy-3" x="183.5" y="201.945" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    I need some clarity
+  </text>
+  <ellipse cx="285.084" cy="231.05" fill="#9BEBCE" rx="19.9019" ry="18.9385" />
+  <ellipse cx="285.084" cy="231.05" fill="url(#paint6_radial_1168_6278)" rx="19.9019" ry="18.9385" />
+  <ellipse cx="285.084" cy="231.05" fill="url(#paint7_radial_1168_6278)" rx="19.9019" ry="18.9385" />
+  </g>
+  <g class="message-cluster message-hindi">
+  <line
+    stroke="#0C3C26"
+    transform="matrix(-0.725054 0.688692 -0.725054 -0.688692 95.6758 30.3008)"
+    x2="50.8737"
+    y1="-0.5"
+    y2="-0.5"
+  />
+  <ellipse cx="58.6754" cy="65.3375" fill="#9BEBCE" rx="29.7633" ry="28.4078" />
+  <ellipse cx="58.6754" cy="65.3375" fill="url(#paint8_radial_1168_6278)" rx="29.7633" ry="28.4078" />
+  <ellipse cx="58.6754" cy="65.3375" fill="url(#paint9_radial_1168_6278)" rx="29.7633" ry="28.4078" />
+  <rect fill="#FAF3E9" height="26" rx="13" width="137" x="13.5" y="18.9375" />
+  <rect height="25" rx="12.5" stroke="#0C3C26" stroke-opacity="0.08" width="136" x="14" y="19.4375" />
+  <text class="rotating-copy copy-1" x="23.5" y="34.3375" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    Mujhe koi samjhta nahi 😔
+  </text>
+  <text class="rotating-copy copy-2" x="23.5" y="34.3375" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    Aaj mann heavy hai
+  </text>
+  <text class="rotating-copy copy-3" x="23.5" y="34.3375" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    Can we just talk?
+  </text>
+  </g>
+  <line
+    stroke="#0C3C26"
+    transform="matrix(-0.725054 0.688692 -0.725054 -0.688692 219.324 103.215)"
+    x2="85.2478"
+    y1="-0.5"
+    y2="-0.5"
+  />
+  <g class="meera-core">
+  <circle cx="155.121" cy="163.623" r="32" fill="url(#meera-core-gradient)" />
+  </g>
+  <g class="meera-label">
+  <rect fill="#FAF3E9" height="26" rx="13" width="52" x="220" y="93.7461" />
+  <rect height="25" rx="12.5" stroke="#0C3C26" stroke-opacity="0.08" width="51" x="220.5" y="94.2461" />
+  <text x="230" y="109.146" fill="#0C3C26" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="400">
+    Meera
+  </text>
+  </g>
+  <defs>
+    <radialGradient id="meera-core-gradient" cx="35%" cy="19%" r="88%">
+      <stop offset="0" stop-color="#ff3a3f" />
+      <stop offset="0.36" stop-color="#eb1e22" />
+      <stop offset="0.7" stop-color="#8f1018" />
+      <stop offset="1" stop-color="#050506" />
+    </radialGradient>
+    <radialGradient
+      cx="0"
+      cy="0"
+      gradientTransform="translate(36.0961 218.892) rotate(-156.695) scale(47.199 41.442)"
+      gradientUnits="userSpaceOnUse"
+      id="paint0_radial_1168_6278"
+      r="1"
+    >
+      <stop stop-color="#76EFF7" />
+      <stop offset="0.247718" stop-color="#62AFD0" />
+      <stop offset="0.549373" stop-color="#3AEFE4" />
+      <stop offset="0.778001" stop-color="#4D6EAD" />
+      <stop offset="1" stop-color="#2CADD6" />
+    </radialGradient>
+    <radialGradient
+      cx="0"
+      cy="0"
+      gradientTransform="translate(-1.82993e-06 224.422) rotate(-45.5085) scale(43.8085 43.8218)"
+      gradientUnits="userSpaceOnUse"
+      id="paint1_radial_1168_6278"
+      r="1"
+    >
+      <stop stop-color="#9CF9FF" />
+      <stop offset="1" stop-color="#98D6D2" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient
+      cx="0"
+      cy="0"
+      gradientTransform="translate(244.452 51.2868) rotate(-156.695) scale(47.199 41.442)"
+      gradientUnits="userSpaceOnUse"
+      id="paint2_radial_1168_6278"
+      r="1"
+    >
+      <stop stop-color="#76EFF7" />
+      <stop offset="0.247718" stop-color="#62AFD0" />
+      <stop offset="0.549373" stop-color="#3AEFE4" />
+      <stop offset="0.778001" stop-color="#4D6EAD" />
+      <stop offset="1" stop-color="#2CADD6" />
+    </radialGradient>
+    <radialGradient
+      cx="0"
+      cy="0"
+      gradientTransform="translate(208.355 56.8165) rotate(-45.5085) scale(43.8085 43.8218)"
+      gradientUnits="userSpaceOnUse"
+      id="paint3_radial_1168_6278"
+      r="1"
+    >
+      <stop stop-color="#9CF9FF" />
+      <stop offset="1" stop-color="#98D6D2" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient
+      cx="0"
+      cy="0"
+      gradientTransform="translate(140.531 296.243) rotate(40.9126) scale(30.2782 37.2109)"
+      gradientUnits="userSpaceOnUse"
+      id="paint4_radial_1168_6278"
+      r="1"
+    >
+      <stop stop-color="#C5A77B" />
+      <stop offset="1" stop-color="#242886" />
+    </radialGradient>
+    <radialGradient
+      cx="0"
+      cy="0"
+      gradientTransform="translate(142.035 279.362) rotate(58.0023) scale(18.8902 19.3258)"
+      gradientUnits="userSpaceOnUse"
+      id="paint5_radial_1168_6278"
+      r="1"
+    >
+      <stop stop-color="#EBB76C" />
+      <stop offset="1" stop-color="#FF9900" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient
+      cx="0"
+      cy="0"
+      gradientTransform="translate(297.171 212.111) rotate(137.095) scale(27.8186 34.3343)"
+      gradientUnits="userSpaceOnUse"
+      id="paint6_radial_1168_6278"
+      r="1"
+    >
+      <stop stop-color="#F7C410" />
+      <stop offset="1" stop-color="#FF0000" />
+    </radialGradient>
+    <radialGradient
+      cx="0"
+      cy="0"
+      gradientTransform="translate(265.182 249.988) rotate(-40.1991) scale(41.5944 41.2408)"
+      gradientUnits="userSpaceOnUse"
+      id="paint7_radial_1168_6278"
+      r="1"
+    >
+      <stop stop-color="#5B0000" />
+      <stop offset="1" stop-color="#FBBBBB" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient
+      cx="0"
+      cy="0"
+      gradientTransform="translate(83.4876 85.4507) rotate(-156.859) scale(71.2745 62.2397)"
+      gradientUnits="userSpaceOnUse"
+      id="paint8_radial_1168_6278"
+      r="1"
+    >
+      <stop stop-color="#8EA19F" />
+      <stop offset="0.247718" stop-color="#B0B6B0" />
+      <stop offset="0.549373" stop-color="#EF913A" />
+      <stop offset="0.778001" stop-color="#7A787B" />
+      <stop offset="1" stop-color="#666F57" />
+    </radialGradient>
+    <radialGradient
+      cx="0"
+      cy="0"
+      gradientTransform="translate(28.9121 93.7453) rotate(-45.2813) scale(65.9704 65.9976)"
+      gradientUnits="userSpaceOnUse"
+      id="paint9_radial_1168_6278"
+      r="1"
+    >
+      <stop stop-color="#8F8291" />
+      <stop offset="1" stop-color="#D6BC98" stop-opacity="0" />
+    </radialGradient>
+    <clipPath id="clip0_1168_6278">
+      <rect fill="white" height="22.7263" transform="translate(270.166 80.4883)" width="23.9262" />
+    </clipPath>
+    <clipPath id="clip1_1168_6278">
+      <rect fill="white" height="22.7263" transform="translate(0 121.207)" width="23.9262" />
+    </clipPath>
+    <clipPath id="clip2_1168_6278">
+      <rect fill="white" height="22.7263" transform="translate(224.309 264.193)" width="23.9262" />
+    </clipPath>
+  </defs>
+</svg>

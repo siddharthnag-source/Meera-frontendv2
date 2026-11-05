@@ -1,0 +1,31 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Meera onboarding experiment</title>
+<style>body{font:17px system-ui;background:#f5f3ee;color:#213e36;margin:0;padding:24px}main{max-width:660px;margin:45px auto;background:white;border-radius:24px;padding:32px}h1{font-size:34px}button,input,select{font:inherit;border-radius:10px;padding:12px;margin:6px 3px;border:1px solid #b4c5bd}button{cursor:pointer;background:#e8f1eb}button:disabled{opacity:.5;cursor:default}input[type=text]{width:90%}small{display:block;color:#526b62}#status{min-height:28px;color:#8b301f}pre{white-space:pre-wrap;overflow-wrap:anywhere}label{display:block;margin:14px 0}</style>
+<main><small>MEERA · __MODE__</small><h1>Let’s get to know you.</h1><p>This local prototype uses a synthetic session. Google sign-up and saving to Meera are integration steps, not simulated successes.</p>
+<section id="intro"><label><input id="consent" type="checkbox"> I agree to try this with synthetic details. In live mode, recorded answers are sent to OpenRouter and its selected model provider.</label><button id="start">Start experiment</button></section>
+<section id="flow" hidden><p id="question"></p><input id="answer" type="text" aria-label="Your answer" placeholder="Type an answer"><div><button id="submit">Use answer</button><button id="skip">Skip question</button><button id="record" hidden>Record answer</button><button id="speak" hidden>Hear question</button></div><small id="hint">For DOB, type YYYY-MM-DD. Nothing is saved until you confirm each answer.</small><div id="pending" hidden><p id="candidate"></p><button id="confirm">Confirm answer</button><button id="reject">Edit answer</button></div><div id="review" hidden><h2>Review your profile</h2><pre id="profile"></pre><label>Edit a field <select id="editfield"><option value="name">Name</option><option value="job_details">Job details</option><option value="dob">DOB</option><option value="caste">Caste</option></select></label><button id="edit">Edit selected field</button><button id="finish">Confirm profile</button></div><button id="cancel">Cancel and clear session</button></section><p id="status" role="status" aria-live="polite"></p></main>
+<script>
+const token='__TOKEN__', $=id=>document.getElementById(id);let id,field,live=false,recorder,stream,chunks=[],timer,audio;
+async function api(path,body={}){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Experiment-Token':token},body:JSON.stringify({id,...body})});if(!r.ok){let e=await r.json();throw Error(e.error)}return path==='/speak'?r.blob():r.json()}
+function stopPlayback(){if(audio){audio.pause();URL.revokeObjectURL(audio.src);audio=null}}
+function stopMic(){clearTimeout(timer);if(recorder?.state==='recording')recorder.stop();stream?.getTracks().forEach(t=>t.stop());$('record').textContent='Record answer'}
+function render(r){field=r.field;$('pending').hidden=true;$('review').hidden=!!field;$('question').textContent=r.question||'Review your answers. Age will be calculated from your date of birth.';$('answer').value='';$('profile').textContent=JSON.stringify(r.profile||{},null,2);for(const n of ['submit','skip','record'])$(n).disabled=!field;$('skip').disabled=!field||field==='name';$('answer').hidden=!field}
+async function run(fn){$('status').textContent='';try{await fn()}catch(e){$('status').textContent=e.message}}
+$('start').onclick=()=>run(async()=>{const r=await api('/start',{consent:$('consent').checked});id=r.id;live=r.live;$('intro').hidden=true;$('flow').hidden=false;$('record').hidden=!live;$('speak').hidden=!live;render(r)});
+async function answer(body){const r=await api('/answer',{field,...body});$('pending').hidden=false;$('candidate').textContent=`Please confirm ${r.pending.field}: ${r.pending.value??'Skipped'}`;for(const n of ['submit','skip','record'])$(n).disabled=true}
+$('submit').onclick=()=>run(()=>answer({text:$('answer').value}));$('skip').onclick=()=>run(()=>answer({skip:true}));
+$('confirm').onclick=()=>run(async()=>render(await api('/confirm')));$('reject').onclick=()=>run(async()=>{await api('/reject');$('pending').hidden=true;for(const n of ['submit','record'])$(n).disabled=false;$('skip').disabled=field==='name';$('answer').focus()});
+$('edit').onclick=()=>{field=$('editfield').value;$('review').hidden=true;$('question').textContent=`Update ${field}`;$('answer').hidden=false;for(const n of ['submit','record'])$(n).disabled=false;$('skip').disabled=field==='name'};
+$('finish').onclick=()=>run(async()=>{const r=await api('/finish');$('profile').textContent=JSON.stringify(r.profile,null,2);$('status').textContent=r.message;$('finish').disabled=true;$('edit').disabled=true;stopPlayback();stopMic()});
+$('cancel').onclick=()=>run(async()=>{stopMic();stopPlayback();await api('/cancel');location.reload()});
+$('speak').onclick=()=>run(async()=>{stopPlayback();const blob=await api('/speak');audio=new Audio(URL.createObjectURL(blob));await audio.play()});
+$('record').onclick=()=>run(async()=>{
+ if(recorder?.state==='recording'){stopMic();return}stopPlayback();
+ if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw Error('Recording unavailable. Please type your answer.');
+ stream=await navigator.mediaDevices.getUserMedia({audio:true});chunks=[];
+ const mime=['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t));
+ if(!mime){stream.getTracks().forEach(t=>t.stop());throw Error('Recording format unavailable. Please type.')}recorder=new MediaRecorder(stream,{mimeType:mime});
+ recorder.ondataavailable=e=>chunks.push(e.data);recorder.onstop=()=>run(async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:mime});if(blob.size>2000000)throw Error('Recording too large. Please give a shorter answer.');const bytes=new Uint8Array(await blob.arrayBuffer());let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);await answer({audio:btoa(binary),format:mime.includes('mp4')?'m4a':mime.includes('ogg')?'ogg':'webm'})});
+ recorder.start();$('record').textContent='Stop recording';timer=setTimeout(stopMic,20000);
+});
+window.addEventListener('pagehide',()=>{if(recorder)recorder.onstop=null;stopMic();stopPlayback()});
+</script></html>
