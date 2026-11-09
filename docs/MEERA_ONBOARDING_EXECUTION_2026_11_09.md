@@ -34,6 +34,10 @@ The brief states a $10 lifetime OpenRouter key cap with no reset and expiry on 1
 - Browser harness passes 16 grouped checks at mobile/desktop sizes: allowed/blocked autoplay, prerecorded previews, optional details, synthetic corrections, draft save/reload, microphone denial and cleanup, account-change isolation, guided speech/silence loops, provider/429 fallback and Google-only continuation without storage.
 - Browser authentication, provider replies and database saves are fixtures. These do not prove live OAuth, provider quality, actual database RLS, or a real quota exhaustion.
 
+## Staging CSP verification
+
+Automatic approval review rejected the inherited staging config because it allowed inline scripts and eval. The staging app now creates a fresh CSP nonce per HTML request and renders dynamically, without those broad allowances. The minimal packager includes the middleware. Production CSP hydration is checked separately from the development-browser harness.
+
 ## Customer acceptance demo (60–90 seconds)
 
 Use a fresh permitted staging Google account. Start the timer after voice/language choice, separately from Google signup. Choose Sarah or Brian and preview; choose English or Hindi/Hinglish; start and permit microphone once. Give work and DOB in one answer, correct one fact, review/edit the Google name, optionally add phone/usage, and save. Reload and compare saved values. Repeat denied-microphone, provider failure, empty details, duplicate save and second-account isolation. Trigger a real shared quota 429 in an isolated test account. Record actual elapsed time and reconcile provider cost.

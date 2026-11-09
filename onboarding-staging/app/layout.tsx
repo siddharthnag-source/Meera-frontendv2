@@ -2,6 +2,9 @@ import type { Metadata, Viewport } from "next";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import "./globals.css";
 
+// A fresh request is required for each CSP nonce.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Welcome to Meera — Your Personal Companion",
   description:

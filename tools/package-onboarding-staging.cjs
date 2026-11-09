@@ -29,6 +29,7 @@ function rewrite(dir) {
 rewrite(path.join(output, 'app'));
 const config = fs.readFileSync(path.join(root, 'onboarding-staging/next.config.ts'), 'utf8').replace('../tools/voice-onboarding/assets', './tools/voice-onboarding/assets');
 fs.writeFileSync(path.join(output, 'next.config.ts'), config);
+copy(path.join(root, 'onboarding-staging/middleware.ts'), path.join(output, 'middleware.ts'));
 copy(path.join(root, 'onboarding-staging/postcss.config.mjs'), path.join(output, 'postcss.config.mjs'));
 const tsconfig = JSON.parse(fs.readFileSync(path.join(root, 'onboarding-staging/tsconfig.json')));
 tsconfig.compilerOptions.paths['@/*'] = ['./src/*'];
