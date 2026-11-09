@@ -13,19 +13,16 @@ export default function Callback() {
     let cancelled = false;
     void auth.auth
       .getSession()
-      .then(async ({ data, error }) => {
+      .then(({ data, error }) => {
         if (cancelled) return;
         if (error || !data.session) {
           setError("Google sign-in did not complete. Please try again.");
           return;
         }
-        const response = await fetch("/api/onboarding/session", {
-          headers: { Authorization: `Bearer ${data.session.access_token}` },
-          signal: AbortSignal.timeout(5000), cache: "no-store",
-        }).catch(() => null);
-        const setup = response?.ok ? await response.json().catch(() => null) : null;
-        if (cancelled) return;
-        window.location.replace(setup?.draft?.complete && setup.workspace ? setup.workspace : ONBOARDING_RETURN_PATH);
+        // This dedicated app is the explicit voice onboarding flow. A completed
+        // draft must not silently send its Google return to another site's chat
+        // or payment route. Workspace navigation requires the user's action.
+        window.location.replace(ONBOARDING_RETURN_PATH);
       })
       .catch(() => {
         if (!cancelled)

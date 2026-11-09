@@ -1,4 +1,5 @@
 /** Fixed local destination; never accepts an external return URL. */
+export const ONBOARDING_CALLBACK_PATH = "/auth/callback";
 export const ONBOARDING_RETURN_PATH = "/onboarding?setup=1";
 const key = "meera:onboarding-sign-in";
 export function rememberOnboardingSignIn() {

@@ -275,19 +275,14 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
       },
     });
   });
-  await page.goto(base + "/onboarding?setup=1");
-  await page
-    .getByRole("heading", { name: "A little about you", exact: true })
-    .waitFor();
+  await page.goto(base + "/auth/callback");
+  await page.getByRole("heading", { name: "Your voice, your way", exact: true }).waitFor();
   assert.equal(new URL(page.url()).pathname, "/onboarding");
   assert.equal(new URL(page.url()).searchParams.has("setup"), false);
-  await page
-    .getByRole("button", { name: "Continue with Meera’s voice", exact: true })
-    .waitFor();
+  await page.getByRole("button", { name: "Start with Meera", exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.__tracks.length), 0);
-  results.push(
-    "authenticated onboarding return opens optional menu, remains on onboarding and requests no microphone",
-  );
+  results.push("Google return opens voice settings first, stays on onboarding and requests no microphone until Start");
+  await page.getByRole("button", { name: "I’d rather type", exact: true }).click();
   const name = page.getByRole("textbox", {
     name: "What should I call you? (optional)",
     exact: true,
@@ -424,7 +419,11 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
   results.push(
     "empty personalization can be completed and read back; no compulsory name/DOB/work",
   );
-  await page.reload();
+  await page.goto(base + "/auth/callback");
+  await page.getByRole("heading", { name: "Your voice, your way", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/onboarding");
+  results.push("completed profiles returning through Google stay in voice setup instead of redirecting to workspace/payment");
+  await page.getByRole("button", { name: "Close panel" }).click();
   await page.getByRole("link", { name: "Open Meera", exact: false }).waitFor();
   await page.getByRole("button", { name: "Show transcripts" }).click();
   await page
@@ -543,12 +542,8 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     });
   });
   await guide.goto(base + "/onboarding?setup=1");
-  await guide
-    .getByRole("heading", { name: "A little about you", exact: true })
-    .waitFor();
-  await guide
-    .getByRole("button", { name: "Continue with Meera’s voice", exact: true })
-    .click();
+  await guide.getByRole("heading", { name: "Your voice, your way", exact: true }).waitFor();
+  await guide.getByRole("button", { name: "Start with Meera", exact: true }).click();
   await guide
     .getByRole("heading", { name: "A little about you", exact: true })
     .waitFor({ timeout: 45000 });

@@ -1,5 +1,6 @@
 "use client";
 import {
+  ONBOARDING_CALLBACK_PATH,
   rememberOnboardingSignIn,
   clearOnboardingSignIn,
 } from "@/lib/onboarding-redirect";
@@ -255,11 +256,9 @@ export default function Onboarding() {
         if (currentUser && menuPresentedFor.current !== currentUser) {
           menuPresentedFor.current = currentUser;
           clearOnboardingSignIn();
-          if (
-            !draftRef.current.complete ||
-            new URLSearchParams(window.location.search).get("setup") === "1"
-          )
-            setPanel("profile");
+          const returnedFromSignup = new URLSearchParams(window.location.search).get("setup") === "1";
+          if (returnedFromSignup) setPanel("voice");
+          else if (!draftRef.current.complete) setPanel("profile");
           const url = new URL(window.location.href);
           url.searchParams.delete("setup");
           window.history.replaceState(
@@ -288,7 +287,7 @@ export default function Onboarding() {
     const { error } = await auth.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}${ONBOARDING_CALLBACK_PATH}`,
       },
     });
     if (error) {
