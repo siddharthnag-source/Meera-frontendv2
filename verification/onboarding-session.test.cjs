@@ -495,3 +495,20 @@ test("invalid question context is rejected before paid provider calls", async ()
   assert.equal(response.status, 400);
   assert.equal(h.calls.filter((c) => c[0] === "fetch").length, 0);
 });
+
+
+test("optional phone and intended usage save and read back without paid inference", async () => {
+  const h = harness({ env: { OPENROUTER_API_KEY: "" } });
+  const profile = { name: null, phone: "+91 98765 43210", usage: "Team projects" };
+  const response = await h.request("profile", { profile, revision: 0, complete: true, saveKey: "12345678-1234-4234-8234-123456789abc" });
+  assert.equal(response.status, 200);
+  const read = await h.request("session", undefined, {}, "GET");
+  assert.deepEqual((await read.json()).draft.profile, profile);
+  assert.equal(h.calls.filter(c => c[0] === "fetch").length, 0);
+});
+test("invalid optional phone is rejected before any write", async () => {
+  const h = harness();
+  const response = await h.request("profile", { profile: { phone: "call me" }, revision: 0, complete: true, saveKey: "12345678-1234-4234-8234-123456789abc" });
+  assert.equal(response.status, 400);
+  assert.equal(h.calls.filter(c => c[0] === "rpc").length, 0);
+});

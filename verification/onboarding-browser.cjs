@@ -289,7 +289,7 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     "authenticated onboarding return opens optional menu, remains on onboarding and requests no microphone",
   );
   const name = page.getByRole("textbox", {
-    name: "What should Meera call you? (optional)",
+    name: "What should I call you? (optional)",
     exact: true,
   });
   await name.fill("");
@@ -400,10 +400,12 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
   if (release) release();
   delayed = false;
   for (const label of [
-    "What should Meera call you? (optional)",
+    "What should I call you? (optional)",
     "Birthday (optional)",
     "Work or study (optional)",
     "Caste or community (optional)",
+    "Phone number (optional)",
+    "Personal tasks, work, or team projects? (optional)",
   ])
     await page.getByLabel(label, { exact: true }).fill("");
   await page
@@ -417,6 +419,8 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
   assert.equal(stored.profile.name, null);
   assert.equal(stored.profile.dob, null);
   assert.equal(stored.profile.job_details, null);
+  assert.equal(stored.profile.phone, null);
+  assert.equal(stored.profile.usage, null);
   results.push(
     "empty personalization can be completed and read back; no compulsory name/DOB/work",
   );

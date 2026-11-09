@@ -5,8 +5,10 @@ export type Profile = {
   job_details?: string | null;
   dob?: string | null;
   caste?: string | null;
+  phone?: string | null;
+  usage?: string | null;
 };
-export const PROFILE_FIELDS = ["name", "job_details", "dob", "caste"] as const;
+export const PROFILE_FIELDS = ["name", "job_details", "dob", "caste", "phone", "usage"] as const;
 export type ProfileField = (typeof PROFILE_FIELDS)[number];
 export function ageFromDob(
   dob: string,
@@ -42,6 +44,8 @@ export function validateProfile(value: unknown): Profile {
     if (typeof raw !== "string" || !raw.trim() || raw.length > 500)
       throw new Error("Please give a short answer.");
     if (field === "dob") ageFromDob(raw);
+    if (field === "phone" && !/^\+?[0-9 () .-]{7,25}$/.test(raw.trim()))
+      throw new Error("Please check your phone number, or leave it blank.");
     profile[field as ProfileField] = raw.trim();
   }
   return profile;
@@ -53,7 +57,7 @@ export function nextPrompt(profile: Profile, language: Language) {
       text:
         language === "hi"
           ? "मैं आपको किस नाम से बुलाऊँ?"
-          : "What should Meera call you? You can skip this.",
+          : "What should I call you? You can skip this.",
     };
   if (profile.job_details === undefined)
     return {

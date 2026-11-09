@@ -42,7 +42,8 @@ test("dedicated callback returns to menu only after a session and ignores stale 
     errors = [];
   const exports = {};
   vm.runInNewContext(compile("onboarding-staging/app/auth/callback/page.tsx"), {
-    exports,
+    exports, AbortSignal,
+    fetch: async () => ({ ok: true, json: async () => ({ draft: { complete: false } }) }),
     window: { location: { replace: (t) => targets.push(t) } },
     require: (id) =>
       ({

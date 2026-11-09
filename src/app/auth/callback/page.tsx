@@ -66,7 +66,17 @@ export default function AuthCallbackPage() {
           });
           const onboardingTarget = isOnboardingSignIn(window.location.search) ? ONBOARDING_RETURN_PATH : null;
           const purchaseTarget = consumePurchaseIntent();
-          router.replace(returnTo || onboardingTarget || purchaseTarget || '/');
+          if (returnTo || onboardingTarget || purchaseTarget) {
+            router.replace(returnTo || onboardingTarget || purchaseTarget!);
+          } else {
+            // Google signup enters optional setup. Completed accounts bypass it.
+            const response = await fetch('/api/onboarding/session', {
+              headers, signal: AbortSignal.timeout(5000), cache: 'no-store',
+            }).catch(() => null);
+            const setup = response?.ok ? await response.json().catch(() => null) : null;
+            if (!isCurrent()) return;
+            router.replace(setup?.draft?.complete ? '/' : ONBOARDING_RETURN_PATH);
+          }
           return;
         }
 

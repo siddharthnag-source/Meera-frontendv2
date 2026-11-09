@@ -11,6 +11,7 @@ import type { Session } from "@supabase/supabase-js";
 import { onboardingAuth } from "@/lib/onboarding-auth-client";
 import {
   ageFromDob,
+  PROFILE_FIELDS,
   nextPrompt,
   type Language,
   type Profile,
@@ -637,6 +638,8 @@ export default function Onboarding() {
         job_details: draftRef.current.profile.job_details ?? null,
         dob: draftRef.current.profile.dob ?? null,
         caste: draftRef.current.profile.caste ?? null,
+        phone: draftRef.current.profile.phone ?? null,
+        usage: draftRef.current.profile.usage ?? null,
       };
       const saved = await persist(profile, true);
       const check = await (await api("session")).json();
@@ -647,7 +650,7 @@ export default function Onboarding() {
         // JSONB key order can differ: compare values, not object serialization order.
         if (
           !check.draft.complete ||
-          ["name", "job_details", "dob", "caste"].some(
+          PROFILE_FIELDS.some(
             (key) =>
               check.draft.profile[key] !== saved.profile[key as keyof Profile],
           )
@@ -1006,6 +1009,12 @@ export default function Onboarding() {
             )}
           </>
         )}
+        {elapsed && session && !draft.complete && (
+          <div className={styles.resumeNotice} role="status">
+            <p>No rush. Take a break or finish by typing. Your saved draft stays here.</p>
+            <button className={styles.textButton} onClick={() => { interrupt(); setPanel("profile"); }}>Type or save draft</button>
+          </div>
+        )}
         <p className={styles.disclosure}>
           {session
             ? "Microphone access starts only when you choose a call. Voice is processed through OpenRouter; recordings are not stored by this app."
@@ -1055,7 +1064,17 @@ export default function Onboarding() {
             />
             <p className={styles.panelNote}>
               Preview Sarah or Brian, and choose English or Hindi/Hinglish.
+              Every profile detail is optional.
             </p>
+            {session && !draft.complete && <div className={styles.profileActions}>
+              <button className={styles.primaryButton}
+                disabled={busy || !loaded || !ready || !canRecord}
+                onClick={() => { setPanel(null); startVoice(); }}>
+                <Icon name="mic" /> Start with Meera
+              </button>
+              <button className={styles.textButton} onClick={() => setPanel("profile")}>I’d rather type</button>
+            </div>}
+            {session && <a className={styles.textButton} href={workspace} onClick={() => { dirty.current = false; interrupt(); }}>Skip for now — open Meera</a>}
           </>
         )}
         {panel === "transcript" && (
@@ -1095,6 +1114,12 @@ export default function Onboarding() {
                   Share only what feels right. You can skip every detail and
                   still use Meera.
                 </p>
+                <VoicePreferences
+                  voice={voice} language={language} disabled={busy || recording}
+                  onVoice={(value) => { stopSpeech(); setVoice(value); }}
+                  onLanguage={(value) => { stopSpeech(); setLanguage(value); }}
+                  onPreview={previewVoice}
+                />
                 <button
                   className={styles.primaryButton}
                   disabled={busy || !loaded || !ready || !canRecord}
@@ -1120,7 +1145,7 @@ export default function Onboarding() {
                     [
                       {
                         key: "name",
-                        title: "What should Meera call you? (optional)",
+                        title: "What should I call you? (optional)",
                         type: "text",
                       },
                       {
@@ -1134,6 +1159,16 @@ export default function Onboarding() {
                         type: "text",
                       },
                       {
+                        key: "phone",
+                        title: "Phone number (optional)",
+                        type: "tel",
+                      },
+                      {
+                        key: "usage",
+                        title: "Personal tasks, work, or team projects? (optional)",
+                        type: "text",
+                      },
+                      {
                         key: "caste",
                         title: "Caste or community (optional)",
                         type: "text",
@@ -1144,7 +1179,8 @@ export default function Onboarding() {
                       {field.title}
                       <input
                         type={field.type}
-                        maxLength={500}
+                        maxLength={field.key === "phone" ? 25 : 500}
+                        autoComplete={field.key === "phone" ? "tel" : field.key === "name" ? "given-name" : "off"}
                         value={draft.profile[field.key] || ""}
                         disabled={busy || recording || !loaded}
                         onChange={(event) => {
