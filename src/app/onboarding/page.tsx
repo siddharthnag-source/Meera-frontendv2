@@ -1,5 +1,4 @@
 "use client";
-import Image from "next/image";
 import {
   rememberOnboardingSignIn,
   clearOnboardingSignIn,
@@ -767,12 +766,12 @@ export default function Onboarding() {
           }}
         >
           <span className={styles.orbMiddle}>
-            <Image
+            <img
               className={styles.orb}
               src="/icons/meera.svg"
               width={184}
               height={184}
-              priority
+              loading="eager"
               alt=""
             />
           </span>
