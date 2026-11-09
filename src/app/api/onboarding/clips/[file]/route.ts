@@ -14,11 +14,11 @@ export async function GET(
   )
     return new NextResponse(null, { status: 404 });
   try {
-    const root =
-      path.basename(process.cwd()) === "onboarding-staging" ? ".." : ".";
-    const audio = await readFile(
-      path.join(process.cwd(), root, "tools/voice-onboarding/assets", file),
-    );
+    // Standalone deployment assets live under the app root. In the repository's
+    // nested staging app, the shared assets live one directory above it.
+    const local = path.join(process.cwd(), "tools/voice-onboarding/assets", file);
+    const shared = path.join(process.cwd(), "..", "tools/voice-onboarding/assets", file);
+    const audio = await readFile(local).catch(() => readFile(shared));
     return new NextResponse(new Uint8Array(audio), {
       headers: {
         "Content-Type": "audio/mpeg",
