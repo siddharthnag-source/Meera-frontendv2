@@ -1,5 +1,6 @@
 'use client';
 
+import { isOnboardingSignIn, ONBOARDING_RETURN_PATH } from '@/lib/onboarding-redirect';
 import { finishGoogleAgentConnection } from '@/lib/auth/startGoogleAgentConnection';
 import { clearAuthRedirectTrace, clearGuestTokenState, logAuthRedirectEvent } from '@/lib/authRedirect';
 import { supabase } from '@/lib/supabaseClient';
@@ -63,7 +64,7 @@ export default function AuthCallbackPage() {
           logAuthRedirectEvent('auth_callback_session_restored', {
             pathname: window.location.pathname,
           });
-          const onboardingTarget = searchParams.get('onboarding') === '1' ? '/onboarding' : null;
+          const onboardingTarget = isOnboardingSignIn(window.location.search) ? ONBOARDING_RETURN_PATH : null;
           const purchaseTarget = consumePurchaseIntent();
           router.replace(returnTo || onboardingTarget || purchaseTarget || '/');
           return;

@@ -275,8 +275,19 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
       },
     });
   });
-  await page.goto(base + "/onboarding");
-  await page.getByRole("button", { name: "Add details (optional)" }).click();
+  await page.goto(base + "/onboarding?setup=1");
+  await page
+    .getByRole("heading", { name: "A little about you", exact: true })
+    .waitFor();
+  assert.equal(new URL(page.url()).pathname, "/onboarding");
+  assert.equal(new URL(page.url()).searchParams.has("setup"), false);
+  await page
+    .getByRole("button", { name: "Continue with Meera’s voice", exact: true })
+    .waitFor();
+  assert.equal(await page.evaluate(() => window.__tracks.length), 0);
+  results.push(
+    "authenticated onboarding return opens optional menu, remains on onboarding and requests no microphone",
+  );
   const name = page.getByRole("textbox", {
     name: "What should Meera call you? (optional)",
     exact: true,
@@ -311,7 +322,9 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
   );
   await page.getByRole("button", { name: "Close panel" }).click();
   await page.reload();
-  await page.getByRole("button", { name: "Add details (optional)" }).click();
+  await page
+    .getByRole("heading", { name: "A little about you", exact: true })
+    .waitFor();
   await page.waitForFunction(() =>
     [...document.querySelectorAll("input")].some((e) => e.value === "Teacher"),
   );
@@ -525,9 +538,12 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
       },
     });
   });
-  await guide.goto(base + "/onboarding");
+  await guide.goto(base + "/onboarding?setup=1");
   await guide
-    .getByRole("button", { name: "Start voice — allow microphone" })
+    .getByRole("heading", { name: "A little about you", exact: true })
+    .waitFor();
+  await guide
+    .getByRole("button", { name: "Continue with Meera’s voice", exact: true })
     .click();
   await guide
     .getByRole("heading", { name: "A little about you", exact: true })
@@ -594,6 +610,10 @@ const base = process.env.ONBOARDING_TEST_URL || "http://127.0.0.1:3223";
     }),
   );
   await skip.goto(base + "/onboarding");
+  await skip
+    .getByRole("heading", { name: "A little about you", exact: true })
+    .waitFor();
+  await skip.getByRole("button", { name: "Close panel" }).click();
   await skip
     .getByRole("link", { name: "Skip for now — continue to Meera" })
     .click();

@@ -1,5 +1,9 @@
 "use client";
 import Image from "next/image";
+import {
+  rememberOnboardingSignIn,
+  clearOnboardingSignIn,
+} from "@/lib/onboarding-redirect";
 import { watchSpeech, type SpeechMonitor } from "@/lib/onboarding-listening";
 import styles from "@/components/onboarding/Onboarding.module.css";
 import { useEffect, useRef, useState } from "react";
@@ -72,6 +76,7 @@ export default function Onboarding() {
   const saveKey = useRef<string | null>(null);
   const sessionRef = useRef(session);
   const dirty = useRef(false);
+  const menuPresentedFor = useRef<string | null>(null);
   sessionRef.current = session;
   function update(value: Draft) {
     draftRef.current = value;
@@ -167,6 +172,7 @@ export default function Onboarding() {
       setProfileChecked(false);
       setCallActive(false);
       setPanel(null);
+      menuPresentedFor.current = null;
       setConversation([]);
       cachedAudio.current = null;
       lastPrompt.current = null;
@@ -245,6 +251,23 @@ export default function Onboarding() {
       if (attempt === generation.current) {
         setBusy(false);
         setProfileChecked(true);
+        const currentUser = sessionRef.current?.user.id;
+        if (currentUser && menuPresentedFor.current !== currentUser) {
+          menuPresentedFor.current = currentUser;
+          clearOnboardingSignIn();
+          if (
+            !draftRef.current.complete ||
+            new URLSearchParams(window.location.search).get("setup") === "1"
+          )
+            setPanel("profile");
+          const url = new URL(window.location.href);
+          url.searchParams.delete("setup");
+          window.history.replaceState(
+            window.history.state,
+            "",
+            url.pathname + url.search + url.hash,
+          );
+        }
       }
     }
   }
@@ -261,13 +284,17 @@ export default function Onboarding() {
       setError("Google sign-in is not configured in this staging environment.");
       return;
     }
+    rememberOnboardingSignIn();
     const { error } = await auth.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?onboarding=1`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
-    if (error) setError("Google sign-in could not start. Please try again.");
+    if (error) {
+      clearOnboardingSignIn();
+      setError("Google sign-in could not start. Please try again.");
+    }
   }
   async function persist(profile: Profile, complete: boolean) {
     const attempt = generation.current;
@@ -1068,6 +1095,26 @@ export default function Onboarding() {
                   Share only what feels right. You can skip every detail and
                   still use Meera.
                 </p>
+                <button
+                  className={styles.primaryButton}
+                  disabled={busy || !loaded || !ready || !canRecord}
+                  onClick={() => {
+                    setPanel(null);
+                    startVoice();
+                  }}
+                >
+                  <Icon name="mic" /> Continue with Meera’s voice
+                </button>
+                <p className={styles.panelNote}>
+                  Meera will ask one question at a time. You can speak, type, or
+                  skip. Microphone access starts when you choose voice.
+                </p>
+                {!loaded && (
+                  <p role="status" className={styles.notice}>
+                    Optional profile setup is unavailable. You can still skip
+                    and continue to Meera.
+                  </p>
+                )}
                 <div className={styles.profileFields}>
                   {(
                     [

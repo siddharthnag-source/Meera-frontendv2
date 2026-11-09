@@ -13,6 +13,7 @@ function fixture(options = {}) {
     react: { useEffect: (effect) => cleanups.push(effect()) },
     'react/jsx-runtime': { jsx: () => null, jsxs: () => null },
     'next/navigation': { useRouter: () => ({ replace: (target) => navigations.push(target) }) },
+    '@/lib/onboarding-redirect': { isOnboardingSignIn: search => new URLSearchParams(search).get('onboarding') === '1' || Boolean(options.onboardingIntent), ONBOARDING_RETURN_PATH: '/onboarding?setup=1' },
     '@/lib/supabaseClient': { supabase: { auth: { getSession: () => new Promise(resolve => pending.push(resolve)) } } },
     '@/lib/auth/startGoogleAgentConnection': { finishGoogleAgentConnection: async () => options.connector || null },
     '@/lib/authRedirect': { clearAuthRedirectTrace() {}, clearGuestTokenState() {}, logAuthRedirectEvent() {} },
@@ -62,9 +63,11 @@ test('the active callback still preserves the explicit US offer on success and a
 
 test('explicit onboarding callback takes priority over a previously saved purchase intent', async () => {
   const f = fixture(); f.location.search = '?onboarding=1'; f.mount();
-  f.pending[0](f.session); await settle(); assert.deepEqual(f.navigations, ['/onboarding']); assert.equal(f.consumes(), 1);
+  f.pending[0](f.session); await settle(); assert.deepEqual(f.navigations, ['/onboarding?setup=1']); assert.equal(f.consumes(), 1);
 });
 test('connector return still takes priority over onboarding', async () => {
   const f = fixture({ skipPurchase: true, connector: '/connectors?connected=google' }); f.location.search = '?onboarding=1'; f.mount();
   f.pending[0](f.session); await settle(); assert.deepEqual(f.navigations, ['/connectors?connected=google']);
 });
+
+ test('a bare callback retains onboarding started in the same tab', async () => { const f = fixture({onboardingIntent:true}); f.mount(); f.pending[0](f.session); await settle(); assert.deepEqual(f.navigations, ['/onboarding?setup=1']); });
