@@ -48,3 +48,6 @@ next-env.d.ts
 
 .env*
 /tmp/growth-staging/vercel-auth/
+
+# Local onboarding builds and browser evidence
+/work/

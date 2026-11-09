@@ -27,7 +27,7 @@ function fixture(options = {}) {
   vm.runInNewContext(source, {
     exports, require: id => { if (!(id in imports)) throw Error(id); return imports[id]; },
     window: { location }, URLSearchParams, AbortSignal, console,
-    fetch: async () => ({ ok: false }),
+    fetch: async url => url === '/api/onboarding/session' ? ({ ok: true, json: async () => ({ draft: { complete: Boolean(options.complete) } }) }) : ({ ok: false }),
   });
   const session = { data: { session: { access_token: 'synthetic' } }, error: null };
   return { mount: () => exports.default(), pending, cleanups, navigations, location, session, consumes: () => consumes };
@@ -71,3 +71,11 @@ test('connector return still takes priority over onboarding', async () => {
 });
 
  test('a bare callback retains onboarding started in the same tab', async () => { const f = fixture({onboardingIntent:true}); f.mount(); f.pending[0](f.session); await settle(); assert.deepEqual(f.navigations, ['/onboarding?setup=1']); });
+
+test('normal Google sign-in routes incomplete accounts to optional onboarding and completed accounts home', async () => {
+  for (const complete of [false, true]) {
+    const f = fixture({ skipPurchase: true, complete }); f.mount();
+    f.pending[0](f.session); await settle();
+    assert.deepEqual(f.navigations, [complete ? '/' : '/onboarding?setup=1']);
+  }
+});

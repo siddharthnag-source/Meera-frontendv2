@@ -13,7 +13,7 @@ export const json = (body: unknown, status = 200) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 export function failure(error: unknown) {
   const status = error instanceof OnboardingError ? error.status : 502;
-  return json(
+  const response = json(
     {
       error:
         error instanceof OnboardingError
@@ -22,6 +22,8 @@ export function failure(error: unknown) {
     },
     status,
   );
+  if (status === 429) response.headers.set("Retry-After", "60");
+  return response;
 }
 export async function identity(
   request: NextRequest,
@@ -29,8 +31,8 @@ export async function identity(
 ): Promise<{ db: SupabaseClient; user: User }> {
   if (
     mutation &&
-    request.headers.get("origin") !==
-      (process.env.ONBOARDING_ALLOWED_ORIGIN || request.nextUrl.origin)
+    ![request.nextUrl.origin, process.env.ONBOARDING_ALLOWED_ORIGIN]
+      .filter(Boolean).includes(request.headers.get("origin") || "")
   )
     throw new OnboardingError(403, "Request origin is not allowed.");
   const authorization = request.headers.get("authorization");

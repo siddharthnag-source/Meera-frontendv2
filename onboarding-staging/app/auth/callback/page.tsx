@@ -19,6 +19,9 @@ export default function Callback() {
           setError("Google sign-in did not complete. Please try again.");
           return;
         }
+        // This dedicated app is the explicit voice onboarding flow. A completed
+        // draft must not silently send its Google return to another site's chat
+        // or payment route. Workspace navigation requires the user's action.
         window.location.replace(ONBOARDING_RETURN_PATH);
       })
       .catch(() => {

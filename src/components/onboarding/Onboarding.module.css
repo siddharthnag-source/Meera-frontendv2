@@ -696,3 +696,15 @@
     transform: none;
   }
 }
+
+.resumeNotice {
+  max-width: 460px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 18px;
+  margin: 16px auto;
+  text-align: center;
+  color: var(--soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
