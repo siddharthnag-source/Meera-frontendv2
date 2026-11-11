@@ -2,7 +2,7 @@ import { requireAuthenticatedUser } from '@/lib/meeraServer';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import type { NextRequest } from 'next/server';
 
-export type AnalyticsRole = 'owner' | 'product_growth' | 'analyst' | 'support' | 'internal_viewer';
+export type AnalyticsRole = 'owner' | 'product_growth' | 'growth_aggregate' | 'analyst' | 'support' | 'internal_viewer';
 export type AnalyticsPermission =
   | 'analytics.view'
   | 'users.list'
@@ -15,6 +15,9 @@ export type AnalyticsPermission =
   | 'access.manage';
 
 const ROLE_PERMISSIONS: Record<AnalyticsRole, AnalyticsPermission[]> = {
+  // Funnel/cohort totals only. User drilldowns, PII, conversations and access
+  // administration remain unavailable to this role.
+  growth_aggregate: ['analytics.view'],
   owner: [
     'analytics.view',
     'users.list',

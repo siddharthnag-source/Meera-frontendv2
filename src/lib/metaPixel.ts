@@ -5,6 +5,7 @@ export const META_PIXEL_ID = '933654956266333';
 // Never load marketing code on OAuth callbacks, dashboards, or conversation URLs.
 // Restrict campaign values too: links carrying emails or arbitrary text are excluded.
 export function isMarketingPage(pathname: string, search: string, hash: string): boolean {
+  if (process.env.NEXT_PUBLIC_META_PIXEL_ENABLED === 'false') return false;
   if (!MARKETING_PATHS.has(pathname) || hash) return false;
   const campaignKeys = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']);
   const clickKeys = new Set(['fbclid', 'gclid', 'msclkid', 'ttclid', 'gl', 'utm_id', 'gad_source', 'gad_campaignid']);

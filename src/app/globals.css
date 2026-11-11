@@ -1,20 +1,6 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
-:root {
-  --background: #faf3e9;
-  --primary: #0c3c26;
-  --primary-light: #acb7a9;
-  --secondary: #6b7280;
-  --card: #ffffff;
-}
-
-[data-theme='dark'] {
-  --background: #262624;
-  --primary: #faf3e9;
-  --primary-light: #526957;
-  --secondary: #a0aec0;
-  --card: #141413;
-}
+@import "../styles/meera-theme.css";
 
 @theme inline {
   --color-background: var(--background);
@@ -51,7 +37,7 @@ html {
     overflow: hidden;
   }
 
-  .meera-chat-shell[data-keyboard-open='true'] .meera-chat-composer {
+  .meera-chat-shell[data-keyboard-open="true"] .meera-chat-composer {
     padding-bottom: 0.5rem !important;
   }
 }

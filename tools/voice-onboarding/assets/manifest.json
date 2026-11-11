@@ -1,0 +1,227 @@
+{
+  "model": "elevenlabs/eleven-flash-v2.5",
+  "voices": [
+    {
+      "id": "sarah",
+      "items": [
+        {
+          "id": "preview",
+          "text": "Hi, I'm Meera. Let's make this feel like you.",
+          "path": "sarah-preview.mp3",
+          "bytes": 41003,
+          "generationMs": 1795,
+          "language": "en"
+        },
+        {
+          "id": "welcome",
+          "text": "Welcome to Meera. Let's get you settled in. What would you like me to call you, and what fills most of your day?",
+          "path": "sarah-welcome.mp3",
+          "bytes": 110384,
+          "generationMs": 1186,
+          "language": "en"
+        },
+        {
+          "id": "work",
+          "text": "What fills most of your day? Work, studies, or something else?",
+          "path": "sarah-work.mp3",
+          "bytes": 56049,
+          "generationMs": 827,
+          "language": "en"
+        },
+        {
+          "id": "birthday",
+          "text": "When is your birthday, including the year? You can skip this if you prefer.",
+          "path": "sarah-birthday.mp3",
+          "bytes": 64826,
+          "generationMs": 805,
+          "language": "en"
+        },
+        {
+          "id": "community",
+          "text": "One optional detail: would you like to share your caste or community? It's fine to skip.",
+          "path": "sarah-community.mp3",
+          "bytes": 80709,
+          "generationMs": 881,
+          "language": "en"
+        },
+        {
+          "id": "review",
+          "text": "Here's what I have. Take a look. You can change anything, or save and begin.",
+          "path": "sarah-review.mp3",
+          "bytes": 76111,
+          "generationMs": 838,
+          "language": "en"
+        },
+        {
+          "id": "finish",
+          "text": "You're all set. I'm glad you're here. Let's begin.",
+          "path": "sarah-finish.mp3",
+          "bytes": 46436,
+          "generationMs": 828,
+          "language": "en"
+        },
+        {
+          "id": "preview",
+          "language": "hi",
+          "text": "नमस्ते, मैं मीरा हूँ। चलिए, आपकी पसंद से शुरुआत करते हैं।",
+          "path": "sarah-hi-preview.mp3",
+          "bytes": 54377
+        },
+        {
+          "id": "welcome",
+          "language": "hi",
+          "text": "मीरा में आपका स्वागत है। मैं आपको किस नाम से बुलाऊँ, और आपका दिन किस काम में बीतता है?",
+          "path": "sarah-hi-welcome.mp3",
+          "bytes": 81963
+        },
+        {
+          "id": "work",
+          "language": "hi",
+          "text": "आप काम करते हैं, पढ़ाई करते हैं, या कुछ और? आप चाहें तो इसे छोड़ सकते हैं।",
+          "path": "sarah-hi-work.mp3",
+          "bytes": 79037
+        },
+        {
+          "id": "birthday",
+          "language": "hi",
+          "text": "आपकी जन्म तारीख क्या है? दिन, महीना और साल बताइए। आप चाहें तो इसे छोड़ सकते हैं।",
+          "path": "sarah-hi-birthday.mp3",
+          "bytes": 88650
+        },
+        {
+          "id": "community",
+          "language": "hi",
+          "text": "एक वैकल्पिक जानकारी। क्या आप अपनी जाति या समुदाय बताना चाहेंगे? इसे छोड़ना बिल्कुल ठीक है।",
+          "path": "sarah-hi-community.mp3",
+          "bytes": 96173
+        },
+        {
+          "id": "review",
+          "language": "hi",
+          "text": "मैंने यह जानकारी नोट की है। आप कुछ भी बदल सकते हैं, या सेव करके शुरू कर सकते हैं।",
+          "path": "sarah-hi-review.mp3",
+          "bytes": 78201
+        },
+        {
+          "id": "finish",
+          "language": "hi",
+          "text": "सब तैयार है। आप यहाँ हैं, यह अच्छा लगा। चलिए, शुरू करते हैं।",
+          "path": "sarah-hi-finish.mp3",
+          "bytes": 70260
+        }
+      ]
+    },
+    {
+      "id": "brian",
+      "items": [
+        {
+          "id": "preview",
+          "text": "Hi, I'm Meera. Let's make this feel like you.",
+          "path": "brian-preview.mp3",
+          "bytes": 41003,
+          "generationMs": 835,
+          "language": "en"
+        },
+        {
+          "id": "welcome",
+          "text": "Welcome to Meera. Let's get you settled in. What would you like me to call you, and what fills most of your day?",
+          "path": "brian-welcome.mp3",
+          "bytes": 95337,
+          "generationMs": 944,
+          "language": "en"
+        },
+        {
+          "id": "work",
+          "text": "What fills most of your day? Work, studies, or something else?",
+          "path": "brian-work.mp3",
+          "bytes": 56885,
+          "generationMs": 849,
+          "language": "en"
+        },
+        {
+          "id": "birthday",
+          "text": "When is your birthday, including the year? You can skip this if you prefer.",
+          "path": "brian-birthday.mp3",
+          "bytes": 70260,
+          "generationMs": 828,
+          "language": "en"
+        },
+        {
+          "id": "community",
+          "text": "One optional detail: would you like to share your caste or community? It's fine to skip.",
+          "path": "brian-community.mp3",
+          "bytes": 93247,
+          "generationMs": 956,
+          "language": "en"
+        },
+        {
+          "id": "review",
+          "text": "Here's what I have. Take a look. You can change anything, or save and begin.",
+          "path": "brian-review.mp3",
+          "bytes": 88650,
+          "generationMs": 954,
+          "language": "en"
+        },
+        {
+          "id": "finish",
+          "text": "You're all set. I'm glad you're here. Let's begin.",
+          "path": "brian-finish.mp3",
+          "bytes": 56885,
+          "generationMs": 883,
+          "language": "en"
+        },
+        {
+          "id": "preview",
+          "language": "hi",
+          "text": "नमस्ते, मैं मीरा हूँ। चलिए, आपकी पसंद से शुरुआत करते हैं।",
+          "path": "brian-hi-preview.mp3",
+          "bytes": 71096
+        },
+        {
+          "id": "welcome",
+          "language": "hi",
+          "text": "मीरा में आपका स्वागत है। मैं आपको किस नाम से बुलाऊँ, और आपका दिन किस काम में बीतता है?",
+          "path": "brian-hi-welcome.mp3",
+          "bytes": 90322
+        },
+        {
+          "id": "work",
+          "language": "hi",
+          "text": "आप काम करते हैं, पढ़ाई करते हैं, या कुछ और? आप चाहें तो इसे छोड़ सकते हैं।",
+          "path": "brian-hi-work.mp3",
+          "bytes": 94083
+        },
+        {
+          "id": "birthday",
+          "language": "hi",
+          "text": "आपकी जन्म तारीख क्या है? दिन, महीना और साल बताइए। आप चाहें तो इसे छोड़ सकते हैं।",
+          "path": "brian-hi-birthday.mp3",
+          "bytes": 91158
+        },
+        {
+          "id": "community",
+          "language": "hi",
+          "text": "एक वैकल्पिक जानकारी। क्या आप अपनी जाति या समुदाय बताना चाहेंगे? इसे छोड़ना बिल्कुल ठीक है।",
+          "path": "brian-hi-community.mp3",
+          "bytes": 99935
+        },
+        {
+          "id": "review",
+          "language": "hi",
+          "text": "मैंने यह जानकारी नोट की है। आप कुछ भी बदल सकते हैं, या सेव करके शुरू कर सकते हैं।",
+          "path": "brian-hi-review.mp3",
+          "bytes": 87396
+        },
+        {
+          "id": "finish",
+          "language": "hi",
+          "text": "सब तैयार है। आप यहाँ हैं, यह अच्छा लगा। चलिए, शुरू करते हैं।",
+          "path": "brian-hi-finish.mp3",
+          "bytes": 71514
+        }
+      ]
+    }
+  ],
+  "purpose": "Fixed public prompts only; never cache personal answers",
+  "generatedAt": "2026-11-04T11:33:27.570Z"
+}

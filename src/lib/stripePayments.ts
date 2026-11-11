@@ -3,6 +3,20 @@ import Stripe from 'stripe';
 
 export const STRIPE_LIFETIME_AMOUNT = 9900;
 
+// Test fulfillment must target an explicitly selected nonproduction database.
+// Match the URL exactly; substring checks also accept attacker-controlled hosts.
+export function stripeSandboxDatabaseReady() {
+  const ref = process.env.MEERA_STRIPE_SANDBOX_SUPABASE_REF ?? 'odeqnorudbdiuhweuoqv';
+  if (!/^[a-z]{20}$/.test(ref) || ref === 'xilapyewazpzlvqbbtgl') return false;
+  try {
+    const url = new URL(process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '');
+    return url.protocol === 'https:' && url.hostname === `${ref}.supabase.co` &&
+      !url.port && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash;
+  } catch {
+    return false;
+  }
+}
+
 export function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error('Stripe is not configured');
@@ -11,6 +25,9 @@ export function getStripe() {
 
 export function stripeCheckoutReady() {
   const key = process.env.STRIPE_SECRET_KEY ?? '';
+  if (process.env.MEERA_PAYMENT_MODE === 'sandbox') {
+    return /^(sk|rk)_test_/.test(key) && Boolean(process.env.STRIPE_WEBHOOK_SECRET) && stripeSandboxDatabaseReady();
+  }
   return Boolean(
     key && process.env.STRIPE_WEBHOOK_SECRET && (process.env.VERCEL_ENV !== 'production' || /^(sk|rk)_live_/.test(key)),
   );
@@ -45,6 +62,9 @@ export async function paymentIdentity(request: Request) {
 // Fulfillment is driven by signed events; a redirect never grants access.
 export async function fulfillStripeSession(session: Stripe.Checkout.Session) {
   if (session.payment_status !== 'paid') return;
+  if (process.env.MEERA_PAYMENT_MODE === 'sandbox' && session.livemode) {
+    throw new Error('Sandbox deployments cannot fulfill live payments');
+  }
   if (
     session.mode !== 'payment' ||
     session.currency !== 'usd' ||
@@ -57,8 +77,7 @@ export async function fulfillStripeSession(session: Stripe.Checkout.Session) {
     throw new Error('Unexpected checkout purchase');
   }
   // A sandbox payment must never grant access in the production Meera database.
-  const dbUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-  if (!session.livemode && !dbUrl.includes('odeqnorudbdiuhweuoqv.supabase.co')) {
+  if (!session.livemode && !stripeSandboxDatabaseReady()) {
     throw new Error('Test payment fulfillment requires the Meera QA database');
   }
   const db = paymentDatabase();
@@ -97,7 +116,8 @@ export async function revokeStripePayment(paymentIntentId: string, status: 'refu
     if (session.metadata?.plan_type !== 'lifetime') continue;
     // Insert a revocation even if it arrives before the checkout completion event.
     // The duplicate-safe grant above cannot overwrite it on a later delivery.
-    if (!session.livemode && !(process.env.SUPABASE_URL ?? '').includes('odeqnorudbdiuhweuoqv.supabase.co')) continue;
+    if (!session.livemode && !stripeSandboxDatabaseReady()) continue;
+    if (process.env.MEERA_PAYMENT_MODE === 'sandbox' && session.livemode) continue;
     const userId = session.metadata?.public_user_id;
     if (!userId) continue;
     const now = new Date().toISOString();
@@ -133,7 +153,8 @@ export async function restoreStripePayment(paymentIntentId: string) {
   const db = paymentDatabase();
   for (const session of sessions.data) {
     if (session.metadata?.plan_type !== 'lifetime') continue;
-    if (!session.livemode && !(process.env.SUPABASE_URL ?? '').includes('odeqnorudbdiuhweuoqv.supabase.co')) continue;
+    if (!session.livemode && !stripeSandboxDatabaseReady()) continue;
+    if (process.env.MEERA_PAYMENT_MODE === 'sandbox' && session.livemode) continue;
     const now = new Date().toISOString();
     const { error } = await db
       .from('payments')

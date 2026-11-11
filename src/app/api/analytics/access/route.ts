@@ -6,7 +6,7 @@ import {
   writeAnalyticsAudit,
 } from '@/lib/analyticsAccess';
 
-const ASSIGNABLE_ROLES = new Set<AnalyticsRole>(['owner', 'product_growth', 'analyst', 'support']);
+const ASSIGNABLE_ROLES = new Set<AnalyticsRole>(['owner', 'product_growth', 'growth_aggregate', 'analyst', 'support']);
 
 export async function GET(request: NextRequest) {
   const auth = await requireAnalyticsPermission(request, 'access.manage');
