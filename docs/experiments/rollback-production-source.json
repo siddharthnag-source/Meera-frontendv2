@@ -1,0 +1,1303 @@
+{
+  "deploymentId": "dpl_7Bm3z1tz5Neq2Uu7x4wUrnns18gf",
+  "projectId": "prj_vcwkcVasl0IHsZaNuCqNF362AN5Y",
+  "teamId": "team_GElsejSOv3JCiuXlZNgvnGT5",
+  "files": [
+    {
+      "path": ".deployment-source-metadata.json",
+      "uid": "5e0f6fe6bd9c600fd021d3df44ea07eb2eaeb346"
+    },
+    {
+      "path": ".gitattributes",
+      "uid": "b3b56f13bc28a63c8272c444d5885aefee9d254b"
+    },
+    {
+      "path": ".github/workflows/growth-staging-checks.yml",
+      "uid": "ab970698118228d1ccc55e55d5f64d60de067dc0"
+    },
+    {
+      "path": ".prettierrc",
+      "uid": "6b27f9d036281152d745777490979eaee11997d7"
+    },
+    {
+      "path": ".vercelignore",
+      "uid": "8b95cfafe54c804f8002b07c096f28fbc636b373"
+    },
+    {
+      "path": "Dockerfile",
+      "uid": "2947f5842c9e7cc404cd981c51ce7bb31ce35207"
+    },
+    {
+      "path": "deploy.sh",
+      "uid": "9822c4808d7e318b6168b056a4a2b450bd434d2c"
+    },
+    {
+      "path": "docs/ARYA_ADS_HANDOFF_2026_10_25.md",
+      "uid": "7337d3c4eaa09854c1f56a0327b31dadf3eac83f"
+    },
+    {
+      "path": "docs/ARYA_INDEPENDENT_STAGING.md",
+      "uid": "c710ab09a5f42bda98c5ec51d998a79c3497600d"
+    },
+    {
+      "path": "docs/ARYA_STAGING_CONFIG.example.json",
+      "uid": "96c42e9ffd947658be8061cc8d21fea2e14d7387"
+    },
+    {
+      "path": "docs/US_SALES_AUDIT_2026_10_25.md",
+      "uid": "f6b627f65b91fda9674afca79ec9b922f845abfc"
+    },
+    {
+      "path": "docs/US_SALES_RELEASE_2026_10_26.md",
+      "uid": "cdbff2fbb9934eac123de9c865cce8bc264e1593"
+    },
+    {
+      "path": "eslint.config.mjs",
+      "uid": "24db0f24f31341287445b349723af89584e3a152"
+    },
+    {
+      "path": "next-env.d.ts",
+      "uid": "79ea33d5bd6bf5319667f287c6aec3a5e0ce256a"
+    },
+    {
+      "path": "next.config.ts",
+      "uid": "0f83280a9fa6c3f8a943432855aeef65dcd0015c"
+    },
+    {
+      "path": "p.textContent.includes('Text')",
+      "uid": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "package-lock.json",
+      "uid": "1069c2dc0f7e63e94c5095874479d3d4c8d4ac85"
+    },
+    {
+      "path": "package.json",
+      "uid": "622d11371b12d3b5cc83a0eedb8c5df20fcd0e33"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "uid": "2516d107a8264553103370f53f017d4c1edfced5"
+    },
+    {
+      "path": "pnpm-workspace.yaml",
+      "uid": "1c990b927c17ab79a20fbdc2b90993b05718f578"
+    },
+    {
+      "path": "postcss.config.mjs",
+      "uid": "80f76880f12bdad439767d5e526b7d6d913edc1b"
+    },
+    {
+      "path": "public/banner.png",
+      "uid": "3ce3fd7c84c5db68bb935c79e197f557345829d3"
+    },
+    {
+      "path": "public/file.svg",
+      "uid": "119dc5ec0424fb5b56c03cfa4250992d642f38ac"
+    },
+    {
+      "path": "public/globe.svg",
+      "uid": "420040934804f2147b3a1904c7d4883c3ae3a03a"
+    },
+    {
+      "path": "public/icons/apple-icon-180.png",
+      "uid": "83824e2820db8e39fbcb9fdc8f1908c40665b2b8"
+    },
+    {
+      "path": "public/icons/arrow-back.svg",
+      "uid": "5e5393b6ae64fab2273f3b5ff74b25e1c8420503"
+    },
+    {
+      "path": "public/icons/back.svg",
+      "uid": "5e5393b6ae64fab2273f3b5ff74b25e1c8420503"
+    },
+    {
+      "path": "public/icons/arrow-right.svg",
+      "uid": "0a4765ddd1261957d36a9715702791a31c3db71f"
+    },
+    {
+      "path": "public/icons/arrow-right_red.svg",
+      "uid": "eba79b906f66777f62faf7298d89f6aae0946678"
+    },
+    {
+      "path": "public/icons/arrow-up-dark.svg",
+      "uid": "1ea6ec0b77057999347f85036276733a8e87ba2c"
+    },
+    {
+      "path": "public/icons/arrow-up-light.svg",
+      "uid": "7241a1eef1ce39306a5b1020c5eb15e6c6478e4a"
+    },
+    {
+      "path": "public/icons/chat.svg",
+      "uid": "f7c19bc60a9e6e8dbb1fb2d30e162d977a9228cd"
+    },
+    {
+      "path": "public/icons/cross.svg",
+      "uid": "da1de26ed115c7e2d4635c40e5ad2d64b0b5acdf"
+    },
+    {
+      "path": "public/icons/endcall.svg",
+      "uid": "03008b8e71023cd32612d0a5983585a30b388dc9"
+    },
+    {
+      "path": "public/icons/favicon-196.png",
+      "uid": "7c4320b6945e1a3d18726f284d03652d298c7f43"
+    },
+    {
+      "path": "public/icons/google.svg",
+      "uid": "f64601d7eceaa00d90fded662eeee7487d38f93f"
+    },
+    {
+      "path": "public/icons/manifest-icon-192.maskable.png",
+      "uid": "ccf11e7a95d4e0f3f208a9b0666d9371ed5cf516"
+    },
+    {
+      "path": "public/icons/manifest-icon-512.maskable.png",
+      "uid": "92df100d865d80d400861669b98f31ff36115c65"
+    },
+    {
+      "path": "public/icons/meera.svg",
+      "uid": "8a5d6a0991c5ce7debdbc2048d5aab24d71d95c6"
+    },
+    {
+      "path": "public/icons/meera/meera_144-144.png",
+      "uid": "5404e967feae1541e5f6897fbbee046cd8dea8c0"
+    },
+    {
+      "path": "public/icons/meera/meera_192-192.png",
+      "uid": "714e0b08db171b5ccf5aa7b1485f44d9e21db9ae"
+    },
+    {
+      "path": "public/icons/meera/meera_48-48.png",
+      "uid": "38006b5cbe67003ce98f2ff66201b5e70df858a8"
+    },
+    {
+      "path": "public/icons/meera/meera_512-512.png",
+      "uid": "f1f87d559457cc30d974c958dec4109b99651305"
+    },
+    {
+      "path": "public/icons/meera/meera_72-72.png",
+      "uid": "d46877187e0e7799997c56d9b2a7f2a73c985268"
+    },
+    {
+      "path": "public/icons/meera/meera_96-96.png",
+      "uid": "230dd3d66f22cb8ee14ea498a784b355a6a616d3"
+    },
+    {
+      "path": "public/icons/microphone.svg",
+      "uid": "74a4937bc5813537e8ebb9eacd3bc130fe717014"
+    },
+    {
+      "path": "public/icons/send.svg",
+      "uid": "342eba34a0b6299773115bcb20d2a3832e91fc2b"
+    },
+    {
+      "path": "public/icons/startcall.svg",
+      "uid": "892b14405f90f7589aa2a3099485274a869e961d"
+    },
+    {
+      "path": "public/icons/user.svg",
+      "uid": "f790801df80737a94baab74f4dc87e10a2935088"
+    },
+    {
+      "path": "public/icons/wave.svg",
+      "uid": "970c9d9552a4ebbb2f18978809f1f511050307e7"
+    },
+    {
+      "path": "public/images/banner.svg",
+      "uid": "123ccafbd5cf09721151278911f25c9211aa81ae"
+    },
+    {
+      "path": "public/images/google_logo.svg",
+      "uid": "8e1d27d7967c8e83f0a66c764d31e08f22e7a6f5"
+    },
+    {
+      "path": "public/images/home.svg",
+      "uid": "520f2bbf32ba6b18ed87ff9287a46d2eeefee8db"
+    },
+    {
+      "path": "public/images/img1.png",
+      "uid": "94e1c56f34ba0bc0125d8b111ecb2c6b375dafe9"
+    },
+    {
+      "path": "public/images/img2.png",
+      "uid": "e63e9340df590b99cbc972ac05d6b938d14565e1"
+    },
+    {
+      "path": "public/images/img3.png",
+      "uid": "054d4dfda3ac22187cbc4dc28b2fca804d11e8ee"
+    },
+    {
+      "path": "public/images/img4.png",
+      "uid": "062f3ca5db75cb54a362a0ce476bfca016ba5277"
+    },
+    {
+      "path": "public/images/logout.svg",
+      "uid": "2e4a6c853b831ca388cfbb426015fdbdca0c9f0d"
+    },
+    {
+      "path": "public/images/phone-frame.svg",
+      "uid": "e5362f6f45229f8cc8791ed7b9842bb826746a1b"
+    },
+    {
+      "path": "public/images/star.png",
+      "uid": "3672556ef58610d2f52f42a4e48dc03890fe51f0"
+    },
+    {
+      "path": "public/images/star.svg",
+      "uid": "f83e942a3228823836d9524a62949765bca0fa6c"
+    },
+    {
+      "path": "public/images/success.svg",
+      "uid": "7c6f3bd916b0cea4eb2602d18ad471e6c5064832"
+    },
+    {
+      "path": "public/images/user.svg",
+      "uid": "3b6530d0084aba0fa1e799e369f7e50a5c33c85f"
+    },
+    {
+      "path": "public/labs/meera-logo.svg",
+      "uid": "e2f6f7209198e03f18b9d791e2c82ef7d2f3851e"
+    },
+    {
+      "path": "public/labs/rama-ashwamedha-drawing.webp",
+      "uid": "bbcbb5ec7260a10500f96a610fa7bf4df5205bf4"
+    },
+    {
+      "path": "public/meera-logo.svg",
+      "uid": "2ea50a64790032dd70c9229e4a6936c2652ff2a4"
+    },
+    {
+      "path": "public/meera-sw.js",
+      "uid": "4e08a1d65bf5932c7dd515c0ab65879cdb9240ee"
+    },
+    {
+      "path": "public/next.svg",
+      "uid": "7e8fba24b82d65e7bf4fcdf34e93215163b39f55"
+    },
+    {
+      "path": "public/offline.html",
+      "uid": "f9e3a3cec55db08a80573cc6a09161a3f57ecda7"
+    },
+    {
+      "path": "public/onboarding-clips/brian-birthday.mp3",
+      "uid": "9c67303f5ddd9a1d5fab47631dbd26434d884402"
+    },
+    {
+      "path": "public/onboarding-clips/brian-community.mp3",
+      "uid": "438f51d51267947746c16de6a176607a4512d520"
+    },
+    {
+      "path": "public/onboarding-clips/brian-finish.mp3",
+      "uid": "7ae4c2806a0013cd6bed393d8dbdfe5b85aecfa7"
+    },
+    {
+      "path": "public/onboarding-clips/brian-hi-birthday.mp3",
+      "uid": "d5407213746053a98d9cf1148678ecd3e9d7de71"
+    },
+    {
+      "path": "public/onboarding-clips/brian-hi-community.mp3",
+      "uid": "697ffb7441848527b028ba9fbe706d454891a31a"
+    },
+    {
+      "path": "public/onboarding-clips/brian-hi-finish.mp3",
+      "uid": "8602b09774e6730d70ce36a4358c2e2b2d749f7f"
+    },
+    {
+      "path": "public/onboarding-clips/brian-hi-preview.mp3",
+      "uid": "92eec7cb687750c4fc761f5ad3e5ff7284186365"
+    },
+    {
+      "path": "public/onboarding-clips/brian-hi-review.mp3",
+      "uid": "7ad9e55b47f66dd56bfb9395a1d470b8be93c7c9"
+    },
+    {
+      "path": "public/onboarding-clips/brian-hi-welcome.mp3",
+      "uid": "cecf5ada1694cca6bcb19d2109c1963c47d2b1f0"
+    },
+    {
+      "path": "public/onboarding-clips/brian-hi-work.mp3",
+      "uid": "f547205aa240efb028a3bca3e62dba108cc0c7dd"
+    },
+    {
+      "path": "public/onboarding-clips/brian-preview.mp3",
+      "uid": "7ed4a1c4e533bbfa01cf930ea866ea059c0065d0"
+    },
+    {
+      "path": "public/onboarding-clips/brian-review.mp3",
+      "uid": "012beca804c63fc7a5721889b8a1bb6db93a9dc9"
+    },
+    {
+      "path": "public/onboarding-clips/brian-welcome.mp3",
+      "uid": "acd1716f5ee540b72214638a523c7c4454f7c38e"
+    },
+    {
+      "path": "public/onboarding-clips/brian-work.mp3",
+      "uid": "a3512a271e5d8b5a76886de1f36a576cc27ab5d5"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-birthday.mp3",
+      "uid": "4025c5d0a71ea686edeca369cf6198e553754555"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-community.mp3",
+      "uid": "4678e2f40b5a5f9179797c0c9b00d6fa67c91066"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-finish.mp3",
+      "uid": "6026689c659a2fdd0edc1e8466bd6151271cd5ea"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-hi-birthday.mp3",
+      "uid": "cd39386e941a8fc82049c2a088dfab451a35292b"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-hi-community.mp3",
+      "uid": "b34f92fd14da69d8b989e5d0b2062d7c4b8a1b9a"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-hi-finish.mp3",
+      "uid": "1bb3cdfd33fbf9e72a3587c2a0789bf540225486"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-hi-preview.mp3",
+      "uid": "7bfe3597d7beff2364c36d823f052c9214961482"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-hi-review.mp3",
+      "uid": "e678e04aa211ac61bdadc40bbdbc035a30253617"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-hi-welcome.mp3",
+      "uid": "94303465e7a0d5c7fc5d2a547a63ae273e4fbb5b"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-hi-work.mp3",
+      "uid": "16e973bab42027b1ca4668e0305a6a9d0ccc6834"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-preview.mp3",
+      "uid": "85e9b7b974bead2cd16f18a1a2338007f4e5f43f"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-review.mp3",
+      "uid": "ed847b2ba62381c9e7cb3f36d77f49e02dbfcecf"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-welcome.mp3",
+      "uid": "670dcc010489ebd8cab6087173d556de05647e81"
+    },
+    {
+      "path": "public/onboarding-clips/sarah-work.mp3",
+      "uid": "d2059a1a81ab60ce38dd57976ee238548171bf15"
+    },
+    {
+      "path": "public/sw.js",
+      "uid": "11350cfcdbe36b06054620087688aea34b737f6b"
+    },
+    {
+      "path": "public/vercel.svg",
+      "uid": "47afd13dfa9f8e62895ce11aa21570645e0bf70f"
+    },
+    {
+      "path": "public/whitepaper-v1.pdf",
+      "uid": "32b2806a70734960f8c18e787c1cf760451054c9"
+    },
+    {
+      "path": "public/window.svg",
+      "uid": "ca3f51acb012e70192d5dabda70347febe70fa77"
+    },
+    {
+      "path": "public/workbox-f1770938.js",
+      "uid": "7bbf75a60d786c9024fb7c846c31b8babd36419c"
+    },
+    {
+      "path": "src/app/analytics/acquisition/page.tsx",
+      "uid": "3323c779e93ce8827f4d958a628ca508bdb72a39"
+    },
+    {
+      "path": "src/app/analytics/conversations/page.tsx",
+      "uid": "3323c779e93ce8827f4d958a628ca508bdb72a39"
+    },
+    {
+      "path": "src/app/analytics/data-quality/page.tsx",
+      "uid": "3323c779e93ce8827f4d958a628ca508bdb72a39"
+    },
+    {
+      "path": "src/app/analytics/funnel/page.tsx",
+      "uid": "3323c779e93ce8827f4d958a628ca508bdb72a39"
+    },
+    {
+      "path": "src/app/analytics/links/page.tsx",
+      "uid": "3323c779e93ce8827f4d958a628ca508bdb72a39"
+    },
+    {
+      "path": "src/app/analytics/team-access/page.tsx",
+      "uid": "3323c779e93ce8827f4d958a628ca508bdb72a39"
+    },
+    {
+      "path": "src/app/analytics/users/page.tsx",
+      "uid": "3323c779e93ce8827f4d958a628ca508bdb72a39"
+    },
+    {
+      "path": "src/app/analytics/page.tsx",
+      "uid": "8489c7f9ab669d9e384542a28027e14fc258f901"
+    },
+    {
+      "path": "src/app/api/admin/meera/rewards/export/route.ts",
+      "uid": "d92f74e1e5e4497e4505858d2a377d5d22e54482"
+    },
+    {
+      "path": "src/app/api/analytics/access/route.ts",
+      "uid": "d841397ee88c41d667bb908e06989a2ce8c73bfa"
+    },
+    {
+      "path": "src/app/api/analytics/conversations/route.ts",
+      "uid": "59840b0dc8d5ad3c972a9f67254dba414d3ea6c3"
+    },
+    {
+      "path": "src/app/api/analytics/dashboard-ai/route.ts",
+      "uid": "5764158ddeeeae8ac2638a0b380af986939f0f68"
+    },
+    {
+      "path": "src/app/api/analytics/dashboard/route.ts",
+      "uid": "4771d90c22122c78a17b143a62cc13f02b87be37"
+    },
+    {
+      "path": "src/app/api/analytics/executive/route.ts",
+      "uid": "aa6869d9fd20da74a4199951b06dd5994ecfe5c9"
+    },
+    {
+      "path": "src/app/api/analytics/funnel-users/route.ts",
+      "uid": "9345e2d143130116031149aa3f04588137dca3ca"
+    },
+    {
+      "path": "src/app/api/analytics/funnel/route.ts",
+      "uid": "2364282eec147f3a3dc6c1888c425497f28acf42"
+    },
+    {
+      "path": "src/app/api/analytics/growth-links/attribute/route.ts",
+      "uid": "2fd8395445d88b5a29a87c3957a2b7ec5ebfca97"
+    },
+    {
+      "path": "src/app/api/analytics/growth-links/capture/route.ts",
+      "uid": "e1b9ddd6c94ea36ed2b0a35dd9eafbdd693f0d03"
+    },
+    {
+      "path": "src/app/api/analytics/growth-links/route.ts",
+      "uid": "516c93c2f6d4e5789b24a55a1e59f47b49543fc8"
+    },
+    {
+      "path": "src/app/api/analytics/me/route.ts",
+      "uid": "e782ba63d75b65f9f5334220b20462eb222172d5"
+    },
+    {
+      "path": "src/app/api/analytics/meta-commerce/route.ts",
+      "uid": "063248b750a8c6214c3ddb4eec8c6d03a2c51392"
+    },
+    {
+      "path": "src/app/api/analytics/meta-registration/route.ts",
+      "uid": "414381a0a0db58f9d89437eded1eec1e05e058c3"
+    },
+    {
+      "path": "src/app/api/analytics/range/route.ts",
+      "uid": "0956a9c70be75b3bd583cdf8f69ee2041c37a6ac"
+    },
+    {
+      "path": "src/app/api/analytics/track/route.ts",
+      "uid": "652e41654db62fa41b0f856b0edff6d40ae37231"
+    },
+    {
+      "path": "src/app/api/auth/[...nextauth]/route.ts",
+      "uid": "7ea58a1574b695bc0f04b7995de881e9c0f75331"
+    },
+    {
+      "path": "src/app/api/client.ts",
+      "uid": "e7c602cb6d39fc6d7d49ca46b0030caa1721cc78"
+    },
+    {
+      "path": "src/app/api/config.ts",
+      "uid": "f14ec1ca3e63a3d052c7833721806a31ff56d1e3"
+    },
+    {
+      "path": "src/app/api/download/route.ts",
+      "uid": "5aaf71df887ae415b1407fcc182bc1dd03169d4d"
+    },
+    {
+      "path": "src/app/api/growth-staging/user/balance/route.ts",
+      "uid": "61def563edec646d840ee257e6a0fdd6e09ee57a"
+    },
+    {
+      "path": "src/app/api/growth-staging/workbench/route.ts",
+      "uid": "11a650f5778d91711e24b46e3570581d5e229ded"
+    },
+    {
+      "path": "src/app/api/labs/network/route.ts",
+      "uid": "d7f493ead878c23604721531be3f99313234d6cd"
+    },
+    {
+      "path": "src/app/api/log-error-to-slack/route.ts",
+      "uid": "521b6c4d87142989578d88b2ddd586e9c74415cd"
+    },
+    {
+      "path": "src/app/api/log-success-to-slack/route.ts",
+      "uid": "d337c1834c596e73e4cd83a4c527ed9c4fba67de"
+    },
+    {
+      "path": "src/app/api/meera/price/route.ts",
+      "uid": "af10065330536ba0e76d4069bacc7535fe54cc61"
+    },
+    {
+      "path": "src/app/api/meera/rewards/summary/route.ts",
+      "uid": "1028875734742d05df4481a0e6c360a76c3d715d"
+    },
+    {
+      "path": "src/app/api/onboarding/answer/route.ts",
+      "uid": "b52e3abec1e9f00387f8346160c51ceaa9732cf3"
+    },
+    {
+      "path": "src/app/api/onboarding/profile/route.ts",
+      "uid": "7c5b5dc3531018abc0d7b2ec6f12f80819ea7fb4"
+    },
+    {
+      "path": "src/app/api/onboarding/session/route.ts",
+      "uid": "c68d8af67e3bb94a72db885dc395c7a8494146e2"
+    },
+    {
+      "path": "src/app/api/onboarding/speech/route.ts",
+      "uid": "2d671e6a04a1d90577768e26c53cad3d4a564e03"
+    },
+    {
+      "path": "src/app/api/payment/offer/route.ts",
+      "uid": "b429626d494e97bbe4ca3cb47420c9398390225a"
+    },
+    {
+      "path": "src/app/api/payment/stripe/checkout/route.ts",
+      "uid": "f13c754194db1ce08117a7324756ccc2097b28de"
+    },
+    {
+      "path": "src/app/api/payment/stripe/status/route.ts",
+      "uid": "1d30ff01a1a25de3dbeb958dc5575872232aece9"
+    },
+    {
+      "path": "src/app/api/payment/stripe/webhook/route.ts",
+      "uid": "8335c1b1fbab98aa0a19d1796572b469cc7779df"
+    },
+    {
+      "path": "src/app/api/services/chat.ts",
+      "uid": "8bf104578f988ccfe323037eaf22197d6869467c"
+    },
+    {
+      "path": "src/app/api/services/guest.ts",
+      "uid": "3edfff5ea7f720ac7b6ef03139f9230b6261487b"
+    },
+    {
+      "path": "src/app/api/services/payment.ts",
+      "uid": "dbc9a3cca0ea019bad19a731090392ff43ccf4fb"
+    },
+    {
+      "path": "src/app/api/services/tracking.ts",
+      "uid": "8f41c9b11e2d1f3392a4bf67bda4c063ceeec994"
+    },
+    {
+      "path": "src/app/api/wallet/nonce/route.ts",
+      "uid": "5b2dfb53dbff09dc344f234068152ee4f0920795"
+    },
+    {
+      "path": "src/app/api/wallet/verify/route.ts",
+      "uid": "ead5c973899b997b00983b8c480258d48d763012"
+    },
+    {
+      "path": "src/app/auth/callback/page.tsx",
+      "uid": "ee977c3d03f94761439dc53b3a36813a36c14a4e"
+    },
+    {
+      "path": "src/app/favicon.ico",
+      "uid": "04f5bdb1178ab117cb4bee3a03d463475c053eaf"
+    },
+    {
+      "path": "src/app/globals.css",
+      "uid": "db5a9beb14186c4c6d8bfec4471f264288889698"
+    },
+    {
+      "path": "src/app/growth-staging/page.tsx",
+      "uid": "23e9de70af788bc031cb4c29a5d76fe9b1874c10"
+    },
+    {
+      "path": "src/app/history/route.ts",
+      "uid": "d5b90e56fdd44f830cdbe2389b843d9b06cd49d1"
+    },
+    {
+      "path": "src/app/labs/LabsExperience.tsx",
+      "uid": "65e786fbb20fc2ecd92ab23a16fbdd5a0b5d432f"
+    },
+    {
+      "path": "src/app/labs/labs.module.css",
+      "uid": "5f31bbdf5ab53ceffb75010618758216d5516f47"
+    },
+    {
+      "path": "src/app/labs/network.ts",
+      "uid": "6e1d841afa79d5b128a4406d95df1ca3193b21a3"
+    },
+    {
+      "path": "src/app/labs/page.tsx",
+      "uid": "b9e34fa7e788cf710259e5d2a32cd260a7570e29"
+    },
+    {
+      "path": "src/app/layout.tsx",
+      "uid": "a4bfecab21a995a158bc61174e3bd4ad78d4c05a"
+    },
+    {
+      "path": "src/app/manifest.ts",
+      "uid": "a4f18ee87ebe9a16f8ce0b6b547189e47fd6377b"
+    },
+    {
+      "path": "src/app/meera/rewards/page.tsx",
+      "uid": "4dfa152828c1949b971e8c6c03b653a51bcc0fd4"
+    },
+    {
+      "path": "src/app/onboarding/auth/callback/page.tsx",
+      "uid": "3ca24b1fbc555217cd1cb724c058501794882de0"
+    },
+    {
+      "path": "src/app/onboarding/page.tsx",
+      "uid": "cfb8eb4b769789916d61f15486373cc1a975aaef"
+    },
+    {
+      "path": "src/app/page.tsx",
+      "uid": "95aecee0b500ca96de44fb8a3081fcf404ce516d"
+    },
+    {
+      "path": "src/app/payment/page.tsx",
+      "uid": "7ce18dda9df3ffd31c79da08d59926c81c8eefa5"
+    },
+    {
+      "path": "src/app/pricing/page.tsx",
+      "uid": "4faae8650edb22abbe3d93b8b4463389bc9941f6"
+    },
+    {
+      "path": "src/app/privacy/page.tsx",
+      "uid": "67cf2659d57d2fddcdb2b8ed1e5cbed7da08c5d1"
+    },
+    {
+      "path": "src/app/r/[slug]/route.ts",
+      "uid": "7f45629da72049851e6a49b61e69863723d50975"
+    },
+    {
+      "path": "src/app/refund-policy/page.tsx",
+      "uid": "4a50cd4609ad8f988c712b03e90b22be3910450a"
+    },
+    {
+      "path": "src/app/sign-in/layout.tsx",
+      "uid": "f81b57b926bfe7ceb0b9aced031b24c46a654caa"
+    },
+    {
+      "path": "src/app/sign-in/page.tsx",
+      "uid": "bca28be0fadccd355c1ef9ea22eaf10438c32c17"
+    },
+    {
+      "path": "src/app/supabase-smoke/page.tsx",
+      "uid": "13f110e8bd047e7498654ccb4ed76ffec9e04fc8"
+    },
+    {
+      "path": "src/app/terms/page.tsx",
+      "uid": "6c42cb398e6ce3d58d95b5f6d1615951c6741fc2"
+    },
+    {
+      "path": "src/app/whitepaper-v1/route.ts",
+      "uid": "7442116ff5ef6794655d1cc07f0e357addb1fea8"
+    },
+    {
+      "path": "src/app/whitepaper/route.ts",
+      "uid": "fa933e3cd1ea647da11f32663828c7736c2f0863"
+    },
+    {
+      "path": "src/components/ApplicationProviders.tsx",
+      "uid": "9abfd6d742dfcf911260eeeff2ec57b6f75e6958"
+    },
+    {
+      "path": "src/components/AuthGuard.tsx",
+      "uid": "7779576eddd26d2da9581f4063d4eb6e4f7459ce"
+    },
+    {
+      "path": "src/components/ChatExperience.tsx",
+      "uid": "29b10bcce713eddcac8b6ad0f408a00a6359399b"
+    },
+    {
+      "path": "src/components/ConnectorsView.tsx",
+      "uid": "4003029938d9833fb1f63bccd073e8fec68eee77"
+    },
+    {
+      "path": "src/components/Conversation/AttachmentInputArea.tsx",
+      "uid": "0150630e546472ed205ac93249e8414d9b5b79c8"
+    },
+    {
+      "path": "src/components/Conversation/AttachmentMenu.tsx",
+      "uid": "375592ac23ae7a622335ac883ff5151898667cb9"
+    },
+    {
+      "path": "src/components/Conversation/AttachmentPreview.tsx",
+      "uid": "367691a64f05c140ada79064e8f12d92594cd199"
+    },
+    {
+      "path": "src/components/Conversation/CallSessionItem.tsx",
+      "uid": "a518cafc4561da3fc4a171b96adaae698d9ca74d"
+    },
+    {
+      "path": "src/components/Conversation/ChatActivity.module.css",
+      "uid": "f9cf482b21fb70bd010e4bef10c4d7a2470cf173"
+    },
+    {
+      "path": "src/components/Conversation/RenderedMessageItem.tsx",
+      "uid": "4600fedb44f2731718b90881b077c7ad8ab7653d"
+    },
+    {
+      "path": "src/components/Conversation/TypingIndicator.tsx",
+      "uid": "bbab4708c51a5538f0b62e71400b2c2cf6c1d891"
+    },
+    {
+      "path": "src/components/Conversation/index.tsx",
+      "uid": "32f1eb8284e00b6ba0c4c0e5d56b1622d8d3252f"
+    },
+    {
+      "path": "src/components/HomeExperience.tsx",
+      "uid": "15f0c8e4e59606aa6d1ab3d7b81f8b55e0384301"
+    },
+    {
+      "path": "src/components/ImagesView.tsx",
+      "uid": "9fbc5c92ccaae26c27bdb88ba80b970bdcb68f1f"
+    },
+    {
+      "path": "src/components/LoginWithGoogleButton",
+      "uid": "050265f6c4b249f9e55f1f6225465ed1e9b019df"
+    },
+    {
+      "path": "src/components/MeeraRewardsDialog.tsx",
+      "uid": "75a837b63a3949f7b6b6996273052c0257c5d6f0"
+    },
+    {
+      "path": "src/components/MeeraVoice/config.ts",
+      "uid": "11cfdbc544a52f253f6a4acebf2bc73ae67500de"
+    },
+    {
+      "path": "src/components/MeeraVoice/index.tsx",
+      "uid": "1b8eb01058dc761100258ec64f55be13cac6fcc1"
+    },
+    {
+      "path": "src/components/MessageRenderDesign/MarkdownComponents.tsx",
+      "uid": "774f02548594ff59e23d0a8f8c22fdbf4088f47e"
+    },
+    {
+      "path": "src/components/MetaPixel.tsx",
+      "uid": "f6c11f42c4b1233855258fe9f3eca11b9abb2905"
+    },
+    {
+      "path": "src/components/PWAInstallEntry.tsx",
+      "uid": "af528e66774b5de246714d8d4b1ee15983e49379"
+    },
+    {
+      "path": "src/components/PricingModal/constants.ts",
+      "uid": "53ad6fd1ce69260f7e18e7b4b2ec45622d5f3edc"
+    },
+    {
+      "path": "src/components/PricingModal/index.tsx",
+      "uid": "ff7f9ca2094085cec7f564109f68c01c5ae48d4c"
+    },
+    {
+      "path": "src/components/ProfileMenu.tsx",
+      "uid": "7100e6d40f1b5c8b8b25a7cbbc31e24e1a302696"
+    },
+    {
+      "path": "src/components/Providers.tsx",
+      "uid": "46740029b6ab9eaa46ffc8064bed8c9065ce4450"
+    },
+    {
+      "path": "src/components/PublicSiteFallback.tsx",
+      "uid": "fcb8d139718d75fb21cc9799d312423d024c2426"
+    },
+    {
+      "path": "src/components/Sidebar.tsx",
+      "uid": "45642b02f780d9eb43ab9f479eb7fbf97a66445f"
+    },
+    {
+      "path": "src/components/Sidebar/SidebarItem.tsx",
+      "uid": "c11af93d15ceef019373cd1feabd48dce41aee96"
+    },
+    {
+      "path": "src/components/SuccessDialog/index.tsx",
+      "uid": "78d753c481e73dee1a44d46202024efc3d107559"
+    },
+    {
+      "path": "src/components/VoiceExperience.tsx",
+      "uid": "f73ba75fbdd9f4d6906ad5075e6d9a8cda2deb6c"
+    },
+    {
+      "path": "src/components/VoiceIndicator/index.tsx",
+      "uid": "756c425c3defa72286aa7d438ea7a408a16720fa"
+    },
+    {
+      "path": "src/components/analytics/GrowthDashboard.module.css",
+      "uid": "56cdde5a49452839e18fba6cf64dbe5f09fb607f"
+    },
+    {
+      "path": "src/components/analytics/GrowthDashboard.tsx",
+      "uid": "2b9b9981e3f70b9b213008018d6fa0cb505d82dd"
+    },
+    {
+      "path": "src/components/auth/OpenInBrowserDialog.tsx",
+      "uid": "e39b80764f608c91e16f6cab534d9c4bfac0f3eb"
+    },
+    {
+      "path": "src/components/onboarding/Onboarding.module.css",
+      "uid": "7bf165334b28cf3ef89f63a9e90aa47417218999"
+    },
+    {
+      "path": "src/components/providers/QueryProvider.tsx",
+      "uid": "c3aaec9f4f07e14ca3f97b6df221abd798691d1b"
+    },
+    {
+      "path": "src/components/providers/SessionProvider.tsx",
+      "uid": "a89dc4882673b6d43510351108b4cca21d2a11f2"
+    },
+    {
+      "path": "src/components/ui/CallButtons.tsx",
+      "uid": "90e0eccb5a62dc57da60be707adce4c701e6355e"
+    },
+    {
+      "path": "src/components/ui/Container.tsx",
+      "uid": "7c0656a8c7cd13a6199eac15efbdc574c41b6dcd"
+    },
+    {
+      "path": "src/components/ui/Dialog.tsx",
+      "uid": "ae0d356de28adf7972599ff042036d0f58782d11"
+    },
+    {
+      "path": "src/components/ui/ImageModal.tsx",
+      "uid": "9079a6cbc0ca0829158e3f092ed0292febb03499"
+    },
+    {
+      "path": "src/components/ui/SupportPanel.tsx",
+      "uid": "61b5202a0c22467099fd2476f8711299965aef9a"
+    },
+    {
+      "path": "src/components/ui/Toast.tsx",
+      "uid": "dd6e7d29ba58ba6c9089b19ff72dc5d8d813328d"
+    },
+    {
+      "path": "src/components/ui/ToastProvider.tsx",
+      "uid": "73f1827cd70e967f1fec3f9b89aa433b2a5e28ea"
+    },
+    {
+      "path": "src/components/ui/Typography.tsx",
+      "uid": "d1bc1a71a30ddc3039b76638bfae872ee2c8af0d"
+    },
+    {
+      "path": "src/components/ui/UserProfile.tsx",
+      "uid": "8dda74b71624ae95eb50fc8a89a645562d992404"
+    },
+    {
+      "path": "src/contexts/LiveAPIContext.tsx",
+      "uid": "6bbcba78639b9aadc69e43a7a2375af8730c9b5e"
+    },
+    {
+      "path": "src/contexts/PWAInstallContext.tsx",
+      "uid": "60a4dc42bd6c2ef3eb42d713a858bd500c5ab44b"
+    },
+    {
+      "path": "src/contexts/PricingModalContext.tsx",
+      "uid": "8b2c5019e459d78d47eeb9085c3f782003dc0a93"
+    },
+    {
+      "path": "src/contexts/ThemeContext.tsx",
+      "uid": "44c19f3fcb24ae05aaa46d3396c6c5bc121a1d55"
+    },
+    {
+      "path": "src/hooks/use-live-api.ts",
+      "uid": "65df27b81e9cdd5dcca02f60384045f3553833cc"
+    },
+    {
+      "path": "src/hooks/use-media-stream-mux.ts",
+      "uid": "b19600b51e8f223ce6c92ae93534b7bd4ad90c78"
+    },
+    {
+      "path": "src/hooks/useChatViewport.ts",
+      "uid": "008293bd0d86b866dfcddd81bba4e1d679946dcf"
+    },
+    {
+      "path": "src/hooks/useCurrentUser.ts",
+      "uid": "1015dd752f58195fea2d0cd1fe2e623dfc875368"
+    },
+    {
+      "path": "src/hooks/useDragAndDrop.ts",
+      "uid": "8abb638e0ad0aa66f96614b2eddb1ce2f14cb5e2"
+    },
+    {
+      "path": "src/hooks/useMessageSubmission.ts",
+      "uid": "eb5d881b1d04d94e857fc6a49ed81b3bb5f0de79"
+    },
+    {
+      "path": "src/hooks/useSubscriptionStatus.ts",
+      "uid": "c6663d3c8e1dab62ce24198c69e25316a699dcfe"
+    },
+    {
+      "path": "src/hooks/useTotalCostTokens.ts",
+      "uid": "545518420cf9af7422af8e781b97fc35bd49250b"
+    },
+    {
+      "path": "src/lib/activityPresentation.ts",
+      "uid": "2b0bc37e530401c41418eb80483a556c4da965a5"
+    },
+    {
+      "path": "src/lib/agenticRoute.test.ts",
+      "uid": "112660c039d3867c4d485b9e70cb702520f27a4f"
+    },
+    {
+      "path": "src/lib/agenticRoute.ts",
+      "uid": "de435e79043b5b74fdb64fe042de443010574cc7"
+    },
+    {
+      "path": "src/lib/analyticsAccess.ts",
+      "uid": "2166b34d9b97afd37a2bd6c0607f09952e7f52aa"
+    },
+    {
+      "path": "src/lib/analyticsDashboardMetrics.ts",
+      "uid": "64f671a7f7d907d4b9324324c8b5bfd5c20a5b21"
+    },
+    {
+      "path": "src/lib/analyticsDashboardServer.ts",
+      "uid": "70e829af3f08da2e713931d2339f70b44014f267"
+    },
+    {
+      "path": "src/lib/auth/browserContext.ts",
+      "uid": "04193fa52b022e4c2d97e20b909af9ac02e6d352"
+    },
+    {
+      "path": "src/lib/auth/startGoogleAgentConnection.ts",
+      "uid": "e7710186aecf6fde105ca33eebfa4e719ee910db"
+    },
+    {
+      "path": "src/lib/auth/startGoogleOAuth.ts",
+      "uid": "97d0e0ff7e1ba7fef86bc4a0e893ee9e495b854c"
+    },
+    {
+      "path": "src/lib/authRedirect.ts",
+      "uid": "b473949bd3598ed6a4de3805e6d7d32fd2c66747"
+    },
+    {
+      "path": "src/lib/captureMarketingTouch.ts",
+      "uid": "258fdf3dcfec4699bbd59c83417d0c257e3508ff"
+    },
+    {
+      "path": "src/lib/dateUtils.ts",
+      "uid": "2a83233742728c3393390cef28f46857565ff5ec"
+    },
+    {
+      "path": "src/lib/deviceInfo.ts",
+      "uid": "db078b6167799ba938af39c163043f44f8e1df8c"
+    },
+    {
+      "path": "src/lib/downloadFile.ts",
+      "uid": "d44d5482b65e0ea047ad8e6ab8e50eaa21b46145"
+    },
+    {
+      "path": "src/lib/growthStaging.ts",
+      "uid": "dfd4468387dc5dcc6f3b2f0d475db28a07523f4a"
+    },
+    {
+      "path": "src/lib/hiveGeometry.ts",
+      "uid": "d93bb38afd2292d7b3b14df115674dce35d08e37"
+    },
+    {
+      "path": "src/lib/imageLibrary.ts",
+      "uid": "2de92fd406425a791d064c3e8ff10dd847c69a5f"
+    },
+    {
+      "path": "src/lib/imagePrompt.ts",
+      "uid": "8ac53d5faec9405ab6598b29c0bcf63c36422aa9"
+    },
+    {
+      "path": "src/lib/labsNetwork.ts",
+      "uid": "914108afbe62b8d947ffa6f3a8a972ac579df765"
+    },
+    {
+      "path": "src/lib/legacyUser.ts",
+      "uid": "2666de7cb4bc609cc694eab79b407bc0eed12987"
+    },
+    {
+      "path": "src/lib/markdownText.ts",
+      "uid": "eaa9a184eec318326cf392135164b04996902a7d"
+    },
+    {
+      "path": "src/lib/marketingAttribution.ts",
+      "uid": "087764fca8437f0dc310f590f63a0c0e6dd587ab"
+    },
+    {
+      "path": "src/lib/marketingEvents.ts",
+      "uid": "5eb5dac3820d655321ea60d21efc5efcc755f0f3"
+    },
+    {
+      "path": "src/lib/marketingRegistration.ts",
+      "uid": "48de3b91eb764ddb3af79e969061dc8429e422ad"
+    },
+    {
+      "path": "src/lib/meeraPrice.ts",
+      "uid": "ddfe1335115ddb3298e15b0a3253c9864e61644d"
+    },
+    {
+      "path": "src/lib/meeraRewards.ts",
+      "uid": "13b6b6c3e4eae1f3932f24b2a66d50aaf655d0ce"
+    },
+    {
+      "path": "src/lib/meeraServer.ts",
+      "uid": "1fb17dfb145b670ea433d078a958ece7e41d29a9"
+    },
+    {
+      "path": "src/lib/metaCommerce.ts",
+      "uid": "630d339b713efea532863b403d740db973ea2da7"
+    },
+    {
+      "path": "src/lib/metaPixel.ts",
+      "uid": "2da1e91c47f5838f286c88712e2eeef5fd6372a6"
+    },
+    {
+      "path": "src/lib/onboarding-agent.ts",
+      "uid": "f9fc5ddf28df0804705bbaf6e74645eaf4d2302c"
+    },
+    {
+      "path": "src/lib/onboarding-auth-client.ts",
+      "uid": "62394c278e7e08e0c1a5e903f5f1a004e2bc353d"
+    },
+    {
+      "path": "src/lib/onboarding-listening.ts",
+      "uid": "a8842e3fc7bebdb50b07cfcf303d6b1347ea0165"
+    },
+    {
+      "path": "src/lib/onboarding-openrouter.ts",
+      "uid": "9d9a95718ea0b7f1c399fccca88aa846034f7a01"
+    },
+    {
+      "path": "src/lib/onboarding-profile.ts",
+      "uid": "7e5eee8f29230f63cc639bcf1054e63e1ee567b7"
+    },
+    {
+      "path": "src/lib/onboarding-redirect.ts",
+      "uid": "6f532bbba75ab0c2a7d051af65757c147dc12f64"
+    },
+    {
+      "path": "src/lib/onboarding-server.ts",
+      "uid": "db895c1110d63d2a71c4a1759bab57c9aceed117"
+    },
+    {
+      "path": "src/lib/purchaseIntent.ts",
+      "uid": "4b5152a6834a4d11e92019c7e959595a92b24858"
+    },
+    {
+      "path": "src/lib/requestCommerceEvent.ts",
+      "uid": "b0afa47e7ca9718777d4e8b282e911acee464a5a"
+    },
+    {
+      "path": "src/lib/skeletons.tsx",
+      "uid": "173884d410831234983870414e48e63aab9f1846"
+    },
+    {
+      "path": "src/lib/slackService.ts",
+      "uid": "0afc880b09743d0c7671d1b1802a2a153a159427"
+    },
+    {
+      "path": "src/lib/streamMeera.ts",
+      "uid": "dfa2a67def705c351cc03dc1482bf68e2729b2fd"
+    },
+    {
+      "path": "src/lib/stringUtils.ts",
+      "uid": "00a8a25fe4041a81953a3cbb1e5058e9640b473d"
+    },
+    {
+      "path": "src/lib/stripePayments.ts",
+      "uid": "5f9733f9d085bfc1b6ef3320a253f446225a2540"
+    },
+    {
+      "path": "src/lib/subscriptionUtils.ts",
+      "uid": "82bf9595158077292afdd6e3ba32d7a6c394dfaf"
+    },
+    {
+      "path": "src/lib/supabaseAdmin.ts",
+      "uid": "fea2423a13a8861be89c425e2989bf750c5f9350"
+    },
+    {
+      "path": "src/lib/supabaseClient.ts",
+      "uid": "5b1fb720d5a7c0878e61e64ed95e8410e590ac18"
+    },
+    {
+      "path": "src/lib/uploadAttachment.ts",
+      "uid": "e66a0332767e4c5c8b4e3edc709a5e5d40c26dca"
+    },
+    {
+      "path": "src/lib/utils.ts",
+      "uid": "e8dc50e7a512995842151e444db3959204abd86d"
+    },
+    {
+      "path": "src/lib/visiblePolling.ts",
+      "uid": "1d4819670ba0b12ef5fb801f68a21b17fa60d621"
+    },
+    {
+      "path": "src/lib/voice-engine.ts",
+      "uid": "224a55dd10a3e3a4cf55960125adf29610250a85"
+    },
+    {
+      "path": "src/types/api.d.ts",
+      "uid": "68201d06630eeef909cde5aeca6125aa6fb19240"
+    },
+    {
+      "path": "src/types/cashfree.d.ts",
+      "uid": "33d8863d9aa6032c6e2bb7fe4b0bddb0ae749fcc"
+    },
+    {
+      "path": "src/types/chat.ts",
+      "uid": "2a678a213767ea116030ecf66516b13e971c0ee2"
+    },
+    {
+      "path": "src/types/chatApp.ts",
+      "uid": "089982e6ada3b11f4f646fc0799fee731bb3be44"
+    },
+    {
+      "path": "src/types/components.d.ts",
+      "uid": "510578ce39dcdba1385a4e53bbbf12feb4fef1d0"
+    },
+    {
+      "path": "src/types/ethereum.d.ts",
+      "uid": "4c20c4f662b2bcce7c894c0f6d77592795a5feb5"
+    },
+    {
+      "path": "src/types/live-api.ts",
+      "uid": "f92a66ee708a074564d833a56b260929c15da001"
+    },
+    {
+      "path": "src/types/next-auth.d.ts",
+      "uid": "de930f4c4eeaa0d4acd0934a1cbf654a711f26f1"
+    },
+    {
+      "path": "src/types/pricing.ts",
+      "uid": "1ef96491a7e7a40dabce3e0ee655b556b29f99f6"
+    },
+    {
+      "path": "src/types/settings.ts",
+      "uid": "26cde2336d3859d9f18223aebed9b68c666ed613"
+    },
+    {
+      "path": "src/types/subscription.ts",
+      "uid": "dd3edf8890397f0e6be4065367850976693558d7"
+    },
+    {
+      "path": "supabase/.temp/cli-latest",
+      "uid": "706b9c48f7f274503dcdda0732edafca6bed288b"
+    },
+    {
+      "path": "supabase/.temp/linked-project.json",
+      "uid": "a3c23d99a30f13199ec37117e4df6c815d581a56"
+    },
+    {
+      "path": "supabase/functions/_shared/access.ts",
+      "uid": "02a6fe12647dce8d44f10a5eb5882336009f3180"
+    },
+    {
+      "path": "supabase/functions/_shared/cors.ts",
+      "uid": "f125f731638183bfc3c82fce3fa727e927ba9ed1"
+    },
+    {
+      "path": "supabase/functions/payment/index.ts",
+      "uid": "0fdb11f60ca039e3b1084acbf72229afa87cf494"
+    },
+    {
+      "path": "supabase/migrations/20260212_add_summary_column.sql",
+      "uid": "167f573505950e3a050ff37367b4c6609cb0af4f"
+    },
+    {
+      "path": "supabase/migrations/20260212_create_starred_messages.sql",
+      "uid": "d521c389e2afbb625ebb4aa78a0920246e2eb664"
+    },
+    {
+      "path": "supabase/migrations/20260212_fix_starred_messages_rls.sql",
+      "uid": "0b9cd33d76aaec05d0c29b9716ddbd3fd911189d"
+    },
+    {
+      "path": "supabase/migrations/20260212_starred_messages_separation.sql",
+      "uid": "921dce171ef4ae9c7c5c9b5c0e12d219a2dc8f2c"
+    },
+    {
+      "path": "supabase/migrations/20260212_starred_messages_user_context.sql",
+      "uid": "a385e984eeeb3b9dbddc92f26650a275eae7129a"
+    },
+    {
+      "path": "supabase/migrations/20260928101340_analytics_rbac_and_audit.sql",
+      "uid": "b6e25ccc4dd023402af198bcbe946bc713286c06"
+    },
+    {
+      "path": "supabase/migrations/20260928150805_growth_links_and_attribution.sql",
+      "uid": "5c28a84cb84928d55e78c4b47c497ff8ad73f6ba"
+    },
+    {
+      "path": "supabase/migrations/20260928155138_optimize_analytics_funnel.sql",
+      "uid": "53d078542a535d80a3d8dfe9ab1bc7c549431685"
+    },
+    {
+      "path": "supabase/migrations/20260928161607_executive_company_pulse.sql",
+      "uid": "0130f8e8d172d46701b5dbce48c5f2cee3165bce"
+    },
+    {
+      "path": "supabase/migrations/20261006204908_labs_registered_minds.sql",
+      "uid": "c7fcf3fe228d80c2fe74949b0c4299190b2fece5"
+    },
+    {
+      "path": "supabase/migrations/20261012105426_growth_product_dashboard.sql",
+      "uid": "1d830d78eee24345f9a9440d0c4459fee3442c2f"
+    },
+    {
+      "path": "supabase/migrations/20261016104137_record_payment_currency.sql",
+      "uid": "143824408eb2897899ff7da03ca58c41bbfa4a24"
+    },
+    {
+      "path": "supabase/migrations/20261022205343_meta_registration_claim_dedup.sql",
+      "uid": "3c9d3836425edbd671da9e0e67649e046e770486"
+    },
+    {
+      "path": "supabase/migrations/20261026110000_growth_aggregate_role.sql",
+      "uid": "dfada4df1f4145ae4d0ffe86b8b0344658b975bb"
+    },
+    {
+      "path": "supabase/runtime-settings.md",
+      "uid": "d8e402fbd319b113792f5af9613e23385f73f4c6"
+    },
+    {
+      "path": "system-prompt.ts",
+      "uid": "f360974158b896ec9826cbc2dd65078824b80f76"
+    },
+    {
+      "path": "tailwind.config.js",
+      "uid": "7acb45b3ff800f5fda1b3c0971469a62a4903673"
+    },
+    {
+      "path": "tools/performance-regressions.test.cjs",
+      "uid": "87ca1438ff90b8da94aa1ea88de8075f594e6a59"
+    },
+    {
+      "path": "tools/run-arya-staging.cjs",
+      "uid": "b8bb5e4089fa727256784151c8e7f3b412cae5f4"
+    },
+    {
+      "path": "tools/staging-environment.cjs",
+      "uid": "34300fb118a284f020e2890eda47fffd37e60542"
+    },
+    {
+      "path": "tsconfig.json",
+      "uid": "c52fac47800ed921b881b0a40686fd408d9a043d"
+    },
+    {
+      "path": "tsconfig.tsbuildinfo",
+      "uid": "6e5707ba4da2ef5000b9fc9fae26deb2c0d2e61e"
+    },
+    {
+      "path": "vercel.json",
+      "uid": "0b66adc8bbe5292c1bbd4155a12194a1dce62637"
+    }
+  ]
+}
