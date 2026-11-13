@@ -7,6 +7,7 @@ import {
 import { watchSpeech, type SpeechMonitor } from "@/lib/onboarding-listening";
 import styles from "@/components/onboarding/Onboarding.module.css";
 import { useEffect, useRef, useState } from "react";
+import { useOnboardingExperiment } from "@/components/experiments/useOnboardingExperiment";
 import type { Session } from "@supabase/supabase-js";
 import { onboardingAuth } from "@/lib/onboarding-auth-client";
 import {
@@ -24,6 +25,13 @@ const empty: Draft = { profile: {}, revision: 0, complete: false };
 export default function Onboarding() {
   const [session, setSession] = useState<Session | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
+  const experiment = useOnboardingExperiment(session?.user.id);
+  const initialExperimentUser = useRef<string | null>(null);
+  const initialSetup = useRef(false);
+  const experimentStarted = useRef(false);
+  const experimentInputMode = useRef<'typed_first'|'voice_first'|null>(null);
+  const responseStarted = useRef<number | null>(null);
+  const lastExperimentMode = useRef<string | null>(null);
   const [profileChecked, setProfileChecked] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const autoplayAttempted = useRef(false);
@@ -174,6 +182,7 @@ export default function Onboarding() {
       setCallActive(false);
       setPanel(null);
       menuPresentedFor.current = null;
+      initialExperimentUser.current = null; experimentStarted.current = false; experimentInputMode.current = null; responseStarted.current = null; lastExperimentMode.current = null;
       setConversation([]);
       cachedAudio.current = null;
       lastPrompt.current = null;
@@ -216,9 +225,7 @@ export default function Onboarding() {
       throw new Error("Account changed. Reload your profile.");
     if (!response.ok) {
       const result = await response.json().catch(() => ({}));
-      throw new Error(
-        result.error || "This step is unavailable. Please try again.",
-      );
+      throw Object.assign(new Error(result.error || "This step is unavailable. Please try again."), { status: response.status });
     }
     return response;
   }
@@ -257,8 +264,7 @@ export default function Onboarding() {
           menuPresentedFor.current = currentUser;
           clearOnboardingSignIn();
           const returnedFromSignup = new URLSearchParams(window.location.search).get("setup") === "1";
-          if (returnedFromSignup) setPanel("voice");
-          else if (!draftRef.current.complete) setPanel("profile");
+          initialSetup.current = returnedFromSignup;
           const url = new URL(window.location.href);
           url.searchParams.delete("setup");
           window.history.replaceState(
@@ -276,6 +282,35 @@ export default function Onboarding() {
   useEffect(() => {
     if (userId) void loadRef.current();
   }, [userId]); // Account identity is the loading boundary.
+  useEffect(() => {
+    if (!session || !profileChecked || !experiment.resolved || initialExperimentUser.current === session.user.id) return;
+    initialExperimentUser.current = session.user.id;
+    const mode = !draftRef.current.complete ? experiment.mode : null;
+    experimentInputMode.current = mode;
+    setPanel(mode === 'typed_first' ? 'profile' : mode === 'voice_first' ? 'voice' : initialSetup.current ? 'voice' : !draftRef.current.complete ? 'profile' : null);
+  }, [session?.user.id, profileChecked, experiment.resolved, experiment.mode]);
+  useEffect(() => {
+    if (lastExperimentMode.current && !experiment.mode) { interrupt(); setPanel('voice'); }
+    lastExperimentMode.current = experiment.mode;
+  }, [experiment.mode]);
+  useEffect(() => {
+    if (!experiment.mode || experiment.assignment.exposed || draft.complete) return;
+    if (panel !== (experiment.mode === 'typed_first' ? 'profile' : 'voice')) return;
+    let frame = 0, active = true;
+    const exposeVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => { if (active && dialog.current?.open && document.visibilityState === 'visible') void experiment.expose(); }); });
+    };
+    exposeVisible(); document.addEventListener('visibilitychange', exposeVisible);
+    return () => { active = false; cancelAnimationFrame(frame); document.removeEventListener('visibilitychange', exposeVisible); };
+  }, [experiment.mode, experiment.assignment.exposed, panel, draft.complete, experiment.expose]);
+  function markExperimentStart(mode: 'typed_first'|'voice_first') {
+    if (experimentInputMode.current && experimentInputMode.current !== mode) void experiment.track('mode_switch', { mode });
+    experimentInputMode.current = mode;
+    if (experimentStarted.current) return;
+    experimentStarted.current = true;
+    void experiment.track('start', { mode }).then(accepted => { if (!accepted) experimentStarted.current = false; });
+  }
   async function signIn() {
     setError("");
     const auth = onboardingAuth();
@@ -349,6 +384,10 @@ export default function Onboarding() {
       const player = new Audio(audioUrl.current);
       audio.current = player;
       player.onplaying = () => {
+        if (responseStarted.current !== null) {
+          void experiment.track('response_ready', { durationMs: Math.min(300000, Math.round(performance.now() - responseStarted.current)) });
+          responseStarted.current = null;
+        }
         if (generation.current === attempt && playback.current === playId)
           setSpeaking(true);
       };
@@ -370,12 +409,14 @@ export default function Onboarding() {
       if (generation.current !== attempt || playback.current !== playId) return;
       setSpeaking(false);
       guided.current = false;
+      if (responseStarted.current !== null) { responseStarted.current = null; void experiment.track('fallback', { reason: 'provider_error' }); }
       if (
         automatic &&
         reason instanceof DOMException &&
         reason.name === "NotAllowedError"
       ) {
         setAutoplayBlocked(true);
+        void experiment.track('fallback', { reason: 'autoplay_blocked' });
       } else {
         setError(
           "Audio could not play. You can read the prompt and type instead.",
@@ -414,6 +455,7 @@ export default function Onboarding() {
   }, [panel]);
 
   function startVoice() {
+    markExperimentStart('voice_first');
     autoplayAttempted.current = true;
     interrupt();
     setError("");
@@ -467,6 +509,8 @@ export default function Onboarding() {
   async function answer(
     value: { text: string } | { audio: string; format: string },
   ) {
+    markExperimentStart('audio' in value ? 'voice_first' : 'typed_first');
+    responseStarted.current = performance.now();
     cancelTurn();
     const attempt = generation.current;
     setBusy(true);
@@ -492,6 +536,7 @@ export default function Onboarding() {
       if (attempt !== generation.current) return;
       setTranscript(result.transcript);
       setUpdatedFields(result.updatedFields || []);
+      if ((result.updatedFields || []).some((field: keyof Profile) => draftRef.current.profile[field] != null && draftRef.current.profile[field] !== result.proposal.profile[field])) void experiment.track('correction');
       setConversation((previous) => [
         ...previous.slice(-39),
         { role: "You", text: result.transcript },
@@ -504,6 +549,8 @@ export default function Onboarding() {
       await guide(result.prompt);
     } catch (reason) {
       if (attempt === generation.current) {
+        responseStarted.current = null;
+        void experiment.track('fallback', { reason: abort.signal.aborted ? 'timeout' : (reason as {status?:number}).status === 429 ? 'quota' : 'provider_error' });
         guided.current = false;
         setError(
           abort.signal.aborted
@@ -613,8 +660,9 @@ export default function Onboarding() {
           idle();
         else if (capture.state !== "inactive") capture.stop();
       }, 30_000);
-    } catch {
+    } catch (reason) {
       if (attempt === generation.current) {
+        void experiment.track('fallback', { reason: reason instanceof DOMException && reason.name === 'NotAllowedError' ? 'permission_denied' : 'unsupported_device' });
         guided.current = false;
         stopMic();
         setBusy(false);
@@ -659,6 +707,7 @@ export default function Onboarding() {
       }
       if (attempt !== generation.current) return;
       update(check.draft);
+      if (PROFILE_FIELDS.some(field => profile[field] == null)) void experiment.track('optional_skip');
       setPanel(null);
       setCallActive(false);
       await play({
@@ -685,6 +734,36 @@ export default function Onboarding() {
     );
     if (session && !draft.complete) setPanel("profile");
   }
+  const profileVoiceControls = (
+<div className={styles.optionalVoiceControls}>
+                <VoicePreferences
+                  voice={voice} language={language} disabled={busy || recording}
+                  onVoice={(value) => { stopSpeech(); setVoice(value); }}
+                  onLanguage={(value) => { stopSpeech(); setLanguage(value); }}
+                  onPreview={previewVoice}
+                />
+                <button
+                  className={styles.primaryButton}
+                  disabled={busy || !loaded || !ready || !canRecord}
+                  onClick={() => {
+                    setPanel(null);
+                    startVoice();
+                  }}
+                >
+                  <Icon name="mic" /> Continue with Meera’s voice
+                </button>
+                <p className={styles.panelNote}>
+                  Meera will ask one question at a time. You can speak, type, or
+                  skip. Microphone access starts when you choose voice.
+                </p>
+                {!loaded && (
+                  <p role="status" className={styles.notice}>
+                    Optional profile setup is unavailable. You can still skip
+                    and continue to Meera.
+                  </p>
+                )}
+                </div>
+  );
   const publicPrompt = conversation.length
     ? status
     : welcomePrompt(language).text;
@@ -1021,6 +1100,7 @@ export default function Onboarding() {
       </section>
 
       <dialog
+        data-experiment-mode={experiment.mode || undefined}
         ref={dialog}
         className={styles.dialog}
         onCancel={() => setPanel(null)}
@@ -1070,7 +1150,7 @@ export default function Onboarding() {
                 onClick={() => { setPanel(null); startVoice(); }}>
                 <Icon name="mic" /> Start with Meera
               </button>
-              <button className={styles.textButton} onClick={() => setPanel("profile")}>I’d rather type</button>
+              <button className={styles.textButton} onClick={() => { markExperimentStart('typed_first'); setPanel("profile"); }}>I’d rather type</button>
             </div>}
             {session && <a className={styles.textButton} href={workspace} onClick={() => { dirty.current = false; interrupt(); }}>Skip for now — open Meera</a>}
           </>
@@ -1112,32 +1192,7 @@ export default function Onboarding() {
                   Share only what feels right. You can skip every detail and
                   still use Meera.
                 </p>
-                <VoicePreferences
-                  voice={voice} language={language} disabled={busy || recording}
-                  onVoice={(value) => { stopSpeech(); setVoice(value); }}
-                  onLanguage={(value) => { stopSpeech(); setLanguage(value); }}
-                  onPreview={previewVoice}
-                />
-                <button
-                  className={styles.primaryButton}
-                  disabled={busy || !loaded || !ready || !canRecord}
-                  onClick={() => {
-                    setPanel(null);
-                    startVoice();
-                  }}
-                >
-                  <Icon name="mic" /> Continue with Meera’s voice
-                </button>
-                <p className={styles.panelNote}>
-                  Meera will ask one question at a time. You can speak, type, or
-                  skip. Microphone access starts when you choose voice.
-                </p>
-                {!loaded && (
-                  <p role="status" className={styles.notice}>
-                    Optional profile setup is unavailable. You can still skip
-                    and continue to Meera.
-                  </p>
-                )}
+                {experiment.mode !== 'typed_first' && profileVoiceControls}
                 <div className={styles.profileFields}>
                   {(
                     [
@@ -1182,6 +1237,7 @@ export default function Onboarding() {
                         value={draft.profile[field.key] || ""}
                         disabled={busy || recording || !loaded}
                         onChange={(event) => {
+                          markExperimentStart('typed_first');
                           saveKey.current = null;
                           dirty.current = true;
                           update({
@@ -1196,6 +1252,7 @@ export default function Onboarding() {
                     </label>
                   ))}
                 </div>
+                {experiment.mode === 'typed_first' && profileVoiceControls}
                 {age !== null && <p className={styles.panelNote}>Age: {age}</p>}
                 <div className={styles.profileActions}>
                   <button
@@ -1239,6 +1296,7 @@ export default function Onboarding() {
               onSubmit={(event) => {
                 event.preventDefault();
                 setStarted(true);
+                markExperimentStart('typed_first');
                 void answer({ text });
               }}
             >

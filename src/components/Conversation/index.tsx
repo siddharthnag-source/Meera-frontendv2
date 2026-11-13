@@ -1,5 +1,6 @@
 'use client';
 
+import { ExperimentUsefulResponse } from '@/components/experiments/ExperimentUsefulResponse';
 import { chatService } from '@/app/api/services/chat';
 import { ImagesView, type GalleryImageItem } from '@/components/ImagesView';
 import { ConnectorsView } from '@/components/ConnectorsView';
@@ -419,6 +420,8 @@ export const Conversation: React.FC = () => {
 
   const { data: sessionData } = useSession();
   const { user: supabaseUser, userId: supabaseUserId } = useCurrentUser();
+  const [experimentWorkspaceEntered, setExperimentWorkspaceEntered] = useState(() => Date.now());
+  useEffect(() => setExperimentWorkspaceEntered(Date.now()), [supabaseUserId]);
   const { formattedTotalCostTokens } = useTotalCostTokens(supabaseUserId);
   const {
     data: subscriptionData,
@@ -1858,6 +1861,9 @@ export const Conversation: React.FC = () => {
     }
   }, []);
 
+  const experimentCompletedResponse = chatMessages.find(msg =>
+    msg.content_type === 'assistant' && !msg.is_call && msg.finish_reason != null &&
+    Boolean(msg.content?.trim()) && Date.parse(msg.timestamp) >= experimentWorkspaceEntered);
   return (
     <div ref={chatShellRef} className="meera-chat-shell relative bg-background overflow-x-hidden">
       <Sidebar
@@ -2026,6 +2032,7 @@ export const Conversation: React.FC = () => {
                         </div>
                       )}
 
+                      <ExperimentUsefulResponse userId={supabaseUserId || undefined} responseId={experimentCompletedResponse?.message_id} responseComplete={!isSending && Boolean(experimentCompletedResponse)} />
                       <div className="messages-container min-w-0">
                         {messages.map((item) => {
                           if (item.type === 'call_session') {
