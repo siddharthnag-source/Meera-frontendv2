@@ -38,3 +38,9 @@ The additive experiment implementation is on a separate draft branch based on th
 - TypeScript checking and the isolated onboarding/experiment production build passed. This is not the unrecovered production build.
 - Actual speech, desktop/device microphone behavior, Android Chrome, iPhone Safari, live two-account isolation, full workspace voice outcomes and monthly checkout acceptance remain unverified.
 - Pilot sample, primary outcome and conversion results: not available; allocation has never been activated by this change. Recommendation: HOLD and complete the release/device gates.
+
+## Requested preview deployment
+
+Candidate source `3822978` was deployed to the marketing development workspace as preview `dpl_FNx4CPZxXr9yBNnaBduj6n3Ayc3c`. Vercel reports READY; authenticated deployment fetch of `/onboarding` returned HTTP 200 with the onboarding/Google-sign-in HTML. This verifies the entry page response, not Google callback, speech or profile persistence. The preview host is `meera-onboarding-staging-2cpvmsgzq-marketing-1785.vercel.app`. A 24-hour deployment-specific share link was created; its bypass value is deliberately excluded from versioned evidence. Project-wide Vercel authentication remains enabled. Direct unauthenticated network checks were blocked by the execution network proxy.
+
+The source middleware now keeps preview requests on their own deployment host; the prior staging canonical redirect is restricted to production-target staging deployments. Callback allowlist acceptance for this new host remains unverified. No production key was generated/copied/exposed, no production release or migration occurred, and experiment enrollment remains OFF.
