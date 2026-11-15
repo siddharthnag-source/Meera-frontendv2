@@ -23,3 +23,7 @@ Source commit: `158a9df`. Development project: `prj_h2wZ6OUirvZULBfLmVXeGxNmS5I9
 Source `4f835fc` replaces the improvised brand dot with the bundled `/icons/meera.svg` orb and a properly aligned wordmark. Added a quiet background wash, orb outline and three-step progress indicator; reduced-motion preferences are respected. Isolated build and all four mocked browser groups passed again. Development deployment `dpl_12YPxp9EpdZj1CJzij46NzXjYU3F` serves the updated onboarding with HTTP 200 and the bundled logo reference.
 
 Automatic approval review rejected both changing project-wide production SSO protection and creating a non-expiring deployment share link, citing insufficient explicit authorization for permanent access. No protection settings changed. A 24-hour deployment-specific share link was created instead; its bypass value is not committed. Permanent public access remains pending explicit user approval. Production himeera domains, customer experiment allocation and secrets remain unchanged.
+
+## Permanent separate share link approved
+
+The user explicitly approved a permanent separate deployment link. After confirming the existing link was the previously created 24-hour link, it was replaced with a deployment-specific share link whose creation response has no expiry. Scope remains only `dpl_12YPxp9EpdZj1CJzij46NzXjYU3F`. No merge, promotion, project-wide protection change or himeera domain assignment occurred. The share value is excluded from this document. The old temporary link is revoked.
