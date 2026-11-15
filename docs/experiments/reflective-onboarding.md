@@ -27,3 +27,11 @@ Automatic approval review rejected both changing project-wide production SSO pro
 ## Permanent separate share link approved
 
 The user explicitly approved a permanent separate deployment link. After confirming the existing link was the previously created 24-hour link, it was replaced with a deployment-specific share link whose creation response has no expiry. Scope remains only `dpl_12YPxp9EpdZj1CJzij46NzXjYU3F`. No merge, promotion, project-wide protection change or himeera domain assignment occurred. The share value is excluded from this document. The old temporary link is revoked.
+
+## Public ads/promotions website
+
+Created a dedicated public project `meera-voice-onboarding` (`prj_eV6NbpeWx8Ssu7K6oOjwF3uBQBa9`) in the marketing development team. Project readback confirms password, SSO and IP protection disabled. This follows automatic review's recommendation to use a separate public project instead of weakening the protected staging project's production boundary. No protected staging settings changed.
+
+Deployment `dpl_B1gHpXkQX3veNvvGgGKrQRDor6su` is READY, production target of the new standalone project, using curated source `4f835fc`. Public URLs: https://meera-voice-onboarding.vercel.app/onboarding and https://meera-voice-onboarding-marketing-1785.vercel.app/onboarding. No share token or link expiry is required. Authenticated connector fetch returned HTTP 200 with the Meera logo and no Vercel login page. An independent anonymous Chromium navigation was blocked by the workspace network proxy (ERR_TUNNEL_CONNECTION_FAILED), so that browser acceptance is not claimed. Google OAuth roundtrip on the new hostname remains unverified; callback allowlist settings may require the Supabase auth owner.
+
+Only the existing public Supabase URL/anon configuration was reused, server-to-server without printing values. No OpenRouter, Gemini or other provider secret was copied. The native-browser voice flow needs no new paid provider key. Workspace destination is the existing himeera.com root; existing entitlements apply. No merge, promotion or domain change occurred on the main himeera production project.
