@@ -199,9 +199,10 @@ export default function Onboarding() {
     if (error) setError(error.message);
   }
   return <main className={styles.screen}>
-    <header className={styles.header}><a href="/onboarding" aria-label="Meera home">meera<span>●</span></a><span>A little space for you</span></header>
+    <header className={styles.header}><a href="/onboarding" aria-label="Meera home" className={styles.brand}><img src="/icons/meera.svg" width="32" height="32" alt="" /><span>meera</span></a><span>A little space for you</span></header>
     <section className={styles.center} aria-label="A conversation with Meera">
       <p className={styles.eyebrow}>{session && loaded ? phase === 'done' ? 'WELCOME BACK' : `GETTING TO KNOW YOU · ${Math.min(step + 1, 3)} OF 3` : 'A CONVERSATION, NOT A FORM'}</p>
+      <div className={styles.progress} aria-hidden="true">{[0, 1, 2].map(index => <span key={index} data-active={session && loaded && index <= step ? "true" : "false"} />)}</div>
       <button type="button" className={`${styles.orb} ${phase === 'listening' ? styles.listening : ''}`} disabled={!session || !loaded || phase === 'saving' || phase === 'done'} aria-label={phase === 'listening' ? 'Stop listening' : 'Talk to Meera'} onClick={() => phase === 'listening' ? keyboard() : speak(stepRef.current)}><span /></button>
       {!resolved ? <h1>Just a moment…</h1> : !session ? <>
         <h1>Let’s start with<br/>how you really feel.</h1><p className={styles.description}>I’m Meera. A little room to speak, at your own pace.</p>

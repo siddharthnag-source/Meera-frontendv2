@@ -8,7 +8,7 @@ export function middleware(request: NextRequest) {
   const host = request.nextUrl.hostname;
   if (process.env.VERCEL_ENV === 'production' && request.nextUrl.pathname === '/onboarding' &&
       host.startsWith('meera-onboarding-staging-') && host.endsWith('.vercel.app')) {
-    const canonical = new URL('https://meera-onboarding-staging.vercel.app');
+    const canonical = new URL('https://meera-onboarding-staging-marketing-1785.vercel.app');
     canonical.pathname = request.nextUrl.pathname;
     canonical.search = request.nextUrl.search;
     return NextResponse.redirect(canonical, 307);
