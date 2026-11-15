@@ -1,4 +1,7 @@
-# Voice-first optional onboarding: production pilot
+# Voice-first optional onboarding: prior experiment proposal
+
+**Superseded by the requested three-question reflective voice flow.** This comparison was never activated. The current UI no longer enrolls or exposes typed-first/voice-first arms; do not activate this plan against the changed flow. Define a new hypothesis and acceptance evidence before any future experiment.
+
 
 **Owner:** Group PM execution via Codex. **Status:** implementation in review; production allocation OFF. Live `/onboarding` currently returns 404 on a newer release; repair/reconcile before activation. **Rollback reference:** `dpl_7Bm3z1tz5Neq2Uu7x4wUrnns18gf`, Vercel `ss-projects-147424ea/meera-frontendv2` (`prj_vcwkcVasl0IHsZaNuCqNF362AN5Y`). No deployment from unreconciled main or PR #4.
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { OnboardingWelcome } from '@/components/onboarding/OnboardingWelcome';
 import { ExperimentUsefulResponse } from '@/components/experiments/ExperimentUsefulResponse';
 import { chatService } from '@/app/api/services/chat';
 import { ImagesView, type GalleryImageItem } from '@/components/ImagesView';
@@ -2032,6 +2033,7 @@ export const Conversation: React.FC = () => {
                         </div>
                       )}
 
+                      <OnboardingWelcome />
                       <ExperimentUsefulResponse userId={supabaseUserId || undefined} responseId={experimentCompletedResponse?.message_id} responseComplete={!isSending && Boolean(experimentCompletedResponse)} />
                       <div className="messages-container min-w-0">
                         {messages.map((item) => {

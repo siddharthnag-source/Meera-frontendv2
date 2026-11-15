@@ -1,0 +1,15 @@
+# Three-question voice onboarding
+
+After the Google session loads, attempt the first spoken prompt immediately. Speech recognition starts after each prompt. Autoplay or microphone restrictions show a visible tap-to-begin or keyboard fallback; no promise to bypass browser permission is made. There is no DOB, profession, phone or demographic form.
+
+1. What has been weighing on you lately, if anything?
+2. When did you last feel moved enough to cry, if you feel comfortable sharing?
+3. When things feel difficult, what helps you feel understood?
+
+Every question can be skipped, including the whole flow. Final recognition advances automatically after a short correction window. The user can correct the last recognized text before advancing. Hindi/Hinglish prompts are available through the language selector. Native browser speech voices replace the old demographic recordings; no new provider key, paid request or spend increase is needed by this flow. Voice quality and recognition service depend on the browser/device.
+
+Emotional answers remain in the current page only and are cleared as the question advances. They are not written to profile fields, analytics, URLs or browser storage. The browser's recognition service may process speech. Completion writes only the existing profile and completion marker, then verifies a fresh read before navigating. A failed save offers retry or explicit continuation without saving; it never claims completion was saved. All capture is aborted on skip, correction, hidden page, account change and unmount.
+
+The real workspace receives only `welcome=onboarding`, which renders a static Meera greeting without transferring disclosures or changing subscription/checkout behavior. The isolated preview contains onboarding and a clearly labeled welcome handoff into the actual workspace; it does not recreate the entire production chatbot. The welcome integration in the main Conversation component takes effect when that code is released.
+
+Validation: TypeScript and isolated build passed; four mocked browser groups passed (voice, denied recognition, blocked autoplay, save failure). Actual desktop/Android/iPhone microphone acceptance and Google callback acceptance on the new preview host remain unverified. No customer experiment is activated: the previous typed-first comparison is superseded, not reused for this different flow. The production source reconciliation requirement remains in force.
