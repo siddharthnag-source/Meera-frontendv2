@@ -708,3 +708,5 @@
   font-size: 12px;
   line-height: 1.6;
 }
+
+.optionalVoiceControls { display: contents; }

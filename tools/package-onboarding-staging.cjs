@@ -14,6 +14,9 @@ function copy(source, target) {
 }
 for (const relative of ['app', 'public']) copy(path.join(root, 'onboarding-staging', relative), path.join(output, relative));
 for (const relative of ['src/app/onboarding', 'src/app/api/onboarding', 'src/components/onboarding', 'src/contexts/ThemeContext.tsx', 'src/styles/meera-theme.css', 'tools/voice-onboarding/assets']) copy(path.join(root, relative), path.join(output, relative));
+for (const relative of ['src/lib/experiments', 'src/components/experiments', 'src/app/api/experiments', 'src/app/experiments']) copy(path.join(root, relative), path.join(output, relative));
+copy(path.join(root, 'src/app/api/experiments'), path.join(output, 'app/api/experiments'));
+copy(path.join(root, 'src/app/experiments'), path.join(output, 'app/experiments'));
 for (const name of fs.readdirSync(path.join(root, 'src/lib')).filter(name => name.startsWith('onboarding-') && name.endsWith('.ts'))) copy(path.join(root, 'src/lib', name), path.join(output, 'src/lib', name));
 function rewrite(dir) {
   for (const name of fs.readdirSync(dir)) {

@@ -3,7 +3,9 @@
   "git": {
     "deploymentEnabled": {
       "codex/arya-independent-staging": false,
-      "codex/meera-guided-onboarding": false
+      "codex/meera-guided-onboarding": false,
+      "codex/onboarding-production-experiment": false,
+      "codex/production-baseline-20261113": false
     }
   }
 }

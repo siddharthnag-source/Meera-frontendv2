@@ -1,5 +1,6 @@
 'use client';
 
+import { ExperimentCheckoutArrival } from '@/components/experiments/ExperimentCheckoutArrival';
 import { PricingModalProvider, usePricingModal } from '@/contexts/PricingModalContext';
 import { SUBSCRIPTION_QUERY_KEY, useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import {
@@ -227,6 +228,7 @@ function PaymentRouteContent() {
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-background px-6 text-center">
+      <ExperimentCheckoutArrival userId={sessionUserId || undefined} unpaid={sessionStatus === 'authenticated' && !isLoadingSubscription && subscriptionData?.requires_payment_for_chat === true} />
       <div>
         <div className="w-8 h-8 mx-auto border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
         <p className="mt-4 text-sm text-primary/80">Preparing secure checkout…</p>
