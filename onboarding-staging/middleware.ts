@@ -6,7 +6,7 @@ export function middleware(request: NextRequest) {
   // Supabase permits explicit callback URLs. Keep signup on one stable origin
   // instead of sending each immutable preview host through the OAuth allowlist.
   const host = request.nextUrl.hostname;
-  if (request.nextUrl.pathname === '/onboarding' &&
+  if (process.env.VERCEL_ENV === 'production' && request.nextUrl.pathname === '/onboarding' &&
       host.startsWith('meera-onboarding-staging-') && host.endsWith('.vercel.app')) {
     const canonical = new URL('https://meera-onboarding-staging.vercel.app');
     canonical.pathname = request.nextUrl.pathname;
